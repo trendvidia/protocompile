@@ -137,6 +137,12 @@ import (
 %token <id>  _DOUBLE _FLOAT _INT32 _INT64 _UINT32 _UINT64 _SINT32 _SINT64 _FIXED32 _FIXED64 _SFIXED32 _SFIXED64
 %token <id>  _BOOL _STRING _BYTES _GROUP _ONEOF _MAP _EXTENSIONS _TO _MAX _RESERVED _ENUM _MESSAGE _EXTEND
 %token <id>  _SERVICE _RPC _STREAM _RETURNS _EXPORT _LOCAL
+// Contextual keywords introduced by protowire v1.2 (RFC-001). They are
+// only recognized as keywords when they start a top-level declaration
+// in PRs 2-4 of M1; until then (and outside file scope thereafter) the
+// `identifier`, `nonDeclIdent`, and `*Name` productions below accept
+// them as ordinary identifiers, preserving full backward compatibility.
+%token <id>  _TYPE _FUNCTION _ANNOTATION
 %token <err> _ERROR
 // we define all of these, even ones that aren't used, to improve error messages
 // so it shows the unexpected symbol instead of showing "$unk"
@@ -1314,6 +1320,9 @@ msgElementName : _NAME
 	| _RPC
 	| _STREAM
 	| _RETURNS
+	| _TYPE
+	| _FUNCTION
+	| _ANNOTATION
 
 
 // excludes group, optional, required, and repeated
@@ -1359,6 +1368,9 @@ extElementName : _NAME
 	| _RETURNS
 	| _EXPORT
 	| _LOCAL
+	| _TYPE
+	| _FUNCTION
+	| _ANNOTATION
 
 // excludes reserved, option
 enumValueName : _NAME
@@ -1405,6 +1417,9 @@ enumValueName : _NAME
 	| _RETURNS
 	| _EXPORT
 	| _LOCAL
+	| _TYPE
+	| _FUNCTION
+	| _ANNOTATION
 
 // excludes group, option, optional, required, and repeated
 oneofElementName : _NAME
@@ -1448,6 +1463,9 @@ oneofElementName : _NAME
 	| _RETURNS
 	| _EXPORT
 	| _LOCAL
+	| _TYPE
+	| _FUNCTION
+	| _ANNOTATION
 
 // excludes group
 notGroupElementName : _NAME
@@ -1495,6 +1513,9 @@ notGroupElementName : _NAME
 	| _RETURNS
 	| _EXPORT
 	| _LOCAL
+	| _TYPE
+	| _FUNCTION
+	| _ANNOTATION
 
 // excludes stream
 mtdElementName : _NAME
@@ -1542,6 +1563,9 @@ mtdElementName : _NAME
 	| _RETURNS
 	| _EXPORT
 	| _LOCAL
+	| _TYPE
+	| _FUNCTION
+	| _ANNOTATION
 
 declIdent : _ENUM
 	| _MESSAGE
@@ -1592,6 +1616,9 @@ nonDeclIdent : _NAME
 	| _RETURNS
 	| _EXPORT
 	| _LOCAL
+	| _TYPE
+	| _FUNCTION
+	| _ANNOTATION
 
 identifier : _NAME
 	| _SYNTAX
@@ -1639,5 +1666,8 @@ identifier : _NAME
 	| _RETURNS
 	| _EXPORT
 	| _LOCAL
+	| _TYPE
+	| _FUNCTION
+	| _ANNOTATION
 
 %%
