@@ -121,7 +121,7 @@ foo
 		5:  {t: _RPC, line: 14, col: 17, span: 3, v: "rpc"},
 		6:  {t: _MESSAGE, line: 14, col: 21, span: 7, v: "message"},
 		7:  {t: '.', line: 15, col: 9, span: 1},
-		8:  {t: _TYPE, line: 15, col: 10, span: 4, v: "type"},
+		8:  {t: _NAME, line: 15, col: 10, span: 4, v: "type"},
 		9:  {t: '.', line: 16, col: 9, span: 1},
 		10: {t: _NAME, line: 16, col: 10, span: 1, v: "f"},
 		11: {t: '.', line: 16, col: 11, span: 1},
@@ -196,8 +196,7 @@ foo
 		var n ast.Node
 		var val any
 		switch tok {
-		case _SYNTAX, _OPTION, _INT32, _SERVICE, _RPC, _MESSAGE, _NAME,
-			_TYPE, _FUNCTION, _ANNOTATION:
+		case _SYNTAX, _OPTION, _INT32, _SERVICE, _RPC, _MESSAGE, _NAME:
 			n = sym.id
 			val = sym.id.Val
 		case _STRING_LIT:
