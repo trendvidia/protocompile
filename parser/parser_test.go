@@ -166,6 +166,62 @@ func TestTypeDecl(t *testing.T) {
 	}
 }
 
+// TestFunctionDecl verifies parsing of the `function name(params...) [options];`
+// declaration introduced by protowire v1.2 schema extensions (RFC-001 §5.1).
+//
+// Trailing annotation lists (@validate(...) etc.) attach in a later PR;
+// this test covers the signature form with optional bracket-form options.
+func TestFunctionDecl(t *testing.T) {
+	t.Parallel()
+	positive := map[string]string{
+		"zero-arg":                 `syntax = "proto3"; function flush();`,
+		"one-arg":                  `syntax = "proto3"; function is_e164(value: string);`,
+		"two-args":                 `syntax = "proto3"; function matches(value: string, pattern: string);`,
+		"many-args":                `syntax = "proto3"; function between(value: int32, lo: int32, hi: int32, inclusive: bool);`,
+		"qualified-param-type":     `syntax = "proto3"; function valid_address(msg: myco.commons.Address);`,
+		"bracket-option":           `syntax = "proto3"; function matches(value: string, pattern: string) [error_code = "common.matches"];`,
+		"multiple-bracket-options": `syntax = "proto3"; function is_e164(value: string) [error_code = "e164", openapi_map = "format:e164"];`,
+		"adjacent-to-message":      `syntax = "proto3"; function is_e164(value: string); message User { string phone = 1; }`,
+		"adjacent-to-other-decls":  `syntax = "proto3"; package foo; type Email = string; function matches(value: string, pattern: string); message User {}`,
+		"contextual-kw-as-param":   `syntax = "proto3"; function f(type: string, function: int32, annotation: bool);`, // all three keywords reusable as param names
+		"contextual-kw-as-fn-name": `syntax = "proto3"; function annotation(value: string);`,                          // function named after a contextual keyword
+		"contextual-kw-as-fn-type": `syntax = "proto3"; function f(x: annotation);`,                                   // param type is a (contextual) keyword
+	}
+	for name, input := range positive {
+		t.Run("pos/"+name, func(t *testing.T) {
+			t.Parallel()
+			errHandler := reporter.NewHandler(nil)
+			fileNode, err := Parse(name+".proto", strings.NewReader(input), errHandler)
+			require.NoError(t, err, "input must parse without error")
+			result, err := ResultFromAST(fileNode, true, errHandler)
+			require.NoError(t, err, "AST must lower without error")
+			require.NotNil(t, result.FileDescriptorProto(), "descriptor must be produced")
+		})
+	}
+
+	negative := map[string]string{
+		"missing-name":             `syntax = "proto3"; function (value: string);`,
+		"missing-open-paren":       `syntax = "proto3"; function f value: string);`,
+		"missing-close-paren":      `syntax = "proto3"; function f(value: string;`,
+		"missing-colon-in-param":   `syntax = "proto3"; function f(value string);`,
+		"missing-param-type":       `syntax = "proto3"; function f(value:);`,
+		"trailing-comma":           `syntax = "proto3"; function f(value: string,);`,
+		"leading-comma":            `syntax = "proto3"; function f(, value: string);`,
+		"missing-name-after-colon": `syntax = "proto3"; function f(: string);`,
+	}
+	for name, input := range negative {
+		t.Run("neg/"+name, func(t *testing.T) {
+			t.Parallel()
+			errHandler := reporter.NewHandler(reporter.NewReporter(
+				func(_ reporter.ErrorWithPos) error { return nil },
+				nil,
+			))
+			_, err := Parse(name+".proto", strings.NewReader(input), errHandler)
+			require.Error(t, err, "malformed input should error")
+		})
+	}
+}
+
 type parseErrorTestCase struct {
 	Error   string
 	NoError string

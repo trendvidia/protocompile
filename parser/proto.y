@@ -73,6 +73,9 @@ import (
 	err          error
 	// Protowire v1.2 schema-extension declarations.
 	tyd          nodeWithRunes[*ast.TypeDeclNode]
+	fnd          nodeWithRunes[*ast.FunctionDeclNode]
+	fnParam      *ast.FunctionParamNode
+	fnParams     *functionParamSlices
 }
 
 // any non-terminal which returns a value needs a type, which is
@@ -126,6 +129,9 @@ import (
 %type <svcElements>  serviceElement serviceElements serviceBody
 // Protowire v1.2 schema-extension declarations.
 %type <tyd>          typeDecl
+%type <fnd>          functionDecl
+%type <fnParam>      functionParam
+%type <fnParams>     functionParamList functionParamListOpt
 %type <mtd>          methodDecl
 %type <mtdElements>  methodElement methodElements methodBody
 %type <mtdMsgType>   methodMessageType
@@ -218,6 +224,9 @@ fileElement : importDecl {
 	  $$ = toElements[ast.FileElement](toFileElement, $1.Node, $1.Runes)
 	}
 	| typeDecl {
+	  $$ = toElements[ast.FileElement](toFileElement, $1.Node, $1.Runes)
+	}
+	| functionDecl {
 	  $$ = toElements[ast.FileElement](toFileElement, $1.Node, $1.Runes)
 	}
 	| error {
@@ -1237,6 +1246,42 @@ serviceDecl : _SERVICE identifier '{' serviceBody '}' semicolons {
 typeDecl : _TYPE identifier '=' qualifiedIdentifier semicolons {
 		semi, extra := protolex.(*protoLex).requireSemicolon($5)
 		$$ = newNodeWithRunes(ast.NewTypeDeclNode($1.ToKeyword(), $2, $3, $4.toIdentValueNode(nil), semi), extra...)
+	}
+
+// functionDecl: protowire v1.2 schema-extension function declaration.
+//   function is_e164(value: string);
+//   function matches(value: string, pattern: string) [error_code = "..."];
+//   function valid_address(msg: Address);
+// The body is implemented in the engine runtime and registered by FQN at
+// engine init; this is signature-only. Annotation lists (e.g., trailing
+// @validate / @description / etc.) attach in a follow-up PR.
+functionDecl : _FUNCTION identifier '(' functionParamListOpt ')' semicolons {
+		semi, extra := protolex.(*protoLex).requireSemicolon($6)
+		$$ = newNodeWithRunes(ast.NewFunctionDeclNode($1.ToKeyword(), $2, $3, $4.params, $4.commas, $5, nil, semi), extra...)
+	}
+	| _FUNCTION identifier '(' functionParamListOpt ')' compactOptions semicolons {
+		semi, extra := protolex.(*protoLex).requireSemicolon($7)
+		$$ = newNodeWithRunes(ast.NewFunctionDeclNode($1.ToKeyword(), $2, $3, $4.params, $4.commas, $5, $6, semi), extra...)
+	}
+
+functionParamListOpt : {
+		$$ = &functionParamSlices{}
+	}
+	| functionParamList {
+		$$ = $1
+	}
+
+functionParamList : functionParam {
+		$$ = &functionParamSlices{params: []*ast.FunctionParamNode{$1}}
+	}
+	| functionParamList ',' functionParam {
+		$1.params = append($1.params, $3)
+		$1.commas = append($1.commas, $2)
+		$$ = $1
+	}
+
+functionParam : identifier ':' qualifiedIdentifier {
+		$$ = ast.NewFunctionParamNode($1, $2, $3.toIdentValueNode(nil))
 	}
 
 serviceBody : semicolons {
