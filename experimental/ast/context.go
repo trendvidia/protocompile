@@ -157,6 +157,12 @@ func (f *File) FromID(id uint64, want any) any {
 		return f.decls.ranges.Deref(arena.Pointer[rawDeclRange](id))
 	case **rawDeclSyntax:
 		return f.decls.syntaxes.Deref(arena.Pointer[rawDeclSyntax](id))
+	case **rawDeclType:
+		return f.decls.types.Deref(arena.Pointer[rawDeclType](id))
+	case **rawDeclFunction:
+		return f.decls.functions.Deref(arena.Pointer[rawDeclFunction](id))
+	case **rawDeclFunctionParam:
+		return f.decls.functionParams.Deref(arena.Pointer[rawDeclFunctionParam](id))
 
 	case **rawExprError:
 		return f.exprs.errors.Deref(arena.Pointer[rawExprError](id))

@@ -35,6 +35,7 @@ const (
 	DeclKindBody
 	DeclKindRange
 	DeclKindType
+	DeclKindFunction
 )
 
 // String implements [fmt.Stringer].
@@ -149,27 +150,29 @@ func (v TypeKind) GoString() string {
 }
 
 var _table_DeclKind_String = [...]string{
-	DeclKindInvalid: "DeclKindInvalid",
-	DeclKindEmpty:   "DeclKindEmpty",
-	DeclKindSyntax:  "DeclKindSyntax",
-	DeclKindPackage: "DeclKindPackage",
-	DeclKindImport:  "DeclKindImport",
-	DeclKindDef:     "DeclKindDef",
-	DeclKindBody:    "DeclKindBody",
-	DeclKindRange:   "DeclKindRange",
-	DeclKindType:    "DeclKindType",
+	DeclKindInvalid:  "DeclKindInvalid",
+	DeclKindEmpty:    "DeclKindEmpty",
+	DeclKindSyntax:   "DeclKindSyntax",
+	DeclKindPackage:  "DeclKindPackage",
+	DeclKindImport:   "DeclKindImport",
+	DeclKindDef:      "DeclKindDef",
+	DeclKindBody:     "DeclKindBody",
+	DeclKindRange:    "DeclKindRange",
+	DeclKindType:     "DeclKindType",
+	DeclKindFunction: "DeclKindFunction",
 }
 
 var _table_DeclKind_GoString = [...]string{
-	DeclKindInvalid: "ast.DeclKindInvalid",
-	DeclKindEmpty:   "ast.DeclKindEmpty",
-	DeclKindSyntax:  "ast.DeclKindSyntax",
-	DeclKindPackage: "ast.DeclKindPackage",
-	DeclKindImport:  "ast.DeclKindImport",
-	DeclKindDef:     "ast.DeclKindDef",
-	DeclKindBody:    "ast.DeclKindBody",
-	DeclKindRange:   "ast.DeclKindRange",
-	DeclKindType:    "ast.DeclKindType",
+	DeclKindInvalid:  "ast.DeclKindInvalid",
+	DeclKindEmpty:    "ast.DeclKindEmpty",
+	DeclKindSyntax:   "ast.DeclKindSyntax",
+	DeclKindPackage:  "ast.DeclKindPackage",
+	DeclKindImport:   "ast.DeclKindImport",
+	DeclKindDef:      "ast.DeclKindDef",
+	DeclKindBody:     "ast.DeclKindBody",
+	DeclKindRange:    "ast.DeclKindRange",
+	DeclKindType:     "ast.DeclKindType",
+	DeclKindFunction: "ast.DeclKindFunction",
 }
 
 var _table_DefKind_String = [...]string{

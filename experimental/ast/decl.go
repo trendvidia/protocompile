@@ -134,6 +134,18 @@ func (d DeclAny) AsType() DeclType {
 	return id.Wrap(d.Context(), id.ID[DeclType](d.ID().Value()))
 }
 
+// AsFunction converts a DeclAny into a DeclFunction, if that is the declaration
+// it contains.
+//
+// Otherwise, returns zero.
+func (d DeclAny) AsFunction() DeclFunction {
+	if d.Kind() != DeclKindFunction {
+		return DeclFunction{}
+	}
+
+	return id.Wrap(d.Context(), id.ID[DeclFunction](d.ID().Value()))
+}
+
 // Span implements [source.Spanner].
 func (d DeclAny) Span() source.Span {
 	switch d.Kind() {
@@ -153,6 +165,8 @@ func (d DeclAny) Span() source.Span {
 		return d.AsSyntax().Span()
 	case DeclKindType:
 		return d.AsType().Span()
+	case DeclKindFunction:
+		return d.AsFunction().Span()
 	default:
 		return source.Span{}
 	}
@@ -168,12 +182,14 @@ func (k DeclKind) EncodeDynID(value int32) (int32, int32, bool) {
 
 // decls is storage for every kind of Decl in a Context.
 type decls struct {
-	empties  arena.Arena[rawDeclEmpty]
-	syntaxes arena.Arena[rawDeclSyntax]
-	packages arena.Arena[rawDeclPackage]
-	imports  arena.Arena[rawDeclImport]
-	defs     arena.Arena[rawDeclDef]
-	bodies   arena.Arena[rawDeclBody]
-	ranges   arena.Arena[rawDeclRange]
-	types    arena.Arena[rawDeclType]
+	empties        arena.Arena[rawDeclEmpty]
+	syntaxes       arena.Arena[rawDeclSyntax]
+	packages       arena.Arena[rawDeclPackage]
+	imports        arena.Arena[rawDeclImport]
+	defs           arena.Arena[rawDeclDef]
+	bodies         arena.Arena[rawDeclBody]
+	ranges         arena.Arena[rawDeclRange]
+	types          arena.Arena[rawDeclType]
+	functions      arena.Arena[rawDeclFunction]
+	functionParams arena.Arena[rawDeclFunctionParam]
 }

@@ -264,6 +264,34 @@ func (n *Nodes) NewDeclType(args DeclTypeArgs) DeclType {
 	})))
 }
 
+// NewDeclFunction creates a new DeclFunction node.
+//
+// To add parameters to the returned declaration, use [DeclFunction.Params].
+func (n *Nodes) NewDeclFunction(args DeclFunctionArgs) DeclFunction {
+	n.panicIfNotOurs(
+		args.Keyword.Context(), args.Name.Context(), args.Parens.Context(),
+		args.Options.Context(), args.Semicolon.Context())
+
+	return id.Wrap(n.File(), id.ID[DeclFunction](n.decls.functions.NewCompressed(rawDeclFunction{
+		keyword: args.Keyword.ID(),
+		name:    args.Name.ID(),
+		parens:  args.Parens.ID(),
+		options: args.Options.ID(),
+		semi:    args.Semicolon.ID(),
+	})))
+}
+
+// NewDeclFunctionParam creates a new DeclFunctionParam node.
+func (n *Nodes) NewDeclFunctionParam(args DeclFunctionParamArgs) DeclFunctionParam {
+	n.panicIfNotOurs(args.Name.Context(), args.Colon.Context(), args.Type.Context())
+
+	return id.Wrap(n.File(), id.ID[DeclFunctionParam](n.decls.functionParams.NewCompressed(rawDeclFunctionParam{
+		name:  args.Name.ID(),
+		colon: args.Colon.ID(),
+		ty:    args.Type.ID(),
+	})))
+}
+
 // NewExprPrefixed creates a new ExprPrefixed node.
 func (n *Nodes) NewExprPrefixed(args ExprPrefixedArgs) ExprPrefixed {
 	n.panicIfNotOurs(args.Prefix.Context(), args.Expr.Context())
