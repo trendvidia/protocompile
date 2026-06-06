@@ -129,6 +129,7 @@
   - {name: Let, string: let}
   - {name: Var, string: var}
   - {name: Type, string: type}
+  - {name: Function, string: function}
   - {name: Extern, string: extern}
 
   - {name: And, string: and}
