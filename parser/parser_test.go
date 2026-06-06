@@ -80,6 +80,44 @@ func TestJunkParse(t *testing.T) {
 	}
 }
 
+// TestContextualKeywords verifies that the schema-extension keywords
+// introduced for protowire v1.2 — `type`, `function`, `annotation` —
+// continue to be accepted as identifiers everywhere except declaration-
+// leading positions, preserving backward compatibility with existing
+// schemas (including Google APIs such as Cloud DLP, which use
+// `oneof type { ... }` extensively).
+//
+// See protowire/docs/RFC-001-schema-extensions.md §5.1 and IETF draft
+// `-01` §"Reserved Keywords" for the design rationale.
+func TestContextualKeywords(t *testing.T) {
+	t.Parallel()
+	// Each case exercises one of the new keywords in a position where
+	// the existing grammar accepts an identifier. All must parse cleanly.
+	inputs := map[string]string{
+		"oneof-named-type":         `syntax = "proto3"; message M { oneof type     { string a = 1; } }`,
+		"oneof-named-function":     `syntax = "proto3"; message M { oneof function { string a = 1; } }`,
+		"oneof-named-annotation":   `syntax = "proto3"; message M { oneof annotation{ string a = 1; } }`,
+		"field-named-type":         `syntax = "proto3"; message M { string type = 1; }`,
+		"field-named-function":     `syntax = "proto3"; message M { string function = 1; }`,
+		"field-named-annotation":   `syntax = "proto3"; message M { string annotation = 1; }`,
+		"enum-value-named-type":    `syntax = "proto3"; enum E { type = 0; }`,
+		"message-named-type":       `syntax = "proto3"; message type { string a = 1; }`,
+		"message-named-function":   `syntax = "proto3"; message function { string a = 1; }`,
+		"message-named-annotation": `syntax = "proto3"; message annotation { string a = 1; }`,
+	}
+	for name, input := range inputs {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			errHandler := reporter.NewHandler(nil)
+			fileNode, err := Parse(name+".proto", strings.NewReader(input), errHandler)
+			require.NoError(t, err, "input must parse without error")
+			result, err := ResultFromAST(fileNode, true, errHandler)
+			require.NoError(t, err, "AST must lower without error")
+			require.NotNil(t, result.FileDescriptorProto(), "descriptor must be produced")
+		})
+	}
+}
+
 type parseErrorTestCase struct {
 	Error   string
 	NoError string
