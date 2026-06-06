@@ -31,6 +31,7 @@
   - name: DeclKindRange
   - name: DeclKindType
   - name: DeclKindFunction
+  - name: DeclKindAnnotation
 
 - name: DefKind
   type: int8

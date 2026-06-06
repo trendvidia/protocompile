@@ -130,6 +130,7 @@
   - {name: Var, string: var}
   - {name: Type, string: type}
   - {name: Function, string: function}
+  - {name: Annotation, string: annotation}
   - {name: Extern, string: extern}
 
   - {name: And, string: and}

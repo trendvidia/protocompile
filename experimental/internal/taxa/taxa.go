@@ -30,7 +30,7 @@ import (
 //go:generate go run github.com/trendvidia/protocompile/internal/enum noun.yaml
 
 const (
-	keywordCount = 136 // Verified by a unit test.
+	keywordCount = 137 // Verified by a unit test.
 	taxaCount    = nounCount + keywordCount
 )
 

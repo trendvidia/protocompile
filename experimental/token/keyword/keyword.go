@@ -102,6 +102,7 @@ const (
 	Var                         // var
 	Type                        // type
 	Function                    // function
+	Annotation                  // annotation
 	Extern                      // extern
 	And                         // and
 	Or                          // or
@@ -195,7 +196,7 @@ func Lookup(s string) Keyword {
 // All returns an iterator over all distinct [Keyword] values.
 func All() iter.Seq[Keyword] {
 	return func(yield func(Keyword) bool) {
-		for i := 1; i < 137; i++ {
+		for i := 1; i < 138; i++ {
 			if !yield(Keyword(i)) {
 				return
 			}
@@ -276,6 +277,7 @@ var _table_Keyword_String = [...]string{
 	Var:          "var",
 	Type:         "type",
 	Function:     "function",
+	Annotation:   "annotation",
 	Extern:       "extern",
 	And:          "and",
 	Or:           "or",
@@ -416,6 +418,7 @@ var _table_Keyword_GoString = [...]string{
 	Var:          "keyword.Var",
 	Type:         "keyword.Type",
 	Function:     "keyword.Function",
+	Annotation:   "keyword.Annotation",
 	Extern:       "keyword.Extern",
 	And:          "keyword.And",
 	Or:           "keyword.Or",
@@ -556,6 +559,7 @@ var _table_Keyword_Lookup = map[string]Keyword{
 	"var":        Var,
 	"type":       Type,
 	"function":   Function,
+	"annotation": Annotation,
 	"extern":     Extern,
 	"and":        And,
 	"or":         Or,
