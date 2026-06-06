@@ -26,11 +26,11 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	"github.com/bufbuild/protocompile/experimental/dom"
-	"github.com/bufbuild/protocompile/internal/cases"
-	"github.com/bufbuild/protocompile/internal/ext/cmpx"
-	"github.com/bufbuild/protocompile/internal/ext/iterx"
-	"github.com/bufbuild/protocompile/internal/ext/reflectx"
+	"github.com/trendvidia/protocompile/experimental/dom"
+	"github.com/trendvidia/protocompile/internal/cases"
+	"github.com/trendvidia/protocompile/internal/ext/cmpx"
+	"github.com/trendvidia/protocompile/internal/ext/iterx"
+	"github.com/trendvidia/protocompile/internal/ext/reflectx"
 )
 
 // ToYAMLOptions contains configuration for [ToYAML].

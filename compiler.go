@@ -30,12 +30,12 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/bufbuild/protocompile/ast"
-	"github.com/bufbuild/protocompile/linker"
-	"github.com/bufbuild/protocompile/options"
-	"github.com/bufbuild/protocompile/parser"
-	"github.com/bufbuild/protocompile/reporter"
-	"github.com/bufbuild/protocompile/sourceinfo"
+	"github.com/trendvidia/protocompile/ast"
+	"github.com/trendvidia/protocompile/linker"
+	"github.com/trendvidia/protocompile/options"
+	"github.com/trendvidia/protocompile/parser"
+	"github.com/trendvidia/protocompile/reporter"
+	"github.com/trendvidia/protocompile/sourceinfo"
 )
 
 // Compiler handles compilation tasks, to turn protobuf source files, or other

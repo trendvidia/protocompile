@@ -8,10 +8,10 @@ desc_test_complex.proto > package:
    Span: 3:1 -> 3:17
 
 desc_test_complex.proto > options:
-   Span: 5:1 -> 5:76
+   Span: 5:1 -> 5:78
 
 desc_test_complex.proto > options > go_package:
-   Span: 5:1 -> 5:76
+   Span: 5:1 -> 5:78
 
 desc_test_complex.proto > dependency[0]:
    Span: 7:1 -> 7:43

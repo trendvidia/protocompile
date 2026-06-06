@@ -24,9 +24,9 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/bufbuild/protocompile/internal/ext/bitsx"
-	"github.com/bufbuild/protocompile/internal/ext/syncx"
-	"github.com/bufbuild/protocompile/internal/ext/unsafex"
+	"github.com/trendvidia/protocompile/internal/ext/bitsx"
+	"github.com/trendvidia/protocompile/internal/ext/syncx"
+	"github.com/trendvidia/protocompile/internal/ext/unsafex"
 )
 
 // ID is an interned string in a particular [Table].

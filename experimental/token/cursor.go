@@ -19,9 +19,9 @@ import (
 	"iter"
 	"strings"
 
-	"github.com/bufbuild/protocompile/experimental/id"
-	"github.com/bufbuild/protocompile/experimental/source"
-	"github.com/bufbuild/protocompile/internal/ext/slicesx"
+	"github.com/trendvidia/protocompile/experimental/id"
+	"github.com/trendvidia/protocompile/experimental/source"
+	"github.com/trendvidia/protocompile/internal/ext/slicesx"
 )
 
 // Cursor is an iterator-like construct for looping over a token tree.

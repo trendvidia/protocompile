@@ -23,11 +23,11 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/bufbuild/protocompile/experimental/report"
-	"github.com/bufbuild/protocompile/experimental/source"
-	"github.com/bufbuild/protocompile/experimental/token"
-	"github.com/bufbuild/protocompile/internal/ext/slicesx"
-	"github.com/bufbuild/protocompile/internal/ext/stringsx"
+	"github.com/trendvidia/protocompile/experimental/report"
+	"github.com/trendvidia/protocompile/experimental/source"
+	"github.com/trendvidia/protocompile/experimental/token"
+	"github.com/trendvidia/protocompile/internal/ext/slicesx"
+	"github.com/trendvidia/protocompile/internal/ext/stringsx"
 )
 
 // Kind is a kind of justification implemented by this package.

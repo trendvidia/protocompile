@@ -15,8 +15,8 @@
 package expr
 
 import (
-	"github.com/bufbuild/protocompile/experimental/id"
-	"github.com/bufbuild/protocompile/experimental/source"
+	"github.com/trendvidia/protocompile/experimental/id"
+	"github.com/trendvidia/protocompile/experimental/source"
 )
 
 // Error is an expression produced due to a parse failure, where a non-zero

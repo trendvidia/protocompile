@@ -15,8 +15,8 @@
 package printer
 
 import (
-	"github.com/bufbuild/protocompile/experimental/ast"
-	"github.com/bufbuild/protocompile/experimental/token"
+	"github.com/trendvidia/protocompile/experimental/ast"
+	"github.com/trendvidia/protocompile/experimental/token"
 )
 
 // firstOptionKeyHasLeadingComment reports whether the first option's

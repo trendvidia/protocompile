@@ -22,8 +22,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/bufbuild/protocompile"
-	"github.com/bufbuild/protocompile/internal/testing/dualcompiler"
+	"github.com/trendvidia/protocompile"
+	"github.com/trendvidia/protocompile/internal/testing/dualcompiler"
 )
 
 // TestDualCompiler_ParseFilesMessageComments tests message comment parsing.

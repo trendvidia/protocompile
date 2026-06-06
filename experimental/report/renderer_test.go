@@ -25,8 +25,8 @@ import (
 	"google.golang.org/protobuf/proto"
 	"gopkg.in/yaml.v3"
 
-	"github.com/bufbuild/protocompile/experimental/report"
-	"github.com/bufbuild/protocompile/internal/golden"
+	"github.com/trendvidia/protocompile/experimental/report"
+	"github.com/trendvidia/protocompile/internal/golden"
 )
 
 var ansiEscapePat = regexp.MustCompile("\033\\[([\\d;]*)m")

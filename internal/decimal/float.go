@@ -22,10 +22,10 @@ import (
 	"math/bits"
 	"strconv"
 
-	"github.com/bufbuild/protocompile/internal/ext/bigx"
-	"github.com/bufbuild/protocompile/internal/ext/bytesx"
-	"github.com/bufbuild/protocompile/internal/ext/slicesx"
-	"github.com/bufbuild/protocompile/internal/ext/unsafex"
+	"github.com/trendvidia/protocompile/internal/ext/bigx"
+	"github.com/trendvidia/protocompile/internal/ext/bytesx"
+	"github.com/trendvidia/protocompile/internal/ext/slicesx"
+	"github.com/trendvidia/protocompile/internal/ext/unsafex"
 )
 
 // IsFloat returns whether this value is representable as a base 2 float.

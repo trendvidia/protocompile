@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/bufbuild/protocompile/experimental/ast/predeclared"
+	"github.com/trendvidia/protocompile/experimental/ast/predeclared"
 )
 
 func TestPredicates(t *testing.T) {

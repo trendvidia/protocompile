@@ -20,14 +20,14 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/bufbuild/protocompile/experimental/fdp"
-	"github.com/bufbuild/protocompile/experimental/incremental"
-	"github.com/bufbuild/protocompile/experimental/incremental/queries"
-	"github.com/bufbuild/protocompile/experimental/ir"
-	"github.com/bufbuild/protocompile/experimental/source"
-	"github.com/bufbuild/protocompile/internal/ext/bitsx"
-	"github.com/bufbuild/protocompile/internal/testing/googleapis"
-	"github.com/bufbuild/protocompile/internal/testing/memory"
+	"github.com/trendvidia/protocompile/experimental/fdp"
+	"github.com/trendvidia/protocompile/experimental/incremental"
+	"github.com/trendvidia/protocompile/experimental/incremental/queries"
+	"github.com/trendvidia/protocompile/experimental/ir"
+	"github.com/trendvidia/protocompile/experimental/source"
+	"github.com/trendvidia/protocompile/internal/ext/bitsx"
+	"github.com/trendvidia/protocompile/internal/testing/googleapis"
+	"github.com/trendvidia/protocompile/internal/testing/memory"
 )
 
 func BenchmarkCompileGoogleapis(b *testing.B) {

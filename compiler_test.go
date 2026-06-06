@@ -29,11 +29,11 @@ import (
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/bufbuild/protocompile/internal"
-	"github.com/bufbuild/protocompile/internal/prototest"
-	"github.com/bufbuild/protocompile/linker"
-	"github.com/bufbuild/protocompile/parser"
-	"github.com/bufbuild/protocompile/reporter"
+	"github.com/trendvidia/protocompile/internal"
+	"github.com/trendvidia/protocompile/internal/prototest"
+	"github.com/trendvidia/protocompile/linker"
+	"github.com/trendvidia/protocompile/parser"
+	"github.com/trendvidia/protocompile/reporter"
 )
 
 func TestParseFilesWithDependencies(t *testing.T) {

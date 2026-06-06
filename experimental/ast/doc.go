@@ -88,9 +88,9 @@
 //
 // # Coming Soon
 //
-// This library will replace the existing [github.com/bufbuild/protocompile/ast]
+// This library will replace the existing [github.com/trendvidia/protocompile/ast]
 // library. Outside of this file, documentation is written assuming this has
 // already happened.
 package ast
 
-//go:generate go run github.com/bufbuild/protocompile/internal/enum enums.yaml
+//go:generate go run github.com/trendvidia/protocompile/internal/enum enums.yaml

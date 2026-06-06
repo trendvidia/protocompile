@@ -22,8 +22,8 @@ import (
 
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	"github.com/bufbuild/protocompile/internal/cases"
-	"github.com/bufbuild/protocompile/internal/tags"
+	"github.com/trendvidia/protocompile/internal/cases"
+	"github.com/trendvidia/protocompile/internal/tags"
 )
 
 // JSONName returns the default JSON name for a field with the given name.

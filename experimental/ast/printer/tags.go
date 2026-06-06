@@ -14,7 +14,7 @@
 
 package printer
 
-import "github.com/bufbuild/protocompile/experimental/dom"
+import "github.com/trendvidia/protocompile/experimental/dom"
 
 // Named tag helpers for common whitespace patterns. Single-tag helpers
 // are package-level vars (allocated once). Multi-tag helpers are

@@ -22,7 +22,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/bufbuild/protocompile"
+	"github.com/trendvidia/protocompile"
 )
 
 // CompilerInterface abstracts the differences between the old protocompile.Compiler

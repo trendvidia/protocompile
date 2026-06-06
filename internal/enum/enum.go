@@ -16,7 +16,7 @@
 //
 // To generate boilerplate for a given file, use
 //
-//	//go:generate go run github.com/bufbuild/protocompile/internal/enum
+//	//go:generate go run github.com/trendvidia/protocompile/internal/enum
 //
 // There should be a file with the same name as the file to generate with a
 // .yaml prefix. E.g., if the generate directive appears in foo.go, it should
@@ -41,8 +41,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/bufbuild/protocompile/internal/ext/osx"
-	"github.com/bufbuild/protocompile/internal/ext/slicesx"
+	"github.com/trendvidia/protocompile/internal/ext/osx"
+	"github.com/trendvidia/protocompile/internal/ext/slicesx"
 )
 
 //nolint:tagliatelle // Weird opinions on YAML fields.

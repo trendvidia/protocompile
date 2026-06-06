@@ -1,4 +1,4 @@
-module github.com/bufbuild/protocompile
+module github.com/trendvidia/protocompile
 
 go 1.25.6
 

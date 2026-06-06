@@ -29,10 +29,10 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/bufbuild/protocompile/experimental/ir/sourceinfo"
-	"github.com/bufbuild/protocompile/internal/ext/flagx"
-	"github.com/bufbuild/protocompile/internal/ext/slicesx"
-	"github.com/bufbuild/protocompile/internal/prototest"
+	"github.com/trendvidia/protocompile/experimental/ir/sourceinfo"
+	"github.com/trendvidia/protocompile/internal/ext/flagx"
+	"github.com/trendvidia/protocompile/internal/ext/slicesx"
+	"github.com/trendvidia/protocompile/internal/prototest"
 )
 
 var (

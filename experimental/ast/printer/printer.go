@@ -17,10 +17,10 @@ package printer
 import (
 	"strings"
 
-	"github.com/bufbuild/protocompile/experimental/ast"
-	"github.com/bufbuild/protocompile/experimental/dom"
-	"github.com/bufbuild/protocompile/experimental/seq"
-	"github.com/bufbuild/protocompile/experimental/token"
+	"github.com/trendvidia/protocompile/experimental/ast"
+	"github.com/trendvidia/protocompile/experimental/dom"
+	"github.com/trendvidia/protocompile/experimental/seq"
+	"github.com/trendvidia/protocompile/experimental/token"
 )
 
 // gapStyle specifies the whitespace intent before a token.
@@ -59,7 +59,7 @@ const (
 //     and [Legacy] are ready-made presets.
 //
 // To apply mutations to the AST before rendering, use the companion
-// [github.com/bufbuild/protocompile/experimental/ast/edit] package
+// [github.com/trendvidia/protocompile/experimental/ast/edit] package
 // and pass the resulting file to PrintFile.
 func PrintFile(options Options, file *ast.File) (string, error) {
 	options = options.withDefaults()

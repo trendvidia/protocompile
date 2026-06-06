@@ -56,6 +56,6 @@
 //
 // To mutate the AST before rendering (insert, delete, or move
 // declarations), use the companion
-// [github.com/bufbuild/protocompile/experimental/ast/edit] package.
+// [github.com/trendvidia/protocompile/experimental/ast/edit] package.
 // Apply edits first, then call [PrintFile] on the resulting file.
 package printer

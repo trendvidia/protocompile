@@ -20,12 +20,12 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/bufbuild/protocompile/experimental/ast"
-	"github.com/bufbuild/protocompile/experimental/seq"
-	"github.com/bufbuild/protocompile/experimental/source"
-	"github.com/bufbuild/protocompile/experimental/token"
-	"github.com/bufbuild/protocompile/experimental/token/keyword"
-	compilerpb "github.com/bufbuild/protocompile/internal/gen/buf/compiler/v1alpha1"
+	"github.com/trendvidia/protocompile/experimental/ast"
+	"github.com/trendvidia/protocompile/experimental/seq"
+	"github.com/trendvidia/protocompile/experimental/source"
+	"github.com/trendvidia/protocompile/experimental/token"
+	"github.com/trendvidia/protocompile/experimental/token/keyword"
+	compilerpb "github.com/trendvidia/protocompile/internal/gen/buf/compiler/v1alpha1"
 )
 
 // ToProtoOptions contains options for the [File.ToProto] function.

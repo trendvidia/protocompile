@@ -21,7 +21,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/bufbuild/protocompile"
+	"github.com/trendvidia/protocompile"
 )
 
 func TestOptionWithMessageSetWireFormat(t *testing.T) {

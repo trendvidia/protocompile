@@ -25,10 +25,10 @@ import (
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/bufbuild/protocompile/ast"
-	"github.com/bufbuild/protocompile/internal"
-	"github.com/bufbuild/protocompile/reporter"
-	"github.com/bufbuild/protocompile/walk"
+	"github.com/trendvidia/protocompile/ast"
+	"github.com/trendvidia/protocompile/internal"
+	"github.com/trendvidia/protocompile/reporter"
+	"github.com/trendvidia/protocompile/walk"
 )
 
 func (r *result) ResolveMessageLiteralExtensionName(node ast.IdentValueNode) string {

@@ -17,7 +17,7 @@ package cmpx
 import (
 	"unsafe"
 
-	"github.com/bufbuild/protocompile/internal/ext/unsafex"
+	"github.com/trendvidia/protocompile/internal/ext/unsafex"
 )
 
 // MapWrapper is wrapper over a map[K]V that is identity comparable, so it can

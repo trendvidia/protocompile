@@ -15,7 +15,7 @@
 package parser
 
 import (
-	"github.com/bufbuild/protocompile/ast"
+	"github.com/trendvidia/protocompile/ast"
 )
 
 // the types below are accumulator types, just used in intermediate productions

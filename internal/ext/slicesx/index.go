@@ -19,8 +19,8 @@ import (
 	"slices"
 	"unsafe"
 
-	"github.com/bufbuild/protocompile/internal/ext/iterx"
-	"github.com/bufbuild/protocompile/internal/ext/unsafex"
+	"github.com/trendvidia/protocompile/internal/ext/iterx"
+	"github.com/trendvidia/protocompile/internal/ext/unsafex"
 )
 
 // IndexFunc is like [slices.IndexFunc], but also takes the index of the element

@@ -19,8 +19,8 @@ import (
 	"slices"
 	"unsafe"
 
-	"github.com/bufbuild/protocompile/internal/ext/bitsx"
-	"github.com/bufbuild/protocompile/internal/ext/unsafex"
+	"github.com/trendvidia/protocompile/internal/ext/bitsx"
+	"github.com/trendvidia/protocompile/internal/ext/unsafex"
 )
 
 // SliceIndex is a type that can be used to index into a slice.
