@@ -76,6 +76,9 @@ import (
 	fnd          nodeWithRunes[*ast.FunctionDeclNode]
 	fnParam      *ast.FunctionParamNode
 	fnParams     *functionParamSlices
+	annd         nodeWithRunes[*ast.AnnotationDeclNode]
+	annParam     *ast.AnnotationParamNode
+	annParams    *annotationParamSlices
 }
 
 // any non-terminal which returns a value needs a type, which is
@@ -132,6 +135,9 @@ import (
 %type <fnd>          functionDecl
 %type <fnParam>      functionParam
 %type <fnParams>     functionParamList functionParamListOpt
+%type <annd>         annotationDecl
+%type <annParam>     annotationParam
+%type <annParams>    annotationParamList annotationParamListOpt
 %type <mtd>          methodDecl
 %type <mtdElements>  methodElement methodElements methodBody
 %type <mtdMsgType>   methodMessageType
@@ -227,6 +233,9 @@ fileElement : importDecl {
 	  $$ = toElements[ast.FileElement](toFileElement, $1.Node, $1.Runes)
 	}
 	| functionDecl {
+	  $$ = toElements[ast.FileElement](toFileElement, $1.Node, $1.Runes)
+	}
+	| annotationDecl {
 	  $$ = toElements[ast.FileElement](toFileElement, $1.Node, $1.Runes)
 	}
 	| error {
@@ -1282,6 +1291,56 @@ functionParamList : functionParam {
 
 functionParam : identifier ':' qualifiedIdentifier {
 		$$ = ast.NewFunctionParamNode($1, $2, $3.toIdentValueNode(nil))
+	}
+
+// annotationDecl: protowire v1.2 schema-extension annotation declaration.
+//   annotation required;
+//   annotation description(text: string);
+//   annotation validate(rule: expression, code: string = "", message: string = "");
+//   annotation example(value: any);
+// Use sites (e.g., @validate(this in [...])) attach in a follow-up PR.
+//
+// Three forms are accepted:
+//   1. `annotation Name;` — no parens, no params
+//   2. `annotation Name();` — empty parens
+//   3. `annotation Name(param1: T1, param2: T2 = default, ...);` — with params
+//
+// Parameter types are parsed via qualifiedIdentifier (same trap PR 2 and
+// PR 3 documented — qualifiedIdentifierDot causes reduce/reduce conflicts
+// at file-scope-keyword lookaheads). The reserved parameter-type names
+// from the spec (expression, string, int32, ..., any) all already lex as
+// either keywords accepted by `identifier` or as bare identifiers, so this
+// production accepts all of them without further work.
+annotationDecl : _ANNOTATION identifier semicolons {
+		semi, extra := protolex.(*protoLex).requireSemicolon($3)
+		$$ = newNodeWithRunes(ast.NewAnnotationDeclNode($1.ToKeyword(), $2, nil, nil, nil, nil, semi), extra...)
+	}
+	| _ANNOTATION identifier '(' annotationParamListOpt ')' semicolons {
+		semi, extra := protolex.(*protoLex).requireSemicolon($6)
+		$$ = newNodeWithRunes(ast.NewAnnotationDeclNode($1.ToKeyword(), $2, $3, $4.params, $4.commas, $5, semi), extra...)
+	}
+
+annotationParamListOpt : {
+		$$ = &annotationParamSlices{}
+	}
+	| annotationParamList {
+		$$ = $1
+	}
+
+annotationParamList : annotationParam {
+		$$ = &annotationParamSlices{params: []*ast.AnnotationParamNode{$1}}
+	}
+	| annotationParamList ',' annotationParam {
+		$1.params = append($1.params, $3)
+		$1.commas = append($1.commas, $2)
+		$$ = $1
+	}
+
+annotationParam : identifier ':' qualifiedIdentifier {
+		$$ = ast.NewAnnotationParamNode($1, $2, $3.toIdentValueNode(nil), nil, nil)
+	}
+	| identifier ':' qualifiedIdentifier '=' scalarValue {
+		$$ = ast.NewAnnotationParamNode($1, $2, $3.toIdentValueNode(nil), $4, $5)
 	}
 
 serviceBody : semicolons {

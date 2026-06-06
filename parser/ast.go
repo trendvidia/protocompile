@@ -33,6 +33,14 @@ type functionParamSlices struct {
 	commas []*ast.RuneNode
 }
 
+// annotationParamSlices accumulates annotation-declaration parameters
+// during parsing. Used by the protowire v1.2 schema-extension grammar
+// (RFC-001).
+type annotationParamSlices struct {
+	params []*ast.AnnotationParamNode
+	commas []*ast.RuneNode
+}
+
 func toStringValueNode(strs []*ast.StringLiteralNode) ast.StringValueNode {
 	if len(strs) == 1 {
 		return strs[0]
