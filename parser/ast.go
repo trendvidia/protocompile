@@ -26,6 +26,13 @@ type compactOptionSlices struct {
 	commas  []*ast.RuneNode
 }
 
+// functionParamSlices accumulates function-declaration parameters during
+// parsing. Used by the protowire v1.2 schema-extension grammar (RFC-001).
+type functionParamSlices struct {
+	params []*ast.FunctionParamNode
+	commas []*ast.RuneNode
+}
+
 func toStringValueNode(strs []*ast.StringLiteralNode) ast.StringValueNode {
 	if len(strs) == 1 {
 		return strs[0]
