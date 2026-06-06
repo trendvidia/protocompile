@@ -1,13 +1,37 @@
 name: ci
+# Cost-conscious trigger policy (see CONTRIBUTING.md):
+#
+#   - release / tag push: gate every release
+#   - pull_request: ONLY when CI-relevant config or dependencies change
+#     (workflow files, linter config, module files). Code-only PRs are
+#     validated locally with `make ci-local` and do not consume cloud minutes
+#   - workflow_dispatch: manual override for sanity-checking before merge
+#     (`gh workflow run ci.yaml --ref <branch>`)
+#
+# Removed (deliberately):
+#   - push to default branch — devs run `make ci-local` before pushing;
+#     `make ci-local-full` before tagging a release
+#   - nightly schedule — Dependabot PRs already cover dep-rot via the
+#     dependency-file paths below
 on:
+  release:
+    types: [published]
   push:
-    branches: [main, trendvidia]
     tags: ['v*']
   pull_request:
-    branches: [main, trendvidia]
-  schedule:
-    - cron: '15 22 * * *'
-  workflow_dispatch: {} # support manual runs
+    paths:
+      - '.github/workflows/**'
+      - 'Makefile'
+      - '.golangci.yml'
+      - 'go.mod'
+      - 'go.sum'
+      - 'go.work'
+      - 'go.work.sum'
+      - 'internal/benchmarks/go.mod'
+      - 'internal/benchmarks/go.sum'
+      - 'internal/tools/go.mod'
+      - 'internal/tools/go.sum'
+  workflow_dispatch: {} # manual runs via `gh workflow run`
 permissions:
   contents: read
 jobs:
