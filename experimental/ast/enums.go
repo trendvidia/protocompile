@@ -34,6 +34,7 @@ const (
 	DeclKindDef
 	DeclKindBody
 	DeclKindRange
+	DeclKindType
 )
 
 // String implements [fmt.Stringer].
@@ -156,6 +157,7 @@ var _table_DeclKind_String = [...]string{
 	DeclKindDef:     "DeclKindDef",
 	DeclKindBody:    "DeclKindBody",
 	DeclKindRange:   "DeclKindRange",
+	DeclKindType:    "DeclKindType",
 }
 
 var _table_DeclKind_GoString = [...]string{
@@ -167,6 +169,7 @@ var _table_DeclKind_GoString = [...]string{
 	DeclKindDef:     "ast.DeclKindDef",
 	DeclKindBody:    "ast.DeclKindBody",
 	DeclKindRange:   "ast.DeclKindRange",
+	DeclKindType:    "ast.DeclKindType",
 }
 
 var _table_DefKind_String = [...]string{

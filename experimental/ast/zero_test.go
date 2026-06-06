@@ -36,6 +36,7 @@ func TestZero(t *testing.T) {
 	testZero[ast.DeclImport](t)
 	testZero[ast.DeclPackage](t)
 	testZero[ast.DeclRange](t)
+	testZero[ast.DeclType](t)
 	testZero[ast.DefEnum](t)
 
 	testZero[ast.DefEnumValue](t)

@@ -122,6 +122,18 @@ func (d DeclAny) AsRange() DeclRange {
 	return id.Wrap(d.Context(), id.ID[DeclRange](d.ID().Value()))
 }
 
+// AsType converts a DeclAny into a DeclType, if that is the declaration
+// it contains.
+//
+// Otherwise, returns zero.
+func (d DeclAny) AsType() DeclType {
+	if d.Kind() != DeclKindType {
+		return DeclType{}
+	}
+
+	return id.Wrap(d.Context(), id.ID[DeclType](d.ID().Value()))
+}
+
 // Span implements [source.Spanner].
 func (d DeclAny) Span() source.Span {
 	switch d.Kind() {
@@ -139,6 +151,8 @@ func (d DeclAny) Span() source.Span {
 		return d.AsRange().Span()
 	case DeclKindSyntax:
 		return d.AsSyntax().Span()
+	case DeclKindType:
+		return d.AsType().Span()
 	default:
 		return source.Span{}
 	}
@@ -161,4 +175,5 @@ type decls struct {
 	defs     arena.Arena[rawDeclDef]
 	bodies   arena.Arena[rawDeclBody]
 	ranges   arena.Arena[rawDeclRange]
+	types    arena.Arena[rawDeclType]
 }
