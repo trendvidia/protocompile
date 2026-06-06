@@ -29,6 +29,7 @@
   - name: DeclKindDef
   - name: DeclKindBody
   - name: DeclKindRange
+  - name: DeclKindType
 
 - name: DefKind
   type: int8

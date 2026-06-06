@@ -249,6 +249,21 @@ func (n *Nodes) NewDeclRange(args DeclRangeArgs) DeclRange {
 	})))
 }
 
+// NewDeclType creates a new DeclType node.
+func (n *Nodes) NewDeclType(args DeclTypeArgs) DeclType {
+	n.panicIfNotOurs(
+		args.Keyword.Context(), args.Name.Context(), args.Equals.Context(),
+		args.Value.Context(), args.Semicolon.Context())
+
+	return id.Wrap(n.File(), id.ID[DeclType](n.decls.types.NewCompressed(rawDeclType{
+		keyword: args.Keyword.ID(),
+		name:    args.Name.ID(),
+		equals:  args.Equals.ID(),
+		value:   args.Value.ID(),
+		semi:    args.Semicolon.ID(),
+	})))
+}
+
 // NewExprPrefixed creates a new ExprPrefixed node.
 func (n *Nodes) NewExprPrefixed(args ExprPrefixedArgs) ExprPrefixed {
 	n.panicIfNotOurs(args.Prefix.Context(), args.Expr.Context())
