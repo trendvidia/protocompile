@@ -118,6 +118,54 @@ func TestContextualKeywords(t *testing.T) {
 	}
 }
 
+// TestTypeDecl verifies parsing of the `type Name = Base;` declaration
+// introduced by protowire v1.2 schema extensions (RFC-001 §5.1).
+//
+// Trailing annotation lists (@validate(...) etc.) attach in a later PR;
+// this test only covers the base form.
+func TestTypeDecl(t *testing.T) {
+	t.Parallel()
+	positive := map[string]string{
+		"primitive-base":           `syntax = "proto3"; type Email = string;`,
+		"alias-base":               `syntax = "proto3"; type Email = string; type CompanyEmail = Email;`,
+		"qualified-base":           `syntax = "proto3"; type Money = google.protobuf.Int64Value;`,
+		"deeply-qualified-base":    `syntax = "proto3"; type T = a.b.c.d.E;`,
+		"adjacent-to-message":      `syntax = "proto3"; type Email = string; message User { string email = 1; }`,
+		"adjacent-to-other-decls":  `syntax = "proto3"; package foo; type Email = string; message User {} type ID = string;`,
+		"named-with-keyword-ident": `syntax = "proto3"; type type = string;`,         // contextual: `type` after `type` is the alias name
+		"name-using-other-kw":      `syntax = "proto3"; type function = annotation;`, // `function` is the name; `annotation` is the base (both contextual)
+	}
+	for name, input := range positive {
+		t.Run("pos/"+name, func(t *testing.T) {
+			t.Parallel()
+			errHandler := reporter.NewHandler(nil)
+			fileNode, err := Parse(name+".proto", strings.NewReader(input), errHandler)
+			require.NoError(t, err, "input must parse without error")
+			result, err := ResultFromAST(fileNode, true, errHandler)
+			require.NoError(t, err, "AST must lower without error")
+			require.NotNil(t, result.FileDescriptorProto(), "descriptor must be produced")
+		})
+	}
+
+	negative := map[string]string{
+		"missing-equals":     `syntax = "proto3"; type Email string;`,
+		"missing-base":       `syntax = "proto3"; type Email = ;`,
+		"missing-name":       `syntax = "proto3"; type = string;`,
+		"empty-base-segment": `syntax = "proto3"; type Email = string.;`,
+	}
+	for name, input := range negative {
+		t.Run("neg/"+name, func(t *testing.T) {
+			t.Parallel()
+			errHandler := reporter.NewHandler(reporter.NewReporter(
+				func(_ reporter.ErrorWithPos) error { return nil },
+				nil,
+			))
+			_, err := Parse(name+".proto", strings.NewReader(input), errHandler)
+			require.Error(t, err, "malformed input should error")
+		})
+	}
+}
+
 type parseErrorTestCase struct {
 	Error   string
 	NoError string

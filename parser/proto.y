@@ -71,6 +71,8 @@ import (
 	b            *ast.RuneNode
 	bs           []*ast.RuneNode
 	err          error
+	// Protowire v1.2 schema-extension declarations.
+	tyd          nodeWithRunes[*ast.TypeDeclNode]
 }
 
 // any non-terminal which returns a value needs a type, which is
@@ -122,6 +124,8 @@ import (
 %type <str>          stringLit
 %type <svc>          serviceDecl
 %type <svcElements>  serviceElement serviceElements serviceBody
+// Protowire v1.2 schema-extension declarations.
+%type <tyd>          typeDecl
 %type <mtd>          methodDecl
 %type <mtdElements>  methodElement methodElements methodBody
 %type <mtdMsgType>   methodMessageType
@@ -211,6 +215,9 @@ fileElement : importDecl {
 	  $$ = toElements[ast.FileElement](toFileElement, $1.Node, $1.Runes)
 	}
 	| serviceDecl {
+	  $$ = toElements[ast.FileElement](toFileElement, $1.Node, $1.Runes)
+	}
+	| typeDecl {
 	  $$ = toElements[ast.FileElement](toFileElement, $1.Node, $1.Runes)
 	}
 	| error {
@@ -1217,6 +1224,19 @@ extensionFieldDecl : fieldCardinality notGroupElementTypeIdent identifier '=' _I
 
 serviceDecl : _SERVICE identifier '{' serviceBody '}' semicolons {
 		$$ = newNodeWithRunes(ast.NewServiceNode($1.ToKeyword(), $2, $3, $4, $5), $6...)
+	}
+
+// typeDecl: protowire v1.2 schema-extension type alias.
+//   type Email = string;
+// Annotation lists (e.g., trailing @validate(...)) attach in a follow-up PR.
+//
+// The base type is parsed via qualifiedIdentifier (same as packageDecl)
+// rather than typeName; typeName includes leading-dot and error-recovery
+// alternatives that cause reduce/reduce conflicts when the base-type
+// position is followed by a file-scope-keyword lookahead.
+typeDecl : _TYPE identifier '=' qualifiedIdentifier semicolons {
+		semi, extra := protolex.(*protoLex).requireSemicolon($5)
+		$$ = newNodeWithRunes(ast.NewTypeDeclNode($1.ToKeyword(), $2, $3, $4.toIdentValueNode(nil), semi), extra...)
 	}
 
 serviceBody : semicolons {
