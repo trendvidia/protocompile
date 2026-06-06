@@ -31,7 +31,7 @@ package dom
 import (
 	"math"
 
-	"github.com/bufbuild/protocompile/internal/ext/stringsx"
+	"github.com/trendvidia/protocompile/internal/ext/stringsx"
 )
 
 // Render renders a document consisting of the given sequence of tags.

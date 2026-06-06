@@ -17,4 +17,4 @@
 // of the cardinality of a message.
 package presence
 
-//go:generate go run github.com/bufbuild/protocompile/internal/enum kind.yaml
+//go:generate go run github.com/trendvidia/protocompile/internal/enum kind.yaml

@@ -14,7 +14,7 @@
 
 package intern
 
-import "github.com/bufbuild/protocompile/internal/ext/mapsx"
+import "github.com/trendvidia/protocompile/internal/ext/mapsx"
 
 // Set is a set of intern IDs.
 type Set map[ID]struct{}

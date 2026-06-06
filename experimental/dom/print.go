@@ -20,7 +20,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/bufbuild/protocompile/internal/ext/slicesx"
+	"github.com/trendvidia/protocompile/internal/ext/slicesx"
 )
 
 // printer holds state for converting a laid-out [dom] into a string.

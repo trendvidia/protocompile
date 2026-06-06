@@ -20,7 +20,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/bufbuild/protocompile/internal/ext/cmpx"
+	"github.com/trendvidia/protocompile/internal/ext/cmpx"
 )
 
 func TestAny(t *testing.T) {

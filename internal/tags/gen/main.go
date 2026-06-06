@@ -26,10 +26,10 @@ import (
 
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	"github.com/bufbuild/protocompile/internal/cases"
-	"github.com/bufbuild/protocompile/internal/ext/flagx"
-	"github.com/bufbuild/protocompile/internal/ext/stringsx"
-	"github.com/bufbuild/protocompile/wellknownimports"
+	"github.com/trendvidia/protocompile/internal/cases"
+	"github.com/trendvidia/protocompile/internal/ext/flagx"
+	"github.com/trendvidia/protocompile/internal/ext/stringsx"
+	"github.com/trendvidia/protocompile/wellknownimports"
 )
 
 // convertPath converts a fully-qualified Protobuf path from descriptor.proto

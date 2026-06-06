@@ -18,8 +18,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/bufbuild/protocompile/experimental/token"
-	"github.com/bufbuild/protocompile/experimental/token/keyword"
+	"github.com/trendvidia/protocompile/experimental/token"
+	"github.com/trendvidia/protocompile/experimental/token/keyword"
 )
 
 // attachedTrivia holds trivia tightly bound to a single semantic token.

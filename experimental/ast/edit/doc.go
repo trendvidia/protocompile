@@ -22,7 +22,7 @@
 // RPC method bodies).
 //
 // After applying edits, the file is typically rendered with the
-// [github.com/bufbuild/protocompile/experimental/ast/printer]
+// [github.com/trendvidia/protocompile/experimental/ast/printer]
 // package:
 //
 //	if err := edit.ApplyEdits(file, edits); err != nil {

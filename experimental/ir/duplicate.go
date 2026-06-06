@@ -15,8 +15,8 @@
 package ir
 
 import (
-	"github.com/bufbuild/protocompile/experimental/report"
-	"github.com/bufbuild/protocompile/experimental/seq"
+	"github.com/trendvidia/protocompile/experimental/report"
+	"github.com/trendvidia/protocompile/experimental/seq"
 )
 
 // DedupExportedSymbols takes a report and the given *[File]s and checks for duplicate

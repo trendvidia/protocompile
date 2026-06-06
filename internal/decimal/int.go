@@ -18,7 +18,7 @@ import (
 	"math"
 	"math/big"
 
-	"github.com/bufbuild/protocompile/internal/ext/bigx"
+	"github.com/trendvidia/protocompile/internal/ext/bigx"
 )
 
 // IsInt returns whether this value is an integer.

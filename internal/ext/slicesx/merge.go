@@ -19,7 +19,7 @@ import (
 	"iter"
 	"slices"
 
-	"github.com/bufbuild/protocompile/internal/ext/iterx"
+	"github.com/trendvidia/protocompile/internal/ext/iterx"
 )
 
 // MergeKey an n-way merge of sorted slices, using a function to extract a

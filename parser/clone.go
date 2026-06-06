@@ -18,8 +18,8 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/bufbuild/protocompile/ast"
-	"github.com/bufbuild/protocompile/reporter"
+	"github.com/trendvidia/protocompile/ast"
+	"github.com/trendvidia/protocompile/reporter"
 )
 
 // Clone returns a copy of the given result. Since descriptor protos may be

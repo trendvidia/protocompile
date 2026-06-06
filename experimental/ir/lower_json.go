@@ -17,13 +17,13 @@ package ir
 import (
 	"fmt"
 
-	"github.com/bufbuild/protocompile/experimental/ast/syntax"
-	"github.com/bufbuild/protocompile/experimental/internal/taxa"
-	"github.com/bufbuild/protocompile/experimental/report"
-	"github.com/bufbuild/protocompile/experimental/seq"
-	"github.com/bufbuild/protocompile/internal"
-	"github.com/bufbuild/protocompile/internal/intern"
-	"github.com/bufbuild/protocompile/internal/tags"
+	"github.com/trendvidia/protocompile/experimental/ast/syntax"
+	"github.com/trendvidia/protocompile/experimental/internal/taxa"
+	"github.com/trendvidia/protocompile/experimental/report"
+	"github.com/trendvidia/protocompile/experimental/seq"
+	"github.com/trendvidia/protocompile/internal"
+	"github.com/trendvidia/protocompile/internal/intern"
+	"github.com/trendvidia/protocompile/internal/tags"
 )
 
 func populateJSONNames(file *File, r *report.Report) {

@@ -23,10 +23,10 @@ import (
 
 	"github.com/pmezard/go-difflib/difflib"
 
-	"github.com/bufbuild/protocompile/experimental/ast/printer"
-	"github.com/bufbuild/protocompile/experimental/parser"
-	"github.com/bufbuild/protocompile/experimental/report"
-	"github.com/bufbuild/protocompile/experimental/source"
+	"github.com/trendvidia/protocompile/experimental/ast/printer"
+	"github.com/trendvidia/protocompile/experimental/parser"
+	"github.com/trendvidia/protocompile/experimental/report"
+	"github.com/trendvidia/protocompile/experimental/source"
 )
 
 // TestBufFormat is the legacy-formatter conformance suite for the

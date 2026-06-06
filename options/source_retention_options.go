@@ -21,7 +21,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/bufbuild/protocompile/internal/tags"
+	"github.com/trendvidia/protocompile/internal/tags"
 )
 
 // StripSourceRetentionOptionsFromFile returns a file descriptor proto that omits any

@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/bufbuild/protocompile/experimental/incremental"
+	"github.com/trendvidia/protocompile/experimental/incremental"
 )
 
 func TestCyclic(t *testing.T) {

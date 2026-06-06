@@ -17,4 +17,4 @@
 // keywords and punctuation) recognized by Protocompile.
 package keyword
 
-//go:generate go run github.com/bufbuild/protocompile/internal/enum keyword.yaml
+//go:generate go run github.com/trendvidia/protocompile/internal/enum keyword.yaml

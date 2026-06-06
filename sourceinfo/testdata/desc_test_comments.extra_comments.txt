@@ -21,10 +21,10 @@ desc_test_comments.proto > package:
  And now the package declaration
 
 desc_test_comments.proto > options:
-   Span: 15:1 -> 15:78
+   Span: 15:1 -> 15:80
 
 desc_test_comments.proto > options > go_package:
-   Span: 15:1 -> 15:78
+   Span: 15:1 -> 15:80
    Leading Comments:
  option comments FTW!!!
 

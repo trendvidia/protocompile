@@ -26,11 +26,11 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/bufbuild/protocompile/ast"
-	"github.com/bufbuild/protocompile/internal"
-	"github.com/bufbuild/protocompile/internal/editions"
-	"github.com/bufbuild/protocompile/internal/tags"
-	"github.com/bufbuild/protocompile/reporter"
+	"github.com/trendvidia/protocompile/ast"
+	"github.com/trendvidia/protocompile/internal"
+	"github.com/trendvidia/protocompile/internal/editions"
+	"github.com/trendvidia/protocompile/internal/tags"
+	"github.com/trendvidia/protocompile/reporter"
 )
 
 type result struct {

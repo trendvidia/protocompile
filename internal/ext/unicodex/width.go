@@ -24,8 +24,8 @@ import (
 
 	"github.com/rivo/uniseg"
 
-	"github.com/bufbuild/protocompile/internal/ext/iterx"
-	"github.com/bufbuild/protocompile/internal/ext/stringsx"
+	"github.com/trendvidia/protocompile/internal/ext/iterx"
+	"github.com/trendvidia/protocompile/internal/ext/stringsx"
 )
 
 const (

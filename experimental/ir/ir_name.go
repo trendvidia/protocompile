@@ -19,8 +19,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/bufbuild/protocompile/internal/ext/stringsx"
-	"github.com/bufbuild/protocompile/internal/ext/unsafex"
+	"github.com/trendvidia/protocompile/internal/ext/stringsx"
+	"github.com/trendvidia/protocompile/internal/ext/unsafex"
 )
 
 // FullName is a fully-qualified Protobuf name, which is a dot-separated list of

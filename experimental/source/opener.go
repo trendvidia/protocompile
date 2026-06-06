@@ -20,7 +20,7 @@ import (
 	"io/fs"
 	"strings"
 
-	"github.com/bufbuild/protocompile/internal/ext/cmpx"
+	"github.com/trendvidia/protocompile/internal/ext/cmpx"
 )
 
 // Opener is a mechanism for opening files.

@@ -14,7 +14,7 @@
 
 package printer
 
-import "github.com/bufbuild/protocompile/experimental/ast"
+import "github.com/trendvidia/protocompile/experimental/ast"
 
 // printType prints a type with the specified leading gap.
 func (p *printer) printType(ty ast.TypeAny, gap gapStyle) {

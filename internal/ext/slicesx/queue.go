@@ -19,8 +19,8 @@ import (
 	"iter"
 	"slices"
 
-	"github.com/bufbuild/protocompile/internal/ext/bitsx"
-	"github.com/bufbuild/protocompile/internal/ext/iterx"
+	"github.com/trendvidia/protocompile/internal/ext/bitsx"
+	"github.com/trendvidia/protocompile/internal/ext/iterx"
 )
 
 // Set to true to enable debug printing for queues.

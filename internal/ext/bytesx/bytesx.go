@@ -14,7 +14,7 @@
 
 package bytesx
 
-import "github.com/bufbuild/protocompile/internal/ext/unicodex"
+import "github.com/trendvidia/protocompile/internal/ext/unicodex"
 
 // MakeASCIILower uppercases every ASCII letter in buf in-place. Works for any
 // UTF-8 string.

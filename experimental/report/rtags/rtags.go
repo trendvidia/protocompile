@@ -15,7 +15,7 @@
 // Package rtags defines publicly-exposed diagnostic tag constants for use with [report.Tag].
 package rtags
 
-import _ "github.com/bufbuild/protocompile/experimental/report" // Imported for package documentation.
+import _ "github.com/trendvidia/protocompile/experimental/report" // Imported for package documentation.
 
 const (
 	// UnusedImport is the tag for an unused import diagnostic.

@@ -22,13 +22,13 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/bufbuild/protocompile/ast"
-	"github.com/bufbuild/protocompile/internal"
-	"github.com/bufbuild/protocompile/internal/cases"
-	"github.com/bufbuild/protocompile/internal/tags"
-	"github.com/bufbuild/protocompile/protoutil"
-	"github.com/bufbuild/protocompile/reporter"
-	"github.com/bufbuild/protocompile/walk"
+	"github.com/trendvidia/protocompile/ast"
+	"github.com/trendvidia/protocompile/internal"
+	"github.com/trendvidia/protocompile/internal/cases"
+	"github.com/trendvidia/protocompile/internal/tags"
+	"github.com/trendvidia/protocompile/protoutil"
+	"github.com/trendvidia/protocompile/reporter"
+	"github.com/trendvidia/protocompile/walk"
 )
 
 // ValidateOptions runs some validation checks on the result that can only

@@ -22,10 +22,10 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/bufbuild/protocompile/ast"
-	"github.com/bufbuild/protocompile/internal"
-	"github.com/bufbuild/protocompile/reporter"
-	"github.com/bufbuild/protocompile/walk"
+	"github.com/trendvidia/protocompile/ast"
+	"github.com/trendvidia/protocompile/internal"
+	"github.com/trendvidia/protocompile/reporter"
+	"github.com/trendvidia/protocompile/walk"
 )
 
 func validateBasic(res *result, handler *reporter.Handler) {

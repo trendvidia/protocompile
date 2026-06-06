@@ -50,4 +50,4 @@
 // by pointer; all of them have value receivers.
 package expr
 
-//go:generate go run github.com/bufbuild/protocompile/internal/enum kind.yaml
+//go:generate go run github.com/trendvidia/protocompile/internal/enum kind.yaml

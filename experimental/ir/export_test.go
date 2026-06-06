@@ -14,7 +14,7 @@
 
 package ir
 
-import "github.com/bufbuild/protocompile/internal/arena"
+import "github.com/trendvidia/protocompile/internal/arena"
 
 // Exported symbols for test use only. Placing such symbols in a _test.go
 // file avoids them being exported "for real".

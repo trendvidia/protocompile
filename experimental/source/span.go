@@ -21,8 +21,8 @@ import (
 	"slices"
 	"unicode/utf8"
 
-	"github.com/bufbuild/protocompile/experimental/source/length"
-	"github.com/bufbuild/protocompile/internal/ext/iterx"
+	"github.com/trendvidia/protocompile/experimental/source/length"
+	"github.com/trendvidia/protocompile/internal/ext/iterx"
 )
 
 // Spanner is any type with a [Span].

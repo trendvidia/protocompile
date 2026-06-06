@@ -7,7 +7,7 @@ import (
 	"math"
 	"strings"
 
-	"github.com/bufbuild/protocompile/ast"
+	"github.com/trendvidia/protocompile/ast"
 )
 
 %}

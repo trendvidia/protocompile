@@ -18,8 +18,8 @@ import (
 	"cmp"
 	"slices"
 
-	"github.com/bufbuild/protocompile/experimental/ast"
-	"github.com/bufbuild/protocompile/experimental/token"
+	"github.com/trendvidia/protocompile/experimental/ast"
+	"github.com/trendvidia/protocompile/experimental/token"
 )
 
 type declSortRank int

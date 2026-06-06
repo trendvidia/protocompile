@@ -20,7 +20,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/bufbuild/protocompile/internal/testing/memory"
+	"github.com/trendvidia/protocompile/internal/testing/memory"
 )
 
 func TestMeasuringTapeMeasure(t *testing.T) {

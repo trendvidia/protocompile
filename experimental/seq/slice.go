@@ -17,7 +17,7 @@ package seq
 import (
 	"slices"
 
-	"github.com/bufbuild/protocompile/internal/ext/unsafex"
+	"github.com/trendvidia/protocompile/internal/ext/unsafex"
 )
 
 // TODO: Would this optimize better if Wrap/Unwrap was a single type parameter
