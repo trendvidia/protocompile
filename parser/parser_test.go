@@ -222,6 +222,73 @@ func TestFunctionDecl(t *testing.T) {
 	}
 }
 
+// TestAnnotationDecl verifies parsing of the `annotation Name(params...);`
+// declaration introduced by protowire v1.2 schema extensions (RFC-001 §5.1).
+//
+// Three forms are accepted:
+//
+//	annotation Name;                   // no parens, no params
+//	annotation Name();                 // empty parens
+//	annotation Name(p: T, q: U = ...); // one or more params with optional defaults
+//
+// Use sites (e.g., @validate(...)) attach in a later PR.
+func TestAnnotationDecl(t *testing.T) {
+	t.Parallel()
+	positive := map[string]string{
+		"no-parens":                        `syntax = "proto3"; annotation required;`,
+		"empty-parens":                     `syntax = "proto3"; annotation required();`,
+		"one-param-primitive":              `syntax = "proto3"; annotation description(text: string);`,
+		"one-param-with-default":           `syntax = "proto3"; annotation deprecated(reason: string = "");`,
+		"two-params-mixed-defaults":        `syntax = "proto3"; annotation http(method: string = "GET", path: string);`,
+		"expression-param-type":            `syntax = "proto3"; annotation validate(rule: expression, code: string = "", message: string = "");`,
+		"any-param-type":                   `syntax = "proto3"; annotation example(value: any);`,
+		"qualified-param-type":             `syntax = "proto3"; annotation typed(value: myco.commons.Address);`,
+		"int-default":                      `syntax = "proto3"; annotation min(value: int32 = 0);`,
+		"float-default":                    `syntax = "proto3"; annotation rate(value: double = 0.5);`,
+		"bool-default":                     `syntax = "proto3"; annotation enabled(value: bool = true);`,
+		"signed-int-default":               `syntax = "proto3"; annotation offset(value: int32 = -1);`,
+		"adjacent-to-other-decls":          `syntax = "proto3"; package foo; type Email = string; annotation validate(rule: expression); function f(x: string); message M {}`,
+		"contextual-kw-as-annotation-name": `syntax = "proto3"; annotation type();`,
+		"contextual-kw-as-param-name":      `syntax = "proto3"; annotation foo(type: string, function: bool, annotation: int32);`,
+		"contextual-kw-as-param-type":      `syntax = "proto3"; annotation foo(value: annotation);`,
+		"multiple-annotations":             `syntax = "proto3"; annotation a(); annotation b(x: string); annotation c;`,
+	}
+	for name, input := range positive {
+		t.Run("pos/"+name, func(t *testing.T) {
+			t.Parallel()
+			errHandler := reporter.NewHandler(nil)
+			fileNode, err := Parse(name+".proto", strings.NewReader(input), errHandler)
+			require.NoError(t, err, "input must parse without error")
+			result, err := ResultFromAST(fileNode, true, errHandler)
+			require.NoError(t, err, "AST must lower without error")
+			require.NotNil(t, result.FileDescriptorProto(), "descriptor must be produced")
+		})
+	}
+
+	negative := map[string]string{
+		"missing-name":             `syntax = "proto3"; annotation (text: string);`,
+		"missing-close-paren":      `syntax = "proto3"; annotation foo(text: string;`,
+		"missing-param-type":       `syntax = "proto3"; annotation foo(text:);`,
+		"missing-colon-in-param":   `syntax = "proto3"; annotation foo(text string);`,
+		"missing-default-after-eq": `syntax = "proto3"; annotation foo(text: string = );`,
+		"trailing-comma":           `syntax = "proto3"; annotation foo(text: string,);`,
+		"leading-comma":            `syntax = "proto3"; annotation foo(, text: string);`,
+		"missing-semicolon":        `syntax = "proto3"; annotation required`,
+		"missing-name-after-colon": `syntax = "proto3"; annotation foo(: string);`,
+	}
+	for name, input := range negative {
+		t.Run("neg/"+name, func(t *testing.T) {
+			t.Parallel()
+			errHandler := reporter.NewHandler(reporter.NewReporter(
+				func(_ reporter.ErrorWithPos) error { return nil },
+				nil,
+			))
+			_, err := Parse(name+".proto", strings.NewReader(input), errHandler)
+			require.Error(t, err, "malformed input should error")
+		})
+	}
+}
+
 type parseErrorTestCase struct {
 	Error   string
 	NoError string
