@@ -27,6 +27,7 @@ import (
 	"github.com/trendvidia/protocompile"
 	"github.com/trendvidia/protocompile/experimentalcompile"
 	_ "github.com/trendvidia/protocompile/experimentalcompile" // registers the experimental compile hook
+	"github.com/trendvidia/protocompile/linker"
 	"github.com/trendvidia/protocompile/protoutil"
 )
 
@@ -155,6 +156,78 @@ func TestRetainASTs_ExposesIRAndAST(t *testing.T) {
 
 	astFile := irFile.AST()
 	require.NotNil(t, astFile, "irFile.AST() should be non-nil")
+}
+
+// TestSymbols_NoSymbolsTableSucceeds is a guard against a regression
+// where threading the Symbols table through the experimental path
+// accidentally requires it to be non-nil. The default Compiler has
+// Symbols == nil and Compile must still succeed.
+func TestSymbols_NoSymbolsTableSucceeds(t *testing.T) {
+	t.Parallel()
+
+	c := protocompile.Compiler{
+		Resolver:              minimalResolver(),
+		UseExperimentalParser: true,
+	}
+	files, err := c.Compile(t.Context(), "hello.proto")
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+}
+
+// TestSymbols_ImportsCompiledFile asserts that when a Symbols table is
+// supplied, the experimental compile feeds each compiled file into
+// it. A second Compile call against the same Symbols table that
+// brings in a redefining file fails with a collision error.
+func TestSymbols_ImportsCompiledFile(t *testing.T) {
+	t.Parallel()
+
+	resolver := protocompile.ResolverFunc(func(path string) (protocompile.SearchResult, error) {
+		switch path {
+		case "a.proto":
+			return protocompile.SearchResult{
+				Source: io.NopCloser(strings.NewReader(`
+syntax = "proto3";
+package hello;
+message Greeting {
+  string text = 1;
+}
+`)),
+			}, nil
+		case "b.proto":
+			// Same package + same message name — should collide with
+			// a.proto when both are imported into a shared Symbols
+			// table.
+			return protocompile.SearchResult{
+				Source: io.NopCloser(strings.NewReader(`
+syntax = "proto3";
+package hello;
+message Greeting {
+  string text = 1;
+}
+`)),
+			}, nil
+		}
+		return protocompile.SearchResult{}, os.ErrNotExist
+	})
+
+	symbols := new(linker.Symbols)
+
+	c1 := protocompile.Compiler{
+		Resolver:              resolver,
+		UseExperimentalParser: true,
+		Symbols:               symbols,
+	}
+	files, err := c1.Compile(t.Context(), "a.proto")
+	require.NoError(t, err, "first compile should populate the shared symbol table")
+	require.Len(t, files, 1)
+
+	c2 := protocompile.Compiler{
+		Resolver:              resolver,
+		UseExperimentalParser: true,
+		Symbols:               symbols,
+	}
+	_, err = c2.Compile(t.Context(), "b.proto")
+	require.Error(t, err, "second compile defining hello.Greeting again must surface a collision")
 }
 
 // minimalResolver returns a Resolver that serves a tiny hello.proto

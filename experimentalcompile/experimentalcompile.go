@@ -58,6 +58,7 @@ import (
 	"github.com/trendvidia/protocompile/experimental/report"
 	"github.com/trendvidia/protocompile/experimental/source"
 	"github.com/trendvidia/protocompile/linker"
+	"github.com/trendvidia/protocompile/reporter"
 )
 
 func init() {
@@ -99,6 +100,17 @@ func Compile(ctx context.Context, c *protocompile.Compiler, files []string) (lin
 
 	fdpOpts := fdpOptionsFor(c.SourceInfoMode)
 
+	// Honor [protocompile.Compiler.Symbols]: when non-nil, each
+	// compiled file is imported into the shared symbol table so
+	// collisions across this Compile call and previous ones are
+	// reported. The reporter handler is reused across all Import
+	// calls so a single error report is consistent regardless of
+	// which file surfaced the collision.
+	var handler *reporter.Handler
+	if c.Symbols != nil {
+		handler = reporter.NewHandler(c.Reporter)
+	}
+
 	out := make(linker.Files, len(results))
 	for i, r := range results {
 		if r.Fatal != nil {
@@ -107,6 +119,11 @@ func Compile(ctx context.Context, c *protocompile.Compiler, files []string) (lin
 		lf, err := irFileToLinkerFile(r.Value, fdpOpts)
 		if err != nil {
 			return nil, fmt.Errorf("convert %s to linker.File: %w", files[i], err)
+		}
+		if c.Symbols != nil {
+			if err := c.Symbols.Import(lf, handler); err != nil {
+				return nil, fmt.Errorf("symbol collision in %s: %w", files[i], err)
+			}
 		}
 		// Honor [protocompile.Compiler.RetainASTs]: when set, the
 		// returned linker.File also implements [IRHolder] so callers
