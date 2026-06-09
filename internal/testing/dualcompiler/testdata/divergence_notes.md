@@ -9,20 +9,17 @@ update the entry here and re-run `TestSweep` to refresh `sweep.txt`.
 
 ### desc_test_defaults.proto
 
-Outstanding divergence: enum-alias rendering on field defaults.
-When a field's default is given as an enum alias (e.g.
-`[default = ZED]` where `ZED` is an alias for `ZERO`), the legacy
-compiler preserves the alias name in `default_value` (`"ZED"`). The
-experimental pipeline resolves to the primary enum-value name
-(`"ZERO"`). The legacy behaviour matches `protoc`; the experimental
-behaviour loses user-supplied information.
-
-Closed:
+Closed; the fixture now classifies as BOTH_OK_MATCH.
 
 - **Float-default precision.** Resolved by routing `float` fields
   through 32-bit `strconv.FormatFloat` so single-precision defaults
   render at float32 resolution (`3.14159`) instead of the
   float32→float64 round-trip mantissa (`3.141590118408203`).
+- **Enum-alias rendering on field defaults.** Resolved by having
+  the experimental fdp generator pull the original identifier from
+  `Value.ValueAST()` instead of `Member.Name()`. The default now
+  renders with the alias the user wrote (`"ZED"`) instead of the
+  primary enum-value name (`"ZERO"`).
 
 ### desc_test_complex.proto
 
