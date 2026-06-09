@@ -348,6 +348,65 @@ func (c *protoEncoder) decl(decl ast.DeclAny) *compilerpb.Decl {
 
 		return &compilerpb.Decl{Decl: &compilerpb.Decl_Def{Def: proto}}
 
+	case ast.DeclKindType:
+		decl := decl.AsType()
+		return &compilerpb.Decl{Decl: &compilerpb.Decl_TypeAlias_{TypeAlias: &compilerpb.Decl_TypeAlias{
+			Name:          decl.Name().Text(),
+			Value:         c.expr(decl.Value()),
+			Span:          c.span(decl),
+			KeywordSpan:   c.span(decl.KeywordToken()),
+			NameSpan:      c.span(decl.Name()),
+			EqualsSpan:    c.span(decl.Equals()),
+			SemicolonSpan: c.span(decl.Semicolon()),
+		}}}
+
+	case ast.DeclKindFunction:
+		decl := decl.AsFunction()
+		var params []*compilerpb.Decl_Function_Param
+		for p := range seq.Values(decl.Params()) {
+			params = append(params, &compilerpb.Decl_Function_Param{
+				Name:      p.Name().Text(),
+				Type:      c.type_(p.Type()),
+				Span:      c.span(p),
+				NameSpan:  c.span(p.Name()),
+				ColonSpan: c.span(p.Colon()),
+			})
+		}
+		return &compilerpb.Decl{Decl: &compilerpb.Decl_Function_{Function: &compilerpb.Decl_Function{
+			Name:          decl.Name().Text(),
+			Params:        params,
+			Options:       c.options(decl.Options()),
+			Span:          c.span(decl),
+			KeywordSpan:   c.span(decl.KeywordToken()),
+			NameSpan:      c.span(decl.Name()),
+			ParensSpan:    c.span(decl.Parens()),
+			SemicolonSpan: c.span(decl.Semicolon()),
+		}}}
+
+	case ast.DeclKindAnnotation:
+		decl := decl.AsAnnotation()
+		var params []*compilerpb.Decl_Annotation_Param
+		for p := range seq.Values(decl.Params()) {
+			params = append(params, &compilerpb.Decl_Annotation_Param{
+				Name:       p.Name().Text(),
+				Type:       c.type_(p.Type()),
+				Default:    c.expr(p.Default()),
+				Span:       c.span(p),
+				NameSpan:   c.span(p.Name()),
+				ColonSpan:  c.span(p.Colon()),
+				EqualsSpan: c.span(p.Equals()),
+			})
+		}
+		return &compilerpb.Decl{Decl: &compilerpb.Decl_Annotation_{Annotation: &compilerpb.Decl_Annotation{
+			Name:          decl.Name().Text(),
+			Params:        params,
+			Span:          c.span(decl),
+			KeywordSpan:   c.span(decl.KeywordToken()),
+			NameSpan:      c.span(decl.Name()),
+			ParensSpan:    c.span(decl.Parens()),
+			SemicolonSpan: c.span(decl.Semicolon()),
+		}}}
+
 	default:
 		panic(fmt.Sprintf("protocompile/ast: unknown DeclKind: %d", k))
 	}

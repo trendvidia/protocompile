@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+// `type` remains a valid identifier in non-top-level contexts.
+message M {
+  string type = 1;
+}
+
+message N {
+  oneof type {
+    string a = 1;
+    int32 b = 2;
+  }
+}

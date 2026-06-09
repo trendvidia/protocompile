@@ -1,0 +1,23 @@
+warning: missing `package` declaration
+ --> testdata/parser/decl_type/no_value.proto
+   = note: not explicitly specifying a package places the file in the unnamed
+           package; using it strongly is discouraged
+
+error: unexpected `;` in `type`
+  --> testdata/parser/decl_type/no_value.proto:3:7
+   |
+ 3 | type X;
+   |       ^ expected `=`
+   |
+  help: consider inserting a `=`
+   |
+ 3 | type X = ;
+   |       +++
+
+error: unexpected `;` in `type`
+  --> testdata/parser/decl_type/no_value.proto:4:10
+   |
+ 4 | type Y = ;
+   |          ^ expected expression
+
+encountered 2 errors and 1 warning

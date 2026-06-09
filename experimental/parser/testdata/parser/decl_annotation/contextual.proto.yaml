@@ -1,0 +1,11 @@
+decls:
+- syntax: { kind: KIND_SYNTAX, value.literal.string_value: "proto3" }
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "M" }]
+    body.decls:
+    - def:
+        kind: KIND_FIELD
+        name.components: [{ ident: "annotation" }]
+        type.path.components: [{ ident: "string" }]
+        value.literal.int_value: 1

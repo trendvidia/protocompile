@@ -1,0 +1,7 @@
+syntax = "proto3";
+
+package test;
+
+type Email = string;
+type Address = myco.commons.Address;
+type Age = int32;
