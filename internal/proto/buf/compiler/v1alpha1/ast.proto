@@ -162,6 +162,10 @@ message Decl {
   message TypeAlias {
     string name = 1;
     Expr value = 2;
+    // Annotation use sites attached to this declaration. For
+    // TypeAlias, annotations are emitted as trailing metadata in the
+    // source; the wire representation does not record the placement.
+    repeated AnnotationUse annotations = 3;
 
     Span span = 10;
     Span keyword_span = 11;
@@ -186,6 +190,7 @@ message Decl {
     string name = 1;
     repeated Param params = 2;
     Options options = 3;
+    repeated AnnotationUse annotations = 4;
 
     Span span = 10;
     Span keyword_span = 11;
@@ -212,6 +217,7 @@ message Decl {
 
     string name = 1;
     repeated Param params = 2;
+    repeated AnnotationUse annotations = 3;
 
     Span span = 10;
     Span keyword_span = 11;
@@ -220,6 +226,24 @@ message Decl {
     // entirely (e.g. `annotation required;`).
     Span parens_span = 13;
     Span semicolon_span = 14;
+  }
+
+  // An annotation use site introduced by the protowire v1.2 schema
+  // extensions (RFC-001): `@name(args)`.
+  //
+  // Use sites normally attach as leading metadata (on block decls) or
+  // trailing metadata (on type/function/annotation decls) and are
+  // serialized as part of the owning declaration. A top-level
+  // AnnotationUse appears here only when the parser recovers from an
+  // orphan `@name(args)` that did not bind to a following decl.
+  message AnnotationUse {
+    Path name = 1;
+    repeated Expr args = 2;
+
+    Span span = 10;
+    Span at_span = 11;
+    // parens_span is unset for the bare `@Name` form.
+    Span parens_span = 12;
   }
 
   oneof decl {
@@ -233,6 +257,7 @@ message Decl {
     TypeAlias type_alias = 8;
     Function function = 9;
     Annotation annotation = 10;
+    AnnotationUse annotation_use = 11;
   }
 }
 
@@ -285,6 +310,12 @@ message Def {
 
   // This is a braced body at the end of the definition.
   Decl.Body body = 7;
+
+  // Annotation use sites attached to this definition. For block
+  // definitions (message, enum, service, oneof, RPC) these appear as
+  // leading metadata in the source; for fields and enum values
+  // trailing-placement support lands in a follow-up PR.
+  repeated Decl.AnnotationUse annotations = 8;
 
   Span span = 10;
   Span keyword_span = 11;

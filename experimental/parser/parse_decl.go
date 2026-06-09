@@ -76,6 +76,10 @@ func parseDecl(p *parser, c *token.Cursor, in taxa.Noun) ast.DeclAny {
 		return p.NewDeclEmpty(first).AsAny()
 	}
 
+	if first.Keyword() == keyword.At {
+		return parseAnnotatedDecl(p, c, in)
+	}
+
 	// This is a bare declaration body.
 	if canStartBody(first) {
 		return parseBody(p, c.Next(), in).AsAny()

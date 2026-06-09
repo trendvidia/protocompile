@@ -1,0 +1,38 @@
+decls:
+- syntax: { kind: KIND_SYNTAX, value.literal.string_value: "proto3" }
+- package.path.components: [{ ident: "test" }]
+- type_alias:
+    name: "Email"
+    value.path.components: [{ ident: "string" }]
+    annotations: [{ name.components: [{ ident: "serializable" }] }]
+- type_alias:
+    name: "Address"
+    value.path.components:
+    - ident: "myco"
+    - { ident: "commons", separator: SEPARATOR_DOT }
+    - { ident: "Address", separator: SEPARATOR_DOT }
+    annotations:
+    - name.components: [{ ident: "inline" }]
+    - name.components: [{ ident: "public" }]
+- function:
+    name: "is_e164"
+    annotations: [{ name.components: [{ ident: "engine_builtin" }] }]
+- function:
+    name: "matches"
+    params:
+    - { name: "value", type.path.components: [{ ident: "string" }] }
+    - { name: "pattern", type.path.components: [{ ident: "string" }] }
+    annotations: [{ name.components: [{ ident: "stateless" }] }]
+- annotation:
+    name: "required"
+    annotations: [{ name.components: [{ ident: "core" }] }]
+- annotation:
+    name: "validate"
+    params:
+    - { name: "rule", type.path.components: [{ ident: "expression" }] }
+    - name: "code"
+      type.path.components: [{ ident: "string" }]
+      default.literal.string_value: ""
+    annotations:
+    - name.components: [{ ident: "core" }]
+    - name.components: [{ ident: "composable" }]

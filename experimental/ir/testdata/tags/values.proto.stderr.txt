@@ -19,7 +19,7 @@ error: unexpected tokens in enum definition
   --> testdata/tags/values.proto:37:11
    |
 37 |     M4 = a: 2;
-   |           ^^^ expected identifier, `;`, `.`, `(...)`, or `{...}`
+   |           ^^^ expected identifier, `;`, `.`, `@`, `(...)`, or `{...}`
 
 error: encountered more than one message field tag
   --> testdata/tags/values.proto:38:12

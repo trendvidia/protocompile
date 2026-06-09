@@ -21,7 +21,7 @@ error: unexpected tokens in message definition
 47 |     optional int32 m4 = a: 2;
    |                          ^^^
    |                          |
-   |                          expected identifier, `;`, `.`, `(...)`, or `{...}`
+   |                          expected identifier, `;`, `.`, `@`, `(...)`, or `{...}`
 
 error: encountered more than one message field tag
   --> testdata/tags/fields.proto:48:27

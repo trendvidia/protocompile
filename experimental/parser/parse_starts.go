@@ -23,12 +23,12 @@ import (
 
 var (
 	startsPath = taxa.NewSet(taxa.Ident, taxa.Noun(keyword.Parens), taxa.Noun(keyword.Dot))
-	startsDecl = startsPath.With(taxa.Noun(keyword.Braces), taxa.Noun(keyword.Semi))
+	startsDecl = startsPath.With(taxa.Noun(keyword.Braces), taxa.Noun(keyword.Semi), taxa.Noun(keyword.At))
 )
 
 func canStartDecl(tok token.Token) bool {
 	return canStartPath(tok) ||
-		slicesx.Among(tok.Keyword(), keyword.Semi, keyword.Braces)
+		slicesx.Among(tok.Keyword(), keyword.Semi, keyword.Braces, keyword.At)
 }
 
 // canStartPath returns whether or not tok can start a path.

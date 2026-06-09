@@ -18,6 +18,7 @@ import (
 	"github.com/trendvidia/protocompile/experimental/ast"
 	"github.com/trendvidia/protocompile/experimental/internal/errtoken"
 	"github.com/trendvidia/protocompile/experimental/internal/taxa"
+	"github.com/trendvidia/protocompile/experimental/seq"
 	"github.com/trendvidia/protocompile/experimental/token"
 	"github.com/trendvidia/protocompile/experimental/token/keyword"
 )
@@ -47,13 +48,17 @@ func parseTypeDecl(p *parser, c *token.Cursor, kw token.Token, name ast.Path) as
 		args.Value = parseExpr(p, c, in.In())
 	}
 
+	trailing := collectTrailingAnnotations(p, c, in)
+
 	semi, err := parseSemi(p, c, in)
 	args.Semicolon = semi
 	if err != nil && !args.Value.IsZero() {
 		p.Error(err)
 	}
 
-	return p.NewDeclType(args)
+	decl := p.NewDeclType(args)
+	attachAnnotations(decl.Annotations(), trailing)
+	return decl
 }
 
 // parseFunctionDecl parses a protowire v1.2 function-signature
@@ -83,6 +88,8 @@ func parseFunctionDecl(p *parser, c *token.Cursor, kw token.Token, name ast.Path
 
 	args.Options = tryParseOptions(p, c, in)
 
+	trailing := collectTrailingAnnotations(p, c, in)
+
 	semi, err := parseSemi(p, c, in)
 	args.Semicolon = semi
 	if err != nil {
@@ -95,6 +102,7 @@ func parseFunctionDecl(p *parser, c *token.Cursor, kw token.Token, name ast.Path
 		parseFunctionParams(p, args.Parens.Children(), decl, in)
 	}
 
+	attachAnnotations(decl.Annotations(), trailing)
 	return decl
 }
 
@@ -166,6 +174,8 @@ func parseAnnotationDecl(p *parser, c *token.Cursor, kw token.Token, name ast.Pa
 		args.Parens = c.Next()
 	}
 
+	trailing := collectTrailingAnnotations(p, c, in)
+
 	semi, err := parseSemi(p, c, in)
 	args.Semicolon = semi
 	if err != nil {
@@ -178,6 +188,7 @@ func parseAnnotationDecl(p *parser, c *token.Cursor, kw token.Token, name ast.Pa
 		parseAnnotationParams(p, args.Parens.Children(), decl, in)
 	}
 
+	attachAnnotations(decl.Annotations(), trailing)
 	return decl
 }
 
@@ -199,6 +210,160 @@ func parseAnnotationParams(p *parser, c *token.Cursor, decl ast.DeclAnnotation, 
 		},
 		start: canStartPath,
 	}.appendTo(decl.Params())
+}
+
+// parseAnnotationUse parses a single `@name(args)` annotation use site.
+//
+//	DeclAnnotationUse := `@` Path (`(` (Expr `,`?)* `)`)?
+//
+// The argument expressions are parsed via [parseExpr] and may use the
+// full CEL expression grammar. A legalize pass in a subsequent PR
+// rejects shapes outside the PR 5 narrow set.
+func parseAnnotationUse(p *parser, c *token.Cursor, in taxa.Noun) ast.DeclAnnotationUse {
+	at := c.Next()
+
+	args := ast.DeclAnnotationUseArgs{
+		At: at,
+	}
+
+	if !canStartPath(c.Peek()) {
+		p.Error(errtoken.Unexpected{
+			What:  c.Peek(),
+			Where: in.In(),
+			Want:  taxa.Ident.AsSet(),
+		})
+		return p.NewDeclAnnotationUse(args)
+	}
+
+	args.Name = parsePath(p, c)
+
+	if next := c.Peek(); next.Keyword() == keyword.Parens {
+		args.Parens = c.Next()
+	}
+
+	decl := p.NewDeclAnnotationUse(args)
+
+	if !args.Parens.IsZero() {
+		parseAnnotationUseArgs(p, args.Parens.Children(), decl, in)
+	}
+
+	return decl
+}
+
+// parseAnnotationUseArgs parses a comma-separated list of expression
+// arguments from inside an annotation use site's parens.
+func parseAnnotationUseArgs(p *parser, c *token.Cursor, decl ast.DeclAnnotationUse, in taxa.Noun) {
+	delimited[ast.ExprAny]{
+		p:    p,
+		c:    c,
+		what: taxa.Expr,
+		in:   in,
+
+		required: true,
+		exhaust:  true,
+		parse: func(c *token.Cursor) (ast.ExprAny, bool) {
+			e := parseExpr(p, c, in.In())
+			return e, !e.IsZero()
+		},
+		start: canStartExpr,
+	}.appendTo(decl.Args())
+}
+
+// collectLeadingAnnotations consumes a run of `@name(args)` use sites
+// from the cursor. Used by parseDecl to gather annotations that will
+// attach to the next declaration.
+func collectLeadingAnnotations(p *parser, c *token.Cursor, in taxa.Noun) []ast.DeclAnnotationUse {
+	var anns []ast.DeclAnnotationUse
+	for c.Peek().Keyword() == keyword.At {
+		ann := parseAnnotationUse(p, c, in)
+		if ann.IsZero() {
+			break
+		}
+		anns = append(anns, ann)
+	}
+	return anns
+}
+
+// collectTrailingAnnotations is the trailing-placement variant of
+// [collectLeadingAnnotations]. Called by parseTypeDecl, parseFunctionDecl,
+// and parseAnnotationDecl right before they consume the semicolon.
+func collectTrailingAnnotations(p *parser, c *token.Cursor, in taxa.Noun) []ast.DeclAnnotationUse {
+	return collectLeadingAnnotations(p, c, in)
+}
+
+// attachAnnotations appends each annotation in anns onto the target
+// seq. The annotations preserve source order.
+func attachAnnotations(target seq.Inserter[ast.DeclAnnotationUse], anns []ast.DeclAnnotationUse) {
+	for _, ann := range anns {
+		seq.Append(target, ann)
+	}
+}
+
+// attachLeadingAnnotations inserts leading annotations at the front of
+// the target seq, preserving their source order ahead of any trailing
+// annotations the inner decl parser already appended.
+func attachLeadingAnnotations(target seq.Inserter[ast.DeclAnnotationUse], anns []ast.DeclAnnotationUse) {
+	for i, ann := range anns {
+		target.Insert(i, ann)
+	}
+}
+
+// parseAnnotatedDecl handles the `@name(args) ... decl` form. On
+// entry the cursor is positioned at `@`. It collects every consecutive
+// `@name(args)` use site, then recursively parses the following
+// declaration and attaches them as leading metadata.
+//
+// If the run of annotations is not followed by a declaration (orphan
+// case), the first annotation is returned as a top-level [ast.DeclAny]
+// so the linker can diagnose it. The remaining orphan annotations are
+// dropped in this PR; richer recovery can land in a follow-up.
+func parseAnnotatedDecl(p *parser, c *token.Cursor, in taxa.Noun) ast.DeclAny {
+	anns := collectLeadingAnnotations(p, c, in)
+	if len(anns) == 0 {
+		return ast.DeclAny{}
+	}
+
+	next := c.Peek()
+	if next.IsZero() || next.Keyword() == keyword.Semi {
+		// No following decl: the annotation(s) are orphans. Emit the
+		// first as a top-level decl so the file has something to
+		// diagnose against. (Subsequent orphans are silently dropped
+		// for now.)
+		return anns[0].AsAny()
+	}
+
+	inner := parseDecl(p, c, in)
+	if inner.IsZero() {
+		return anns[0].AsAny()
+	}
+
+	target, ok := annotationsOf(inner)
+	if !ok {
+		// The inner decl kind does not carry annotations (e.g. syntax,
+		// package, import). The legalize layer will diagnose; for now
+		// just drop the orphans by returning the inner decl as-is.
+		return inner
+	}
+	attachLeadingAnnotations(target, anns)
+	return inner
+}
+
+// annotationsOf returns the Annotations seq for a decl that supports
+// annotation attachment, plus true. For decls that do not support
+// annotations it returns the zero seq and false.
+func annotationsOf(decl ast.DeclAny) (seq.Inserter[ast.DeclAnnotationUse], bool) {
+	switch decl.Kind() {
+	case ast.DeclKindDef:
+		return decl.AsDef().Annotations(), true
+	case ast.DeclKindType:
+		return decl.AsType().Annotations(), true
+	case ast.DeclKindFunction:
+		return decl.AsFunction().Annotations(), true
+	case ast.DeclKindAnnotation:
+		return decl.AsAnnotation().Annotations(), true
+	default:
+		return nil, false
+	}
 }
 
 func parseAnnotationParam(p *parser, c *token.Cursor, in taxa.Noun) ast.DeclAnnotationParam {

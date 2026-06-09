@@ -568,7 +568,7 @@ error: unexpected tokens in message definition
 23 |     M x { /* ... */ } = 1;
    |                       ^^^
    |                       |
-   |                       expected identifier, `;`, `.`, `(...)`, or `{...}`
+   |                       expected identifier, `;`, `.`, `@`, `(...)`, or `{...}`
 
 error: unexpected type name
   --> testdata/parser/def/ordering.proto:25:5
@@ -628,6 +628,6 @@ error: unexpected `[...]` in message definition
 26 |     M x { /* ... */ } [foo = bar];
    |                       ^^^^^^^^^^^
    |                        |
-   |                        expected identifier, `;`, `.`, `(...)`, or `{...}`
+   |                        expected identifier, `;`, `.`, `@`, `(...)`, or `{...}`
 
 encountered 74 errors

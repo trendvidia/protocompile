@@ -64,7 +64,7 @@ error: unexpected `:` in file scope
   --> testdata/parser/option/values.proto:24:14
    |
 24 | option x = <>:
-   |              ^ expected identifier, `;`, `.`, `(...)`, or `{...}`
+   |              ^ expected identifier, `;`, `.`, `@`, `(...)`, or `{...}`
 
 error: cannot use `<...>` for message expression here
   --> testdata/parser/option/values.proto:25:12
