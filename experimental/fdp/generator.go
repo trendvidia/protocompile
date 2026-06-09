@@ -428,7 +428,18 @@ func (g *generator) field(f ir.Member, fdp *descriptorpb.FieldDescriptorProto) {
 			case math.IsNaN(v):
 				fdp.DefaultValue = addr("nan") // Goodbye NaN payload. :(
 			default:
-				fdp.DefaultValue = addr(strconv.FormatFloat(v, 'g', -1, 64))
+				// Single-precision (`float`) fields render at float32
+				// resolution to match what `protoc` emits in
+				// default_value. The IR carries the value as a float64,
+				// but formatting at bitSize=64 surfaces the float32
+				// round-trip mantissa (3.141590118408203 from the
+				// source-text 3.14159), which diverges from protoc.
+				bitSize := 64
+				if f.Element().Predeclared() == predeclared.Float {
+					bitSize = 32
+					v = float64(float32(v))
+				}
+				fdp.DefaultValue = addr(strconv.FormatFloat(v, 'g', -1, bitSize))
 			}
 		} else if v, ok := d.AsString(); ok {
 			if f.Element().Predeclared() == predeclared.Bytes {
