@@ -37,12 +37,13 @@ import (
 type DeclFunction id.Node[DeclFunction, *File, *rawDeclFunction]
 
 type rawDeclFunction struct {
-	keyword token.ID
-	name    token.ID
-	parens  token.ID
-	params  []withComma[id.ID[DeclFunctionParam]]
-	options id.ID[CompactOptions]
-	semi    token.ID
+	annotations []id.ID[DeclAnnotationUse]
+	params      []withComma[id.ID[DeclFunctionParam]]
+	keyword     token.ID
+	name        token.ID
+	parens      token.ID
+	options     id.ID[CompactOptions]
+	semi        token.ID
 }
 
 // DeclFunctionArgs is arguments for [Nodes.NewDeclFunction].
@@ -122,6 +123,28 @@ func (d DeclFunction) Params() Commas[DeclFunctionParam] {
 			},
 		),
 	}
+}
+
+// Annotations returns this declaration's annotation use sites.
+//
+// For [DeclFunction], annotations attach as trailing metadata (between
+// the closing paren and the semicolon, after any compact options). The
+// seq is empty unless the parser has successfully attached at least one
+// annotation.
+func (d DeclFunction) Annotations() seq.Inserter[DeclAnnotationUse] {
+	if d.IsZero() {
+		return seq.EmptySliceInserter[DeclAnnotationUse, id.ID[DeclAnnotationUse]]()
+	}
+
+	return seq.NewSliceInserter(&d.Raw().annotations,
+		func(_ int, e id.ID[DeclAnnotationUse]) DeclAnnotationUse {
+			return id.Wrap(d.Context(), e)
+		},
+		func(_ int, a DeclAnnotationUse) id.ID[DeclAnnotationUse] {
+			d.Context().Nodes().panicIfNotOurs(a.Context())
+			return a.ID()
+		},
+	)
 }
 
 // Options returns the compact options list for this declaration.

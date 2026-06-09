@@ -167,6 +167,8 @@ func (f *File) FromID(id uint64, want any) any {
 		return f.decls.annotations.Deref(arena.Pointer[rawDeclAnnotation](id))
 	case **rawDeclAnnotationParam:
 		return f.decls.annotationParams.Deref(arena.Pointer[rawDeclAnnotationParam](id))
+	case **rawDeclAnnotationUse:
+		return f.decls.annotationUses.Deref(arena.Pointer[rawDeclAnnotationUse](id))
 
 	case **rawExprError:
 		return f.exprs.errors.Deref(arena.Pointer[rawExprError](id))

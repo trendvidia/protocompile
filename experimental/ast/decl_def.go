@@ -18,6 +18,7 @@ import (
 	"iter"
 
 	"github.com/trendvidia/protocompile/experimental/id"
+	"github.com/trendvidia/protocompile/experimental/seq"
 	"github.com/trendvidia/protocompile/experimental/source"
 	"github.com/trendvidia/protocompile/experimental/token"
 	"github.com/trendvidia/protocompile/experimental/token/keyword"
@@ -48,6 +49,8 @@ import (
 type DeclDef id.Node[DeclDef, *File, *rawDeclDef]
 
 type rawDeclDef struct {
+	annotations []id.ID[DeclAnnotationUse]
+
 	ty   id.Dyn[TypeAny, TypeKind] // Not present for enum fields.
 	name PathID
 
@@ -279,6 +282,31 @@ func (d DeclDef) Body() DeclBody {
 // SetBody sets the body for this definition.
 func (d DeclDef) SetBody(b DeclBody) {
 	d.Raw().body = b.ID()
+}
+
+// Annotations returns this definition's annotation use sites.
+//
+// For [DeclDef], annotations attach as leading metadata (before the
+// keyword and type) on block-shaped definitions like messages, enums,
+// services, oneofs, and methods. The seq is empty unless the parser
+// has successfully attached at least one annotation.
+//
+// Trailing-annotation placement on field and enum-value definitions
+// will land in a follow-up PR; for now those reuse the same slot.
+func (d DeclDef) Annotations() seq.Inserter[DeclAnnotationUse] {
+	if d.IsZero() {
+		return seq.EmptySliceInserter[DeclAnnotationUse, id.ID[DeclAnnotationUse]]()
+	}
+
+	return seq.NewSliceInserter(&d.Raw().annotations,
+		func(_ int, e id.ID[DeclAnnotationUse]) DeclAnnotationUse {
+			return id.Wrap(d.Context(), e)
+		},
+		func(_ int, a DeclAnnotationUse) id.ID[DeclAnnotationUse] {
+			d.Context().Nodes().panicIfNotOurs(a.Context())
+			return a.ID()
+		},
+	)
 }
 
 // Semicolon returns the ending semicolon token for this definition.
