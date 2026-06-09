@@ -62,7 +62,117 @@ func (p *printer) printDecl(decl ast.DeclAny, gap gapStyle) {
 		p.printBody(decl.AsBody())
 	case ast.DeclKindRange:
 		p.printRange(decl.AsRange(), gap)
+	case ast.DeclKindType:
+		p.printDeclType(decl.AsType(), gap)
+	case ast.DeclKindFunction:
+		p.printDeclFunction(decl.AsFunction(), gap)
+	case ast.DeclKindAnnotation:
+		p.printDeclAnnotation(decl.AsAnnotation(), gap)
+	case ast.DeclKindAnnotationUse:
+		p.printDeclAnnotationUse(decl.AsAnnotationUse(), gap)
 	}
+}
+
+// printTrailingAnnotations renders an annotation seq as trailing
+// metadata on a single-line decl. The seq is empty in the current
+// codebase (the parser does not yet emit annotation use sites), so
+// this is defensive — once A5b lands, it will render each `@name(args)`
+// after the decl's body.
+func (p *printer) printTrailingAnnotations(anns interface {
+	Len() int
+	At(int) ast.DeclAnnotationUse
+}) {
+	for i := range anns.Len() {
+		p.printDeclAnnotationUse(anns.At(i), gapSpace)
+	}
+}
+
+func (p *printer) printDeclType(decl ast.DeclType, gap gapStyle) {
+	p.printToken(decl.KeywordToken(), gap)
+	p.printToken(decl.Name(), gapSpace)
+	p.printToken(decl.Equals(), gapSpace)
+	p.printExpr(decl.Value(), gapSpace)
+	p.printTrailingAnnotations(decl.Annotations())
+	p.printToken(decl.Semicolon(), p.semiGap())
+}
+
+func (p *printer) printDeclFunction(decl ast.DeclFunction, gap gapStyle) {
+	p.printToken(decl.KeywordToken(), gap)
+	p.printToken(decl.Name(), gapSpace)
+	p.printFunctionParams(decl.Parens(), decl.Params())
+	p.printCompactOptions(decl.Options())
+	p.printTrailingAnnotations(decl.Annotations())
+	p.printToken(decl.Semicolon(), p.semiGap())
+}
+
+func (p *printer) printDeclAnnotation(decl ast.DeclAnnotation, gap gapStyle) {
+	p.printToken(decl.KeywordToken(), gap)
+	p.printToken(decl.Name(), gapSpace)
+	p.printAnnotationParams(decl.Parens(), decl.Params())
+	p.printTrailingAnnotations(decl.Annotations())
+	p.printToken(decl.Semicolon(), p.semiGap())
+}
+
+// printFunctionParams renders a `( name: type, ... )` parameter list.
+// parens is the fused paren token. params is the comma-separated
+// parameter sequence. Both may be zero/empty: an absent parens token
+// emits nothing; an empty params seq emits `()`.
+func (p *printer) printFunctionParams(parens token.Token, params ast.Commas[ast.DeclFunctionParam]) {
+	if parens.IsZero() {
+		return
+	}
+	openTok, closeTok := parens.StartEnd()
+	p.printToken(openTok, gapNone)
+	for i := range params.Len() {
+		if i > 0 {
+			p.printToken(params.Comma(i-1), gapNone)
+		}
+		gap := gapNone
+		if i > 0 {
+			gap = gapSpace
+		}
+		param := params.At(i)
+		p.printToken(param.Name(), gap)
+		p.printToken(param.Colon(), gapNone)
+		p.printType(param.Type(), gapSpace)
+	}
+	p.printToken(closeTok, gapNone)
+}
+
+// printAnnotationParams renders the optional `( name: type [= default], ... )`
+// list of an annotation declaration.
+func (p *printer) printAnnotationParams(parens token.Token, params ast.Commas[ast.DeclAnnotationParam]) {
+	if parens.IsZero() {
+		return
+	}
+	openTok, closeTok := parens.StartEnd()
+	p.printToken(openTok, gapNone)
+	for i := range params.Len() {
+		if i > 0 {
+			p.printToken(params.Comma(i-1), gapNone)
+		}
+		gap := gapNone
+		if i > 0 {
+			gap = gapSpace
+		}
+		param := params.At(i)
+		p.printToken(param.Name(), gap)
+		p.printToken(param.Colon(), gapNone)
+		p.printType(param.Type(), gapSpace)
+		if !param.Equals().IsZero() {
+			p.printToken(param.Equals(), gapSpace)
+			p.printExpr(param.Default(), gapSpace)
+		}
+	}
+	p.printToken(closeTok, gapNone)
+}
+
+func (p *printer) printDeclAnnotationUse(decl ast.DeclAnnotationUse, gap gapStyle) {
+	p.printToken(decl.At(), gap)
+	p.printPath(decl.Name(), gapNone)
+	// Parens is optional on annotation use sites (the bare `@Name`
+	// form). printToken is a no-op when the token is zero.
+	p.printToken(decl.Parens(), gapNone)
 }
 
 func (p *printer) printSyntax(decl ast.DeclSyntax, gap gapStyle) {
