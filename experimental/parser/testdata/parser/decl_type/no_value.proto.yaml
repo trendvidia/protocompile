@@ -1,0 +1,4 @@
+decls:
+- syntax: { kind: KIND_SYNTAX, value.literal.string_value: "proto3" }
+- type_alias.name: "X"
+- type_alias.name: "Y"

@@ -1,0 +1,8 @@
+syntax = "proto3";
+
+package test;
+
+annotation required;
+annotation description(text: string);
+annotation validate(rule: expression, code: string = "", message: string = "");
+annotation example(value: any);

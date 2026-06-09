@@ -1,0 +1,20 @@
+decls:
+- syntax: { kind: KIND_SYNTAX, value.literal.string_value: "proto3" }
+- package.path.components: [{ ident: "test" }]
+- function.name: "is_e164"
+- function:
+    name: "matches"
+    params:
+    - { name: "value", type.path.components: [{ ident: "string" }] }
+    - { name: "pattern", type.path.components: [{ ident: "string" }] }
+- function:
+    name: "valid_address"
+    params:
+    - name: "msg"
+      type.path.components:
+      - ident: "myco"
+      - { ident: "commons", separator: SEPARATOR_DOT }
+      - { ident: "Address", separator: SEPARATOR_DOT }
+    options.entries:
+    - path.components: [{ ident: "error_code" }]
+      value.literal.string_value: "common.address"

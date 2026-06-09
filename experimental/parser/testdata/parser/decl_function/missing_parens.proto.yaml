@@ -1,0 +1,7 @@
+decls:
+- syntax: { kind: KIND_SYNTAX, value.literal.string_value: "proto3" }
+- function.name: "foo"
+- function:
+    name: "bar"
+    options.entries:
+    - { path.components: [{ ident: "opt" }], value.literal.int_value: 1 }

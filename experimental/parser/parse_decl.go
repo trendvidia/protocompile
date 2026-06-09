@@ -268,6 +268,31 @@ func parseDecl(p *parser, c *token.Cursor, in taxa.Noun) ast.DeclAny {
 		// expression.
 		c.Rewind(mark)
 		return parseRange(p, c).AsAny()
+
+	case keyword.Type:
+		// Protowire v1.2 schema extension (RFC-001). Type declarations are
+		// only parsed at the top level; everywhere else `type` is a
+		// contextual identifier and falls through to defParser.
+		if in != taxa.TopLevel {
+			break
+		}
+		return parseTypeDecl(p, c, kw, path).AsAny()
+
+	case keyword.Function:
+		// Protowire v1.2 schema extension (RFC-001). Same contextual-keyword
+		// rules as `type`.
+		if in != taxa.TopLevel {
+			break
+		}
+		return parseFunctionDecl(p, c, kw, path).AsAny()
+
+	case keyword.Annotation:
+		// Protowire v1.2 schema extension (RFC-001). Same contextual-keyword
+		// rules as `type`.
+		if in != taxa.TopLevel {
+			break
+		}
+		return parseAnnotationDecl(p, c, kw, path).AsAny()
 	}
 
 	def := &defParser{

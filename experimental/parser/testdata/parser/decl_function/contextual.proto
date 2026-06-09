@@ -1,0 +1,6 @@
+syntax = "proto3";
+
+// `function` remains a valid identifier in non-top-level contexts.
+message M {
+  string function = 1;
+}

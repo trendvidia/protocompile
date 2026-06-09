@@ -1,0 +1,18 @@
+warning: missing `package` declaration
+ --> testdata/parser/decl_function/missing_parens.proto
+   = note: not explicitly specifying a package places the file in the unnamed
+           package; using it strongly is discouraged
+
+error: unexpected `;` in `function`
+  --> testdata/parser/decl_function/missing_parens.proto:3:13
+   |
+ 3 | function foo;
+   |             ^ expected `(...)`
+
+error: unexpected `[...]` in `function`
+  --> testdata/parser/decl_function/missing_parens.proto:4:14
+   |
+ 4 | function bar [opt = 1];
+   |              ^^^^^^^^^ expected `(...)`
+
+encountered 2 errors and 1 warning

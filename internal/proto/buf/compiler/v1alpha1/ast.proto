@@ -157,6 +157,71 @@ message Decl {
     Span semicolon_span = 12;
   }
 
+  // A type-alias declaration introduced by the protowire v1.2 schema
+  // extensions (RFC-001): `type Name = Expr;`.
+  message TypeAlias {
+    string name = 1;
+    Expr value = 2;
+
+    Span span = 10;
+    Span keyword_span = 11;
+    Span name_span = 12;
+    Span equals_span = 13;
+    Span semicolon_span = 14;
+  }
+
+  // A function-signature declaration introduced by the protowire v1.2
+  // schema extensions (RFC-001): `function name(params) [opts];`.
+  message Function {
+    // A single parameter: `name: type`.
+    message Param {
+      string name = 1;
+      Type type = 2;
+
+      Span span = 10;
+      Span name_span = 11;
+      Span colon_span = 12;
+    }
+
+    string name = 1;
+    repeated Param params = 2;
+    Options options = 3;
+
+    Span span = 10;
+    Span keyword_span = 11;
+    Span name_span = 12;
+    Span parens_span = 13;
+    Span semicolon_span = 14;
+  }
+
+  // An annotation declaration introduced by the protowire v1.2 schema
+  // extensions (RFC-001): `annotation Name;` or
+  // `annotation Name(params);`.
+  message Annotation {
+    // A single parameter: `name: type` with an optional default value.
+    message Param {
+      string name = 1;
+      Type type = 2;
+      Expr default = 3;
+
+      Span span = 10;
+      Span name_span = 11;
+      Span colon_span = 12;
+      Span equals_span = 13;
+    }
+
+    string name = 1;
+    repeated Param params = 2;
+
+    Span span = 10;
+    Span keyword_span = 11;
+    Span name_span = 12;
+    // parens_span is unset when the source omitted the parameter list
+    // entirely (e.g. `annotation required;`).
+    Span parens_span = 13;
+    Span semicolon_span = 14;
+  }
+
   oneof decl {
     Empty empty = 1;
     Syntax syntax = 2;
@@ -165,6 +230,9 @@ message Decl {
     Def def = 5;
     Body body = 6;
     Range range = 7;
+    TypeAlias type_alias = 8;
+    Function function = 9;
+    Annotation annotation = 10;
   }
 }
 
