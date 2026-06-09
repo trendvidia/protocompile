@@ -122,10 +122,14 @@ type Compiler struct {
 	// The opt-in is intentionally narrow today: equivalence with the
 	// legacy pipeline is tracked in
 	// internal/testing/dualcompiler/testdata/sweep.txt and currently
-	// holds for 13 of 14 BOTH_OK fixtures.
-	// SourceInfoMode is not honored, RetainASTs is implicit, and
-	// Symbols is not consulted — these gaps are tracked alongside the
-	// divergence notes.
+	// holds for 13 of 14 BOTH_OK fixtures. SourceInfoMode is honored
+	// (the experimental fdp layer maps SourceInfoStandard onto
+	// IncludeSourceCodeInfo(true) and the ExtraOptionLocations bit
+	// onto GenerateExtraOptionLocations(true)); RetainASTs is
+	// implicit (the experimental AST is retained by its arena); and
+	// Symbols is not consulted (the experimental IR builds its own
+	// symbol table per session). These remaining gaps are tracked
+	// alongside the divergence notes.
 	UseExperimentalParser bool
 }
 

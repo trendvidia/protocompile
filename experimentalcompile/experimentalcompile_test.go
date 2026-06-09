@@ -22,9 +22,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/descriptorpb"
 
 	"github.com/trendvidia/protocompile"
 	_ "github.com/trendvidia/protocompile/experimentalcompile" // registers the experimental compile hook
+	"github.com/trendvidia/protocompile/protoutil"
 )
 
 // TestUseExperimentalParser_RoutesThroughExperimental confirms that the
@@ -91,4 +93,51 @@ func TestUseExperimentalParser_DefaultUsesLegacy(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, files, 1)
 	assert.Equal(t, "ok.proto", files[0].Path())
+}
+
+// TestSourceInfoMode_OffByDefault confirms that when SourceInfoMode is
+// SourceInfoNone (the zero value), the descriptor has no SourceCodeInfo.
+func TestSourceInfoMode_OffByDefault(t *testing.T) {
+	t.Parallel()
+	fdp := compileForSourceInfo(t, protocompile.SourceInfoNone)
+	assert.Nil(t, fdp.SourceCodeInfo)
+}
+
+// TestSourceInfoMode_Standard confirms that requesting SourceInfoStandard
+// causes the descriptor to carry SourceCodeInfo populated by the
+// experimental pipeline.
+func TestSourceInfoMode_Standard(t *testing.T) {
+	t.Parallel()
+	fdp := compileForSourceInfo(t, protocompile.SourceInfoStandard)
+	require.NotNil(t, fdp.SourceCodeInfo)
+	assert.NotEmpty(t, fdp.SourceCodeInfo.Location)
+}
+
+func compileForSourceInfo(t *testing.T, mode protocompile.SourceInfoMode) *descriptorpb.FileDescriptorProto {
+	t.Helper()
+	resolver := protocompile.ResolverFunc(func(path string) (protocompile.SearchResult, error) {
+		if path == "hello.proto" {
+			return protocompile.SearchResult{
+				Source: io.NopCloser(strings.NewReader(`syntax = "proto3";
+package hello;
+// A friendly greeting.
+message Greeting {
+  string text = 1;
+}
+`)),
+			}, nil
+		}
+		return protocompile.SearchResult{}, os.ErrNotExist
+	})
+
+	c := protocompile.Compiler{
+		Resolver:              resolver,
+		UseExperimentalParser: true,
+		SourceInfoMode:        mode,
+	}
+
+	files, err := c.Compile(t.Context(), "hello.proto")
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	return protoutil.ProtoFromFileDescriptor(files[0])
 }
