@@ -13,25 +13,25 @@
 
 ## Summary
 total: 21
-BOTH_OK_MATCH:  10
-BOTH_OK_DIFFER: 4
+BOTH_OK_MATCH:  13
+BOTH_OK_DIFFER: 1
 NEW_FAIL:       3
 BOTH_FAIL:      4
 
 ## Per-fixture
 internal/testdata/desc_test1.proto BOTH_OK_MATCH
 internal/testdata/desc_test2.proto BOTH_OK_MATCH
-internal/testdata/desc_test_comments.proto BOTH_OK_DIFFER | 18-/21+ lines; first field: "@type"
-internal/testdata/desc_test_complex.proto BOTH_OK_DIFFER | 20-/43+ lines; first field: "enum_type"
+internal/testdata/desc_test_comments.proto BOTH_OK_MATCH
+internal/testdata/desc_test_complex.proto BOTH_OK_MATCH
 internal/testdata/desc_test_defaults.proto BOTH_OK_MATCH
 internal/testdata/desc_test_field_types.proto BOTH_OK_MATCH
-internal/testdata/desc_test_options.proto BOTH_OK_DIFFER | 1-/1+ lines; first field: "message_type"
+internal/testdata/desc_test_options.proto BOTH_OK_MATCH
 internal/testdata/desc_test_proto3.proto BOTH_OK_MATCH
 internal/testdata/desc_test_proto3_optional.proto BOTH_OK_MATCH
 internal/testdata/desc_test_wellknowntypes.proto BOTH_OK_MATCH
 internal/testdata/nopkg/desc_test_nopkg.proto BOTH_OK_MATCH
 internal/testdata/nopkg/desc_test_nopkg_new.proto BOTH_OK_MATCH
-internal/testdata/options/options.proto BOTH_OK_DIFFER | 3-/12+ lines; first field: "message_type"
+internal/testdata/options/options.proto BOTH_OK_DIFFER | 1-/1+ lines; first field: "message_type"
 internal/testdata/options/test.proto NEW_FAIL | { cannot find message field `bar` in `google.protobuf.EnumOptions` 2 20 [{{<ptr> 8774 8777} because of this field selector true false []}] [] [] []}
 internal/testdata/options/test_editions.proto NEW_FAIL | { mismatched types 2 20 [{{<ptr> 205 208} expected `Foo` field, found `Foo.Bar` true false []} {{<ptr> 168 193} expected due to this false false []}] [expected: `Foo` field found: message type `Foo.Ba...
 internal/testdata/options/test_proto3.proto NEW_FAIL | { cannot find message field `bar` in `google.protobuf.EnumOptions` 2 20 [{{<ptr> 9601 9604} because of this field selector true false []}] [] [] []}

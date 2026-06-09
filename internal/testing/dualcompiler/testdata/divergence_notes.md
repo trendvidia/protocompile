@@ -21,61 +21,45 @@ Closed; the fixture now classifies as BOTH_OK_MATCH.
   renders with the alias the user wrote (`"ZED"`) instead of the
   primary enum-value name (`"ZERO"`).
 
-### desc_test_complex.proto, desc_test_options.proto, desc_test_comments.proto, options/options.proto
+### desc_test_complex.proto, desc_test_options.proto, desc_test_comments.proto
 
-All four remaining `BOTH_OK_DIFFER` fixtures share a root cause: the
-experimental `fdp` generator serialises every options message
-(FileOptions, MessageOptions, etc.) into a single `SetUnknown` call
-at `experimental/fdp/generator.go:options()`, instead of populating
-the destination proto's typed fields. The wire bytes encode the same
-semantic content, but the in-memory representation differs:
+Closed; all three now classify as `BOTH_OK_MATCH`.
 
-- The legacy adapter returns a `*FileDescriptorProto` with typed
-  fields and typed extensions populated, because it pulls the proto
-  from a linked `linker.File` whose own extension types are
-  registered.
-- The experimental adapter returns a `*FileDescriptorProto` whose
-  `Options` blocks are one big lump of unknown wire bytes. After a
-  `proto.Marshal` + `proto.Unmarshal` round-trip, standard fields
-  like `go_package` come back typed because the global resolver
-  knows about them, but extensions like `[testprotos.flfubar]` come
-  back as raw fields because plain `Unmarshal` has no resolver for
-  extensions declared in the file being compiled.
+The root cause was that the experimental `fdp` generator serialises
+every options message into a single `SetUnknown` blob at
+`experimental/fdp/generator.go:options()`, so extensions defined in
+the file being compiled (or its imports) came back as raw fields
+after the new adapter's `proto.Marshal` / `proto.Unmarshal` round-
+trip — plain `Unmarshal` has no resolver for file-local extensions.
+Resolved by giving the new adapter a `dynamicpb.NewTypes` resolver
+seeded with the file and its transitive imports, so the second
+unmarshal pass restores typed extensions. The legacy adapter already
+had this for free because it returns the proto from a linked
+`linker.File` whose own extension types are registered.
 
-Three of the four fixtures (`desc_test_options.proto`,
-`desc_test_comments.proto`, `options/options.proto`) have byte-
-identical lengths between the two pipelines, but the bytes themselves
-differ — strong evidence that the divergence is in field encoding
-order, not content. `desc_test_complex.proto` has an 8-byte length
-difference (6469 legacy vs 6461 experimental), suggesting one
-extension option is serialised slightly differently.
+### options/options.proto
 
-`TestDiffInspect` prints both a structural `cmp.Diff` and
-`byte-match=` / `proto-equal=` flags so the reader can distinguish
-wire-byte order quirks from real semantic divergence. All four
-fixtures show `proto-equal=false`, so each is a genuine divergence —
-but closing them likely requires rewriting the fdp generator's
-`options()` helper to populate typed fields and extensions instead
-of relying on `SetUnknown`. That is its own architectural change,
-not a small fix.
-
-The naive workaround (skip the bytes round-trip in the new adapter
-and return `fdp.DescriptorProto` directly) makes things worse,
-because the in-memory proto still has every option field as unknown
-bytes; even standard `go_package` (field 11 of FileOptions) comes
-back as `"11": RawFields(...)`.
-
-A trimmed `desc_test_complex.proto` inspect run (the
-extension-range-options excerpt) shows the structural shape:
+Outstanding, but the divergence has shrunk to a single Any-value
+field order:
 
 ```
-+ "20000":           protoreflect.RawFields{0x82, 0xe2, 0x09, 0x04, 0x6a, 0x61, 0x7a, 0x7a},
-  "@type":           s"google.protobuf.ExtensionRangeOptions",
-- "[foo.bar.label]": string("jazz"),
+"[bufbuild.protocompile.test.any]": protocmp.Message{
+  "@type":    s"google.protobuf.Any",
+  "type_url": string("type.googleapis.com/...AllTypes"),
+  "value": []uint8{
+-   0x82, 0x01, 0x03, 0x66, 0x6f, 0x6f, 0xca, 0x02, 0x04, 0x00, 0x01, 0x02, 0x03,
++   0xca, 0x02, 0x04, 0x00, 0x01, 0x02, 0x03, 0x82, 0x01, 0x03, 0x66, 0x6f, 0x6f,
+  },
+},
 ```
 
-Same `"jazz"` payload either way; the only difference is whether
-protocmp sees it as a typed extension or a raw field.
+Same wire content, fields encoded in a different order inside the
+Any's opaque `value` bytes (legacy emits field 16 then field 41;
+experimental emits 41 then 16). Both are valid proto3 wire format;
+neither matches a normative canonical order. Closing this fixture
+either requires the experimental `ir`/`fdp` to emit fields in
+source-declaration order (as the legacy seems to) or accepting this
+as a permanent wire-canonical divergence inside Any values.
 
 ## NEW_FAIL
 
