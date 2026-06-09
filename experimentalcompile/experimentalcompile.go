@@ -97,12 +97,14 @@ func Compile(ctx context.Context, c *protocompile.Compiler, files []string) (lin
 		}
 	}
 
+	fdpOpts := fdpOptionsFor(c.SourceInfoMode)
+
 	out := make(linker.Files, len(results))
 	for i, r := range results {
 		if r.Fatal != nil {
 			return nil, fmt.Errorf("compilation failed for %s: %w", files[i], r.Fatal)
 		}
-		lf, err := irFileToLinkerFile(r.Value)
+		lf, err := irFileToLinkerFile(r.Value, fdpOpts)
 		if err != nil {
 			return nil, fmt.Errorf("convert %s to linker.File: %w", files[i], err)
 		}
@@ -111,15 +113,43 @@ func Compile(ctx context.Context, c *protocompile.Compiler, files []string) (lin
 	return out, nil
 }
 
+// fdpOptionsFor maps a [protocompile.SourceInfoMode] to the
+// corresponding set of [fdp.DescriptorOption]s.
+//
+// The legacy mode is a bit-flag enum; the experimental fdp layer
+// exposes two flags: IncludeSourceCodeInfo (whether to emit
+// SourceCodeInfo at all) and GenerateExtraOptionLocations (whether to
+// emit additional locations for fields inside message-literal
+// option values). [protocompile.SourceInfoExtraComments] (mode 2) has
+// no direct fdp equivalent today and is silently treated the same as
+// SourceInfoStandard — the experimental IR emits its own
+// comment-tracking shape, and refining the mapping is a follow-up.
+func fdpOptionsFor(mode protocompile.SourceInfoMode) []fdp.DescriptorOption {
+	if mode == protocompile.SourceInfoNone {
+		return nil
+	}
+	opts := []fdp.DescriptorOption{fdp.IncludeSourceCodeInfo(true)}
+	if mode&protocompile.SourceInfoExtraOptionLocations != 0 {
+		opts = append(opts, fdp.GenerateExtraOptionLocations(true))
+	}
+	return opts
+}
+
 // irFileToLinkerFile converts an *ir.File into a linker.File by
 // generating its FileDescriptorProto, building a protoreflect
 // descriptor, and wrapping it via linker.NewFileRecursive.
-func irFileToLinkerFile(file *ir.File) (linker.File, error) {
+//
+// fdpOpts are forwarded to the fdp generator on both the top file and
+// each transitive dependency. The same opts are passed downward so a
+// caller asking for source-code info on the top file also gets it on
+// the imports — this matches what the legacy compiler does (sourceinfo
+// is keyed off the Compiler-level flag, not per-file).
+func irFileToLinkerFile(file *ir.File, fdpOpts []fdp.DescriptorOption) (linker.File, error) {
 	if file == nil {
 		return nil, errors.New("nil ir.File")
 	}
 
-	registry, topProto, err := buildExperimentalRegistry(file)
+	registry, topProto, err := buildExperimentalRegistry(file, fdpOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +157,7 @@ func irFileToLinkerFile(file *ir.File) (linker.File, error) {
 	// Round-trip the top-level FDP through the dynamicpb resolver so
 	// extensions defined in this file (or its transitive imports)
 	// surface as typed fields rather than unknown wire bytes.
-	rawBytes, err := fdp.DescriptorProtoBytes(file)
+	rawBytes, err := fdp.DescriptorProtoBytes(file, fdpOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -150,8 +180,10 @@ func irFileToLinkerFile(file *ir.File) (linker.File, error) {
 
 // buildExperimentalRegistry collects the file and its transitive
 // imports into a *protoregistry.Files. Returns the registry and the
-// top-level file's freshly generated FileDescriptorProto.
-func buildExperimentalRegistry(top *ir.File) (*protoregistry.Files, *descriptorpb.FileDescriptorProto, error) {
+// top-level file's freshly generated FileDescriptorProto. The same
+// fdpOpts are passed to every fdp.DescriptorProto call so dependencies
+// pick up sourceinfo when the top-level file does.
+func buildExperimentalRegistry(top *ir.File, fdpOpts []fdp.DescriptorOption) (*protoregistry.Files, *descriptorpb.FileDescriptorProto, error) {
 	files := new(protoregistry.Files)
 
 	var topProto *descriptorpb.FileDescriptorProto
@@ -175,7 +207,7 @@ func buildExperimentalRegistry(top *ir.File) (*protoregistry.Files, *descriptorp
 			return nil
 		}
 
-		dep, err := fdp.DescriptorProto(irFile)
+		dep, err := fdp.DescriptorProto(irFile, fdpOpts...)
 		if err != nil || dep == nil {
 			return err
 		}
