@@ -414,7 +414,16 @@ func (g *generator) field(f ir.Member, fdp *descriptorpb.FieldDescriptorProto) {
 		if v, ok := d.AsBool(); ok {
 			fdp.DefaultValue = addr(strconv.FormatBool(v))
 		} else if v := d.AsEnum(); !v.IsZero() {
-			fdp.DefaultValue = addr(v.Name())
+			// Prefer the identifier the user wrote so an alias default
+			// (e.g. `[default = ZED]` where `ZED` aliases `ZERO`)
+			// renders with the alias name. v.Name() always returns the
+			// primary enum value name; the legacy compiler and protoc
+			// both preserve the user-supplied spelling.
+			name := v.Name()
+			if ident := d.ValueAST().AsPath().AsIdent(); !ident.IsZero() {
+				name = ident.Name()
+			}
+			fdp.DefaultValue = addr(name)
 		} else if v, ok := d.AsInt(); ok {
 			fdp.DefaultValue = addr(strconv.FormatInt(v, 10))
 		} else if v, ok := d.AsUInt(); ok {

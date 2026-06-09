@@ -13,8 +13,8 @@
 
 ## Summary
 total: 21
-BOTH_OK_MATCH:  9
-BOTH_OK_DIFFER: 5
+BOTH_OK_MATCH:  10
+BOTH_OK_DIFFER: 4
 NEW_FAIL:       3
 BOTH_FAIL:      4
 
@@ -23,7 +23,7 @@ internal/testdata/desc_test1.proto BOTH_OK_MATCH
 internal/testdata/desc_test2.proto BOTH_OK_MATCH
 internal/testdata/desc_test_comments.proto BOTH_OK_DIFFER | 18-/21+ lines; first field: "@type"
 internal/testdata/desc_test_complex.proto BOTH_OK_DIFFER | 20-/43+ lines; first field: "enum_type"
-internal/testdata/desc_test_defaults.proto BOTH_OK_DIFFER | 2-/2+ lines; first field: "@type"
+internal/testdata/desc_test_defaults.proto BOTH_OK_MATCH
 internal/testdata/desc_test_field_types.proto BOTH_OK_MATCH
 internal/testdata/desc_test_options.proto BOTH_OK_DIFFER | 1-/1+ lines; first field: "message_type"
 internal/testdata/desc_test_proto3.proto BOTH_OK_MATCH
