@@ -119,18 +119,20 @@ type Compiler struct {
 	// Without that import, setting this flag returns an error from
 	// [Compile] pointing to the missing registration.
 	//
-	// The opt-in is intentionally narrow today: equivalence with the
-	// legacy pipeline is tracked in
+	// Equivalence with the legacy pipeline is tracked in
 	// internal/testing/dualcompiler/testdata/sweep.txt and currently
-	// holds for 13 of 14 BOTH_OK fixtures. SourceInfoMode is honored
-	// (the experimental fdp layer maps SourceInfoStandard onto
-	// IncludeSourceCodeInfo(true) and the ExtraOptionLocations bit
-	// onto GenerateExtraOptionLocations(true)); RetainASTs is honored
-	// via the [experimentalcompile.IRHolder] interface (a callable
-	// type assertion exposes the experimental IR and AST). Symbols is
-	// not consulted (the experimental IR builds its own symbol table
-	// per session). This last gap is tracked alongside the
-	// divergence notes.
+	// holds for 13 of 14 BOTH_OK fixtures. Three legacy Compiler
+	// fields are honored on the experimental path:
+	//
+	//   - SourceInfoMode: maps onto fdp.IncludeSourceCodeInfo and
+	//     fdp.GenerateExtraOptionLocations.
+	//   - RetainASTs: when set, the returned linker.File also
+	//     satisfies [experimentalcompile.IRHolder], so callers can
+	//     recover the experimental IR (and through it the AST) via a
+	//     type assertion.
+	//   - Symbols: each compiled file is fed into the shared symbol
+	//     table; redefinitions across Compile calls surface as
+	//     collision errors.
 	UseExperimentalParser bool
 }
 
