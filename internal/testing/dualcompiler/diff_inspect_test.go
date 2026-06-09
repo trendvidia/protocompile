@@ -15,12 +15,14 @@
 package dualcompiler_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/testing/protocmp"
 
 	"github.com/trendvidia/protocompile"
@@ -81,6 +83,14 @@ func TestDiffInspect(t *testing.T) {
 		if diff := cmp.Diff(oldClone, newClone, protocmp.Transform()); diff != "" {
 			fmt.Printf("=== %s ===\n%s\n", oldRes.Files()[i].Path(), diff)
 		}
+
+		oldBytes, _ := proto.Marshal(oldClone)
+		newBytes, _ := proto.Marshal(newClone)
+		fmt.Printf("=== %s: marshaled bytes old=%d new=%d byte-match=%v proto-equal=%v ===\n",
+			oldRes.Files()[i].Path(),
+			len(oldBytes), len(newBytes),
+			bytes.Equal(oldBytes, newBytes),
+			proto.Equal(oldClone, newClone))
 	}
 }
 

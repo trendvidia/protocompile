@@ -21,24 +21,61 @@ Closed; the fixture now classifies as BOTH_OK_MATCH.
   renders with the alias the user wrote (`"ZED"`) instead of the
   primary enum-value name (`"ZERO"`).
 
-### desc_test_complex.proto
+### desc_test_complex.proto, desc_test_options.proto, desc_test_comments.proto, options/options.proto
 
-Larger diff (20-/43+ lines), first field is `enum_type`. Not yet
-inspected in detail.
+All four remaining `BOTH_OK_DIFFER` fixtures share a root cause: the
+experimental `fdp` generator serialises every options message
+(FileOptions, MessageOptions, etc.) into a single `SetUnknown` call
+at `experimental/fdp/generator.go:options()`, instead of populating
+the destination proto's typed fields. The wire bytes encode the same
+semantic content, but the in-memory representation differs:
 
-### desc_test_options.proto
+- The legacy adapter returns a `*FileDescriptorProto` with typed
+  fields and typed extensions populated, because it pulls the proto
+  from a linked `linker.File` whose own extension types are
+  registered.
+- The experimental adapter returns a `*FileDescriptorProto` whose
+  `Options` blocks are one big lump of unknown wire bytes. After a
+  `proto.Marshal` + `proto.Unmarshal` round-trip, standard fields
+  like `go_package` come back typed because the global resolver
+  knows about them, but extensions like `[testprotos.flfubar]` come
+  back as raw fields because plain `Unmarshal` has no resolver for
+  extensions declared in the file being compiled.
 
-Small diff (1-/1+ lines), first field is `message_type`. Not yet
-inspected.
+Three of the four fixtures (`desc_test_options.proto`,
+`desc_test_comments.proto`, `options/options.proto`) have byte-
+identical lengths between the two pipelines, but the bytes themselves
+differ — strong evidence that the divergence is in field encoding
+order, not content. `desc_test_complex.proto` has an 8-byte length
+difference (6469 legacy vs 6461 experimental), suggesting one
+extension option is serialised slightly differently.
 
-### desc_test_comments.proto
+`TestDiffInspect` prints both a structural `cmp.Diff` and
+`byte-match=` / `proto-equal=` flags so the reader can distinguish
+wire-byte order quirks from real semantic divergence. All four
+fixtures show `proto-equal=false`, so each is a genuine divergence —
+but closing them likely requires rewriting the fdp generator's
+`options()` helper to populate typed fields and extensions instead
+of relying on `SetUnknown`. That is its own architectural change,
+not a small fix.
 
-18-/21+ line diff, first field is `@type`. Likely related to either
-the float-default or enum-default divergences above; not confirmed.
+The naive workaround (skip the bytes round-trip in the new adapter
+and return `fdp.DescriptorProto` directly) makes things worse,
+because the in-memory proto still has every option field as unknown
+bytes; even standard `go_package` (field 11 of FileOptions) comes
+back as `"11": RawFields(...)`.
 
-### options/options.proto
+A trimmed `desc_test_complex.proto` inspect run (the
+extension-range-options excerpt) shows the structural shape:
 
-3-/12+ line diff, first field is `message_type`. Not yet inspected.
+```
++ "20000":           protoreflect.RawFields{0x82, 0xe2, 0x09, 0x04, 0x6a, 0x61, 0x7a, 0x7a},
+  "@type":           s"google.protobuf.ExtensionRangeOptions",
+- "[foo.bar.label]": string("jazz"),
+```
+
+Same `"jazz"` payload either way; the only difference is whether
+protocmp sees it as a typed extension or a raw field.
 
 ## NEW_FAIL
 
