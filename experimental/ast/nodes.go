@@ -292,6 +292,42 @@ func (n *Nodes) NewDeclFunctionParam(args DeclFunctionParamArgs) DeclFunctionPar
 	})))
 }
 
+// NewDeclAnnotation creates a new DeclAnnotation node.
+//
+// To add parameters to the returned declaration, use
+// [DeclAnnotation.Params]. Set args.Parens to [token.Zero] for the
+// parameterless form (`annotation Name;`).
+func (n *Nodes) NewDeclAnnotation(args DeclAnnotationArgs) DeclAnnotation {
+	n.panicIfNotOurs(
+		args.Keyword.Context(), args.Name.Context(), args.Parens.Context(),
+		args.Semicolon.Context())
+
+	return id.Wrap(n.File(), id.ID[DeclAnnotation](n.decls.annotations.NewCompressed(rawDeclAnnotation{
+		keyword: args.Keyword.ID(),
+		name:    args.Name.ID(),
+		parens:  args.Parens.ID(),
+		semi:    args.Semicolon.ID(),
+	})))
+}
+
+// NewDeclAnnotationParam creates a new DeclAnnotationParam node.
+//
+// Set args.Equals to [token.Zero] and args.Default to a zero ExprAny
+// when the parameter has no default value.
+func (n *Nodes) NewDeclAnnotationParam(args DeclAnnotationParamArgs) DeclAnnotationParam {
+	n.panicIfNotOurs(
+		args.Name.Context(), args.Colon.Context(), args.Type.Context(),
+		args.Equals.Context(), args.Default.Context())
+
+	return id.Wrap(n.File(), id.ID[DeclAnnotationParam](n.decls.annotationParams.NewCompressed(rawDeclAnnotationParam{
+		name:   args.Name.ID(),
+		colon:  args.Colon.ID(),
+		ty:     args.Type.ID(),
+		equals: args.Equals.ID(),
+		deflt:  args.Default.ID(),
+	})))
+}
+
 // NewExprPrefixed creates a new ExprPrefixed node.
 func (n *Nodes) NewExprPrefixed(args ExprPrefixedArgs) ExprPrefixed {
 	n.panicIfNotOurs(args.Prefix.Context(), args.Expr.Context())

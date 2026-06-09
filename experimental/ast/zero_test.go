@@ -39,6 +39,8 @@ func TestZero(t *testing.T) {
 	testZero[ast.DeclType](t)
 	testZero[ast.DeclFunction](t)
 	testZero[ast.DeclFunctionParam](t)
+	testZero[ast.DeclAnnotation](t)
+	testZero[ast.DeclAnnotationParam](t)
 	testZero[ast.DefEnum](t)
 
 	testZero[ast.DefEnumValue](t)
