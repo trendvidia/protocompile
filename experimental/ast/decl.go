@@ -158,6 +158,24 @@ func (d DeclAny) AsAnnotation() DeclAnnotation {
 	return id.Wrap(d.Context(), id.ID[DeclAnnotation](d.ID().Value()))
 }
 
+// AsAnnotationUse converts a DeclAny into a DeclAnnotationUse, if that
+// is the declaration it contains.
+//
+// A DeclAnnotationUse may appear at the top level as an orphan use site
+// (the parser produces one when a `@name(args)` does not successfully
+// bind to a following declaration). When a use site is correctly
+// attached to a declaration, it lives in that declaration's
+// [DeclX.Annotations] sequence and does not appear in [DeclAny].
+//
+// Otherwise, returns zero.
+func (d DeclAny) AsAnnotationUse() DeclAnnotationUse {
+	if d.Kind() != DeclKindAnnotationUse {
+		return DeclAnnotationUse{}
+	}
+
+	return id.Wrap(d.Context(), id.ID[DeclAnnotationUse](d.ID().Value()))
+}
+
 // Span implements [source.Spanner].
 func (d DeclAny) Span() source.Span {
 	switch d.Kind() {
@@ -181,6 +199,8 @@ func (d DeclAny) Span() source.Span {
 		return d.AsFunction().Span()
 	case DeclKindAnnotation:
 		return d.AsAnnotation().Span()
+	case DeclKindAnnotationUse:
+		return d.AsAnnotationUse().Span()
 	default:
 		return source.Span{}
 	}
@@ -208,4 +228,5 @@ type decls struct {
 	functionParams   arena.Arena[rawDeclFunctionParam]
 	annotations      arena.Arena[rawDeclAnnotation]
 	annotationParams arena.Arena[rawDeclAnnotationParam]
+	annotationUses   arena.Arena[rawDeclAnnotationUse]
 }

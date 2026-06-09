@@ -16,6 +16,7 @@ package ast
 
 import (
 	"github.com/trendvidia/protocompile/experimental/id"
+	"github.com/trendvidia/protocompile/experimental/seq"
 	"github.com/trendvidia/protocompile/experimental/source"
 	"github.com/trendvidia/protocompile/experimental/token"
 	"github.com/trendvidia/protocompile/experimental/token/keyword"
@@ -35,11 +36,12 @@ import (
 type DeclType id.Node[DeclType, *File, *rawDeclType]
 
 type rawDeclType struct {
-	value   id.Dyn[ExprAny, ExprKind]
-	keyword token.ID
-	name    token.ID
-	equals  token.ID
-	semi    token.ID
+	annotations []id.ID[DeclAnnotationUse]
+	value       id.Dyn[ExprAny, ExprKind]
+	keyword     token.ID
+	name        token.ID
+	equals      token.ID
+	semi        token.ID
 }
 
 // DeclTypeArgs is arguments for [Nodes.NewDeclType].
@@ -113,6 +115,27 @@ func (d DeclType) Value() ExprAny {
 // If passed zero, this clears the value.
 func (d DeclType) SetValue(expr ExprAny) {
 	d.Raw().value = expr.ID()
+}
+
+// Annotations returns this declaration's annotation use sites.
+//
+// For [DeclType], annotations attach as trailing metadata (between the
+// value and the semicolon). The seq is empty unless the parser has
+// successfully attached at least one annotation.
+func (d DeclType) Annotations() seq.Inserter[DeclAnnotationUse] {
+	if d.IsZero() {
+		return seq.EmptySliceInserter[DeclAnnotationUse, id.ID[DeclAnnotationUse]]()
+	}
+
+	return seq.NewSliceInserter(&d.Raw().annotations,
+		func(_ int, e id.ID[DeclAnnotationUse]) DeclAnnotationUse {
+			return id.Wrap(d.Context(), e)
+		},
+		func(_ int, a DeclAnnotationUse) id.ID[DeclAnnotationUse] {
+			d.Context().Nodes().panicIfNotOurs(a.Context())
+			return a.ID()
+		},
+	)
 }
 
 // Semicolon returns this declaration's ending semicolon.

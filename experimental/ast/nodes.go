@@ -328,6 +328,21 @@ func (n *Nodes) NewDeclAnnotationParam(args DeclAnnotationParamArgs) DeclAnnotat
 	})))
 }
 
+// NewDeclAnnotationUse creates a new DeclAnnotationUse node.
+//
+// Set args.Parens to [token.Zero] for the bare `@Name` form. Arguments
+// are added after construction via [DeclAnnotationUse.Args].
+func (n *Nodes) NewDeclAnnotationUse(args DeclAnnotationUseArgs) DeclAnnotationUse {
+	n.panicIfNotOurs(
+		args.At.Context(), args.Name.Context(), args.Parens.Context())
+
+	return id.Wrap(n.File(), id.ID[DeclAnnotationUse](n.decls.annotationUses.NewCompressed(rawDeclAnnotationUse{
+		at:     args.At.ID(),
+		name:   args.Name.raw,
+		parens: args.Parens.ID(),
+	})))
+}
+
 // NewExprPrefixed creates a new ExprPrefixed node.
 func (n *Nodes) NewExprPrefixed(args ExprPrefixedArgs) ExprPrefixed {
 	n.panicIfNotOurs(args.Prefix.Context(), args.Expr.Context())

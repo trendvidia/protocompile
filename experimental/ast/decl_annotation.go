@@ -40,11 +40,12 @@ import (
 type DeclAnnotation id.Node[DeclAnnotation, *File, *rawDeclAnnotation]
 
 type rawDeclAnnotation struct {
-	params  []withComma[id.ID[DeclAnnotationParam]]
-	keyword token.ID
-	name    token.ID
-	parens  token.ID
-	semi    token.ID
+	annotations []id.ID[DeclAnnotationUse]
+	params      []withComma[id.ID[DeclAnnotationParam]]
+	keyword     token.ID
+	name        token.ID
+	parens      token.ID
+	semi        token.ID
 }
 
 // DeclAnnotationArgs is arguments for [Nodes.NewDeclAnnotation].
@@ -122,6 +123,27 @@ func (d DeclAnnotation) Params() Commas[DeclAnnotationParam] {
 			},
 		),
 	}
+}
+
+// Annotations returns this declaration's annotation use sites.
+//
+// For [DeclAnnotation], annotations attach as trailing metadata
+// (between the closing paren and the semicolon). The seq is empty
+// unless the parser has successfully attached at least one annotation.
+func (d DeclAnnotation) Annotations() seq.Inserter[DeclAnnotationUse] {
+	if d.IsZero() {
+		return seq.EmptySliceInserter[DeclAnnotationUse, id.ID[DeclAnnotationUse]]()
+	}
+
+	return seq.NewSliceInserter(&d.Raw().annotations,
+		func(_ int, e id.ID[DeclAnnotationUse]) DeclAnnotationUse {
+			return id.Wrap(d.Context(), e)
+		},
+		func(_ int, a DeclAnnotationUse) id.ID[DeclAnnotationUse] {
+			d.Context().Nodes().panicIfNotOurs(a.Context())
+			return a.ID()
+		},
+	)
 }
 
 // Semicolon returns this declaration's ending semicolon.
