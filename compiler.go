@@ -125,11 +125,12 @@ type Compiler struct {
 	// holds for 13 of 14 BOTH_OK fixtures. SourceInfoMode is honored
 	// (the experimental fdp layer maps SourceInfoStandard onto
 	// IncludeSourceCodeInfo(true) and the ExtraOptionLocations bit
-	// onto GenerateExtraOptionLocations(true)); RetainASTs is
-	// implicit (the experimental AST is retained by its arena); and
-	// Symbols is not consulted (the experimental IR builds its own
-	// symbol table per session). These remaining gaps are tracked
-	// alongside the divergence notes.
+	// onto GenerateExtraOptionLocations(true)); RetainASTs is honored
+	// via the [experimentalcompile.IRHolder] interface (a callable
+	// type assertion exposes the experimental IR and AST). Symbols is
+	// not consulted (the experimental IR builds its own symbol table
+	// per session). This last gap is tracked alongside the
+	// divergence notes.
 	UseExperimentalParser bool
 }
 
