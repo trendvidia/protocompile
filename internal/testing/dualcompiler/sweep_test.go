@@ -46,12 +46,54 @@ var pointerRegex = regexp.MustCompile(`0x[0-9a-f]+`)
 // the full path of any missing dependency.
 var absPathRegex = regexp.MustCompile(`/[^ :]*?/protocompile/`)
 
+// mustMatch is the list of fixtures that the B-track has already
+// brought to BOTH_OK_MATCH and that future PRs must not regress. Each
+// entry is a path relative to the repo root.
+//
+// Adding a fixture here is the explicit signal that a divergence has
+// been closed: TestSweep now fails if it does not classify as
+// BOTH_OK_MATCH. The golden sweep.txt can still be regenerated freely
+// for other categories, but a regression on any of these is a hard
+// failure.
+//
+// Removing or commenting out an entry to silence a failure should not
+// happen lightly: it permanently records a regression and gives up
+// the equivalence work the original PR shipped. Any such change
+// belongs in its own PR with reviewer sign-off.
+//
+// Closed by the B-track PRs:
+//
+//	#23 — TestSweep harness lit up the initial 9 matching fixtures.
+//	#25 — float-default precision: desc_test_defaults.proto.
+//	#26 — enum-alias preservation: desc_test_defaults.proto (final close).
+//	#28 — typed extensions via per-file dynamicpb resolver: desc_test_complex.proto, desc_test_comments.proto, desc_test_options.proto.
+var mustMatch = []string{
+	"internal/testdata/desc_test1.proto",
+	"internal/testdata/desc_test2.proto",
+	"internal/testdata/desc_test_comments.proto",
+	"internal/testdata/desc_test_complex.proto",
+	"internal/testdata/desc_test_defaults.proto",
+	"internal/testdata/desc_test_field_types.proto",
+	"internal/testdata/desc_test_options.proto",
+	"internal/testdata/desc_test_proto3.proto",
+	"internal/testdata/desc_test_proto3_optional.proto",
+	"internal/testdata/desc_test_wellknowntypes.proto",
+	"internal/testdata/nopkg/desc_test_nopkg.proto",
+	"internal/testdata/nopkg/desc_test_nopkg_new.proto",
+	"internal/testdata/pkg/desc_test_pkg.proto",
+}
+
 // TestSweep compiles every .proto fixture under the repo's main testdata
 // roots through both the legacy and experimental pipelines, classifies
 // each fixture's outcome, and writes a single text report.
 //
 // The report lives at testdata/sweep.txt under this package's directory.
 // Refresh it with PROTOCOMPILE_REFRESH=1 go test ./internal/testing/dualcompiler -run TestSweep.
+//
+// In addition to the golden-file comparison, the test asserts that
+// every fixture listed in [mustMatch] remains BOTH_OK_MATCH. That
+// gates against silent regressions: a refresh updates the per-fixture
+// lines but does not bypass the must-match check.
 //
 // The purpose is to make the divergence surface between the two
 // pipelines visible at a glance so the B-track migration knows what
@@ -72,6 +114,8 @@ func TestSweep(t *testing.T) {
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Path < results[j].Path
 	})
+
+	assertMustMatch(t, results)
 
 	report := renderReport(results)
 
@@ -340,6 +384,56 @@ func renderReport(results []sweepResult) string {
 		}
 	}
 	return b.String()
+}
+
+// testReporter is the minimal subset of [testing.TB] that
+// [assertMustMatch] needs. Pulling it out into a tiny interface lets
+// a sibling test substitute a mock and confirm the gate fires on a
+// synthetic regression — [testing.TB] itself has an unexported
+// private() method, so external code cannot satisfy it.
+type testReporter interface {
+	Helper()
+	Errorf(format string, args ...any)
+}
+
+// assertMustMatch fails the test if any fixture in [mustMatch] does
+// not classify as BOTH_OK_MATCH. The failure message lists every
+// regression in one shot so the reader can act on the full picture
+// without re-running.
+func assertMustMatch(t testReporter, results []sweepResult) {
+	t.Helper()
+
+	byPath := make(map[string]sweepResult, len(results))
+	for _, r := range results {
+		byPath[r.Path] = r
+	}
+
+	var regressions []string
+	var missing []string
+	for _, path := range mustMatch {
+		r, ok := byPath[path]
+		if !ok {
+			missing = append(missing, path)
+			continue
+		}
+		if r.Category != "BOTH_OK_MATCH" {
+			note := r.Category
+			if r.Notes != "" {
+				note += " | " + r.Notes
+			}
+			regressions = append(regressions, fmt.Sprintf("%s → %s", path, note))
+		}
+	}
+
+	if len(missing) > 0 {
+		t.Errorf("mustMatch fixtures missing from sweep (the fixture moved or "+
+			"was deleted; update mustMatch in this file): %v", missing)
+	}
+	if len(regressions) > 0 {
+		t.Errorf("equivalence regression: the following fixtures must classify "+
+			"as BOTH_OK_MATCH but did not:\n  %s",
+			strings.Join(regressions, "\n  "))
+	}
 }
 
 func repoRoot(t *testing.T) string {
