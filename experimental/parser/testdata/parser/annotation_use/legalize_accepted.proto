@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package test;
+
+// Each accepted argument shape. The legalize pass should emit no
+// diagnostics for any of these.
+
+@description("primary email")
+message M1 {}
+
+@example(42)
+message M2 {}
+
+@since(2026.06)
+message M3 {}
+
+@minimum(-1)
+message M4 {}
+
+@scope(public)
+message M5 {}
+
+@author(myco.acme.alice)
+message M6 {}
+
+@flag(true)
+message M7 {}
