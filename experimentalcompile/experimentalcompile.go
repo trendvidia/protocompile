@@ -108,10 +108,50 @@ func Compile(ctx context.Context, c *protocompile.Compiler, files []string) (lin
 		if err != nil {
 			return nil, fmt.Errorf("convert %s to linker.File: %w", files[i], err)
 		}
+		// Honor [protocompile.Compiler.RetainASTs]: when set, the
+		// returned linker.File also implements [IRHolder] so callers
+		// can recover the experimental [*ir.File] (and through it the
+		// AST). The flag matches the legacy compiler's semantics —
+		// the AST is retained for further processing only when the
+		// caller explicitly opts in.
+		if c.RetainASTs {
+			lf = &irHoldingFile{File: lf, ir: r.Value}
+		}
 		out[i] = lf
 	}
 	return out, nil
 }
+
+// IRHolder is the interface a [linker.File] returned by [Compile]
+// satisfies when [protocompile.Compiler.RetainASTs] is true. Callers
+// who want to introspect the experimental IR (and through it the
+// experimental AST) recover it via a type assertion:
+//
+//	for _, f := range files {
+//	    if h, ok := f.(experimentalcompile.IRHolder); ok {
+//	        irFile := h.IR()
+//	        // irFile.AST() returns the experimental ast.File.
+//	    }
+//	}
+//
+// When RetainASTs is false, the returned linker.File does not satisfy
+// IRHolder and the IR/AST are eligible for garbage collection as soon
+// as Compile returns.
+type IRHolder interface {
+	linker.File
+	IR() *ir.File
+}
+
+// irHoldingFile wraps a linker.File with a strong reference to the
+// experimental [*ir.File] so callers that asked for RetainASTs can
+// recover it via the [IRHolder] interface.
+type irHoldingFile struct {
+	linker.File
+	ir *ir.File
+}
+
+// IR returns the experimental IR file that backs this linker.File.
+func (h *irHoldingFile) IR() *ir.File { return h.ir }
 
 // fdpOptionsFor maps a [protocompile.SourceInfoMode] to the
 // corresponding set of [fdp.DescriptorOption]s.

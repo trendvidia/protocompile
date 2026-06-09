@@ -25,6 +25,7 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 
 	"github.com/trendvidia/protocompile"
+	"github.com/trendvidia/protocompile/experimentalcompile"
 	_ "github.com/trendvidia/protocompile/experimentalcompile" // registers the experimental compile hook
 	"github.com/trendvidia/protocompile/protoutil"
 )
@@ -111,6 +112,70 @@ func TestSourceInfoMode_Standard(t *testing.T) {
 	fdp := compileForSourceInfo(t, protocompile.SourceInfoStandard)
 	require.NotNil(t, fdp.SourceCodeInfo)
 	assert.NotEmpty(t, fdp.SourceCodeInfo.Location)
+}
+
+// TestRetainASTs_OffByDefault confirms that without RetainASTs set,
+// the returned linker.File does not satisfy IRHolder.
+func TestRetainASTs_OffByDefault(t *testing.T) {
+	t.Parallel()
+
+	c := protocompile.Compiler{
+		Resolver:              minimalResolver(),
+		UseExperimentalParser: true,
+	}
+	files, err := c.Compile(t.Context(), "hello.proto")
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+
+	_, ok := files[0].(experimentalcompile.IRHolder)
+	assert.False(t, ok, "linker.File should not satisfy IRHolder when RetainASTs is false")
+}
+
+// TestRetainASTs_ExposesIRAndAST confirms that with RetainASTs set,
+// the returned linker.File satisfies IRHolder, and through it the
+// experimental IR file and its AST are accessible.
+func TestRetainASTs_ExposesIRAndAST(t *testing.T) {
+	t.Parallel()
+
+	c := protocompile.Compiler{
+		Resolver:              minimalResolver(),
+		UseExperimentalParser: true,
+		RetainASTs:            true,
+	}
+	files, err := c.Compile(t.Context(), "hello.proto")
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+
+	holder, ok := files[0].(experimentalcompile.IRHolder)
+	require.True(t, ok, "linker.File must satisfy IRHolder when RetainASTs is true")
+
+	irFile := holder.IR()
+	require.NotNil(t, irFile)
+	assert.Equal(t, "hello.proto", irFile.Path())
+
+	astFile := irFile.AST()
+	require.NotNil(t, astFile, "irFile.AST() should be non-nil")
+}
+
+// minimalResolver returns a Resolver that serves a tiny hello.proto
+// with a Greeting message — enough to exercise the experimental
+// pipeline end-to-end. Shared by the RetainASTs tests so a future
+// fixture change touches one place.
+func minimalResolver() protocompile.Resolver {
+	return protocompile.ResolverFunc(func(path string) (protocompile.SearchResult, error) {
+		if path == "hello.proto" {
+			return protocompile.SearchResult{
+				Source: io.NopCloser(strings.NewReader(`
+					syntax = "proto3";
+					package hello;
+					message Greeting {
+					  string text = 1;
+					}
+				`)),
+			}, nil
+		}
+		return protocompile.SearchResult{}, os.ErrNotExist
+	})
 }
 
 func compileForSourceInfo(t *testing.T, mode protocompile.SourceInfoMode) *descriptorpb.FileDescriptorProto {
