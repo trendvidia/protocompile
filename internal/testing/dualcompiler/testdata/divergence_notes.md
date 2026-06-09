@@ -9,29 +9,20 @@ update the entry here and re-run `TestSweep` to refresh `sweep.txt`.
 
 ### desc_test_defaults.proto
 
-Three classes of divergence:
+Outstanding divergence: enum-alias rendering on field defaults.
+When a field's default is given as an enum alias (e.g.
+`[default = ZED]` where `ZED` is an alias for `ZERO`), the legacy
+compiler preserves the alias name in `default_value` (`"ZED"`). The
+experimental pipeline resolves to the primary enum-value name
+(`"ZERO"`). The legacy behaviour matches `protoc`; the experimental
+behaviour loses user-supplied information.
 
-1. **Float-default precision.** The legacy compiler renders single-
-   precision floats with the textual form the user wrote: `3.14159`.
-   The experimental compiler renders them with the full IEEE-754
-   round-trip precision: `3.141590118408203`. Same for
-   `6.022141e+23` vs `6.022141003837819e+23`. Both forms parse back
-   to the same `float32`, but only the legacy form matches what
-   `protoc` emits in `default_value`. The experimental pipeline
-   should preserve the original token text on field defaults, or
-   produce the round-down 7-digit form that matches the source.
+Closed:
 
-2. **Enum alias rendering on field defaults.** When a field's default
-   is given as an enum alias (e.g. `[default = ZED]` where `ZED` is
-   an alias for `ZERO`), the legacy compiler preserves the alias
-   name in `default_value` (`"ZED"`). The experimental pipeline
-   resolves to the primary enum-value name (`"ZERO"`). The legacy
-   behaviour matches `protoc`; the experimental behaviour loses
-   user-supplied information.
-
-3. **protocmp `@type` discriminator.** Not a real divergence; it
-   appears in the `cmp.Diff` output because protocmp uses it as a
-   message-type tag.
+- **Float-default precision.** Resolved by routing `float` fields
+  through 32-bit `strconv.FormatFloat` so single-precision defaults
+  render at float32 resolution (`3.14159`) instead of the
+  float32→float64 round-trip mantissa (`3.141590118408203`).
 
 ### desc_test_complex.proto
 
