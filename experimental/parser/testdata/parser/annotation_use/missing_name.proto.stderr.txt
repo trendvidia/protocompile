@@ -1,0 +1,12 @@
+warning: missing `package` declaration
+ --> testdata/parser/annotation_use/missing_name.proto
+   = note: not explicitly specifying a package places the file in the unnamed
+           package; using it strongly is discouraged
+
+error: unexpected `;` in file scope
+  --> testdata/parser/annotation_use/missing_name.proto:3:2
+   |
+ 3 | @;
+   |  ^ expected identifier
+
+encountered 1 error and 1 warning

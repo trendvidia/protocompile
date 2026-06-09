@@ -21,6 +21,6 @@ error: unexpected integer literal in file scope
   --> testdata/parser/package/42.proto:7:9
    |
  7 | package 42;
-   |         ^^ expected identifier, `;`, `.`, `(...)`, or `{...}`
+   |         ^^ expected identifier, `;`, `.`, `@`, `(...)`, or `{...}`
 
 encountered 3 errors

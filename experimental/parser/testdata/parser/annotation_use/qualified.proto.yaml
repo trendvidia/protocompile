@@ -1,0 +1,24 @@
+decls:
+- syntax: { kind: KIND_SYNTAX, value.literal.string_value: "proto3" }
+- package.path.components: [{ ident: "test" }]
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "Email" }]
+    body.decls:
+    - def:
+        kind: KIND_FIELD
+        name.components: [{ ident: "value" }]
+        type.path.components: [{ ident: "string" }]
+        value.literal.int_value: 1
+    annotations:
+    - name.components:
+      - ident: "myco"
+      - { ident: "validate", separator: SEPARATOR_DOT }
+      args:
+      - path.components: [{ ident: "matches" }]
+      - path.components: [{ extension.components: [{ ident: "this" }, {}, {}] }]
+    - name.components:
+      - ident: "org"
+      - { ident: "acme", separator: SEPARATOR_DOT }
+      - { ident: "audit", separator: SEPARATOR_DOT }
+      args: [{ literal.string_value: "public" }]

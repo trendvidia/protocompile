@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package test;
+
+@myco.validate(matches(this, "^[^@]+@[^@]+$"))
+@org.acme.audit("public")
+message Email {
+  string value = 1;
+}

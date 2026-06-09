@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package test;
+
+type Email = string @serializable;
+type Address = myco.commons.Address @inline @public;
+
+function is_e164() @engine_builtin;
+function matches(value: string, pattern: string) @stateless;
+
+annotation required @core;
+annotation validate(rule: expression, code: string = "") @core @composable;
