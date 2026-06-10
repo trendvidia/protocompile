@@ -288,20 +288,29 @@ func (e *evaluator) evalBits(args evalArgs) (rawValueBits, bool) {
 
 // isDelimited reports whether a message-typed field is encoded with the
 // delimited (group) wire format — true for proto2 `group` fields and for
-// editions fields that explicitly set `features.message_encoding =
-// DELIMITED` in their compact options.
+// editions fields with `features.message_encoding = DELIMITED`.
 //
-// This intentionally peeks at the field's AST instead of using
-// [Member.FeatureSet], because feature inheritance is computed in
-// [buildAllFeatureInfo], which runs strictly after [resolveOptions] (and
-// therefore strictly after this code path in [lower.go]). Inherited
-// settings from the enclosing message/file are not consulted because
-// they would require the (not-yet-built) feature tree; the legacy
-// pipeline gets those for free via protoreflect descriptors, which are
-// only built after all evaluation completes.
+// Two callers need this at different stages of lowering:
+//
+//   - [evaluator.evalKey] (group-synonym fallback) runs during
+//     [resolveOptions], BEFORE [buildAllFeatureInfo] populates feature
+//     inheritance. At that point [Member.FeatureSet] is empty, so we
+//     must scan the field's AST options directly for an explicit
+//     per-field setting.
+//   - The fdp marshal path ([Value.marshal]) runs after lowering is
+//     complete and so can rely on [Member.FeatureSet], which folds in
+//     inherited file- and message-level settings the AST scan would
+//     miss.
+//
+// Use the FeatureSet path when it's available and fall back to the AST
+// scan when it isn't.
 func isDelimited(m Member) bool {
 	if m.IsGroup() {
 		return true
+	}
+	if fs := m.FeatureSet(); !fs.IsZero() {
+		v, _ := fs.Lookup(m.Context().builtins().FeatureGroup).Value().AsInt()
+		return v == tags.FeatureSet_MessageEncoding_Delimited
 	}
 	for opt := range seq.Values(m.AST().Options().Entries()) {
 		if opt.Path.Canonicalized() != "features.message_encoding" {

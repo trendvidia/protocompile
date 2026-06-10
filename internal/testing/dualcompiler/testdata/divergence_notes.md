@@ -82,26 +82,22 @@ existing `TestOptionsEncoding` protoset goldens).
 
 ### options/test_editions.proto
 
-Was: `mismatched types ... expected 'Foo' field, found 'Foo.Bar'`.
+Closed; the fixture now classifies as BOTH_OK_MATCH. Two stacked
+fixes were needed:
 
-Closed at the symbol-resolution layer; fixture now classifies as
-BOTH_OK_DIFFER. Cause was that protoc and the legacy interpreter
-accept a delimited (group-encoded) field's element type name as a
-synonym for the field name in text format (e.g. `Bar:` for a
-`Bar bar = 2 [features.message_encoding = DELIMITED]` field).
-The experimental `evalKey` only attempted the verbatim name and
-then full symbol resolution, which finds the nested type `Foo.Bar`
-and errors. Resolved by adding a lower-cased fallback that honours
-the same conditions the legacy enforces (`options.go:2186-2206`):
-type-name verbatim match, same scope as the field, delimited
-encoding. The delimited check peeks at the field's AST options
-because feature inheritance is computed later in lowering.
-
-The remaining DIFFER is a separate bug in fdp marshalling:
-DELIMITED fields are still emitted as length-prefixed wire format
-(tag-`0x12`, len, body) instead of group format (start-`0x13`,
-body, end-`0x14`). Same field-resolution path; different wire
-encoding. Closing this needs `MessageValue.marshal` and the
-extension-field marshalling to consult `isDelimited` and emit
-SGROUP/EGROUP tags. That work is out of scope for the
-symbol-resolution wedge.
+- **Group-synonym lookup in evalKey** (PR #35). protoc and the
+  legacy interpreter accept a delimited field's element type name
+  as a synonym for the field name in text format (e.g. `Bar:` for
+  a `Bar bar = 2 [features.message_encoding = DELIMITED]` field).
+  The experimental's evalKey only attempted the verbatim name and
+  then full symbol resolution, which finds the nested type
+  `Foo.Bar` and errors. Mirroring `options/options.go:2186-2206`
+  closes this at the symbol layer.
+- **DELIMITED marshalling in Value.marshal**. The branch in
+  `ir_value.go` that picks between SGROUP/EGROUP and
+  length-prefixed only checked `Field().IsGroup()` — true for
+  proto2 group syntax, false for editions DELIMITED. Switched to
+  the shared `isDelimited` helper. As a side effect, the
+  `[foo]`/`[foos]` extensions (both DELIMITED) now decode through
+  the per-file dynamicpb resolver as typed messages instead of
+  showing up as raw `10101`/`10103` unknown-field bytes.
