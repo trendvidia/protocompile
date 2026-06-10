@@ -75,7 +75,7 @@ func (s *Session) copyBuiltinMember(dst, fallback *File, srcSym Symbol) Ref[Symb
 
 	parentFQN := src.FullName().Parent()
 	parentInterned := dst.session.intern.Intern(string(parentFQN))
-	parentType := s.findOrSynthBuiltinType(dst, fallback, parentInterned)
+	parentType := s.findOrSynthBuiltinType(dst, parentInterned)
 	if parentType.IsZero() {
 		return Ref[Symbol]{}
 	}
@@ -127,7 +127,7 @@ func (s *Session) copyBuiltinMember(dst, fallback *File, srcSym Symbol) Ref[Symb
 func (s *Session) copyBuiltinType(dst, fallback *File, srcSym Symbol) Ref[Symbol] {
 	src := id.Wrap(fallback, id.ID[Type](srcSym.Raw().data))
 	internedFQN := dst.session.intern.Intern(string(src.FullName()))
-	return s.findOrSynthBuiltinType(dst, fallback, internedFQN).asSymbolRef(dst)
+	return s.findOrSynthBuiltinType(dst, internedFQN).asSymbolRef(dst)
 }
 
 // findOrSynthBuiltinType returns the user-file Type with the given interned
@@ -147,7 +147,7 @@ func (s *Session) copyBuiltinType(dst, fallback *File, srcSym Symbol) Ref[Symbol
 // region trails the sorted prefix; `dst.exported.lookup` (binary search)
 // cannot find symbols inside that region. The cache is the lookup mechanism
 // while resolution is in flight.
-func (s *Session) findOrSynthBuiltinType(dst, fallback *File, internedFQN intern.ID) Type {
+func (s *Session) findOrSynthBuiltinType(dst *File, internedFQN intern.ID) Type {
 	if existing, ok := dst.synthedBuiltins[internedFQN]; ok {
 		return existing
 	}
@@ -180,7 +180,7 @@ func (s *Session) findOrSynthBuiltinType(dst, fallback *File, internedFQN intern
 				// Top-level inside its package.
 			default:
 				// Parent does not exist yet; synthesise it first.
-				parent = s.findOrSynthBuiltinType(dst, fallback, parentInterned)
+				parent = s.findOrSynthBuiltinType(dst, parentInterned)
 			}
 		}
 	}
@@ -258,7 +258,7 @@ func (s *Session) translateBuiltinTypeRef(dst, fallback *File, srcRef Ref[Type])
 
 	srcType := id.Wrap(fallback, srcRef.id)
 	internedFQN := dst.session.intern.Intern(string(srcType.FullName()))
-	dstType := s.findOrSynthBuiltinType(dst, fallback, internedFQN)
+	dstType := s.findOrSynthBuiltinType(dst, internedFQN)
 	return Ref[Type]{id: dstType.ID()}
 }
 

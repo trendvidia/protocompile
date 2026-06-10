@@ -23,7 +23,6 @@ import (
 	"github.com/trendvidia/protocompile/ast"
 	"github.com/trendvidia/protocompile/internal"
 	"github.com/trendvidia/protocompile/internal/tags"
-	"github.com/trendvidia/protocompile/protoutil"
 	"github.com/trendvidia/protocompile/reporter"
 	"github.com/trendvidia/protocompile/walk"
 )
@@ -92,12 +91,7 @@ func (s *Symbols) Import(fd protoreflect.FileDescriptor, handler *reporter.Handl
 		fd = f.FileDescriptor
 	}
 
-	var pkgSpan ast.SourceSpan
-	if res, ok := fd.(*result); ok {
-		pkgSpan = packageNameSpan(res)
-	} else {
-		pkgSpan = sourceSpanForPackage(fd)
-	}
+	pkgSpan := sourceSpanForPackage(fd)
 	pkg, err := s.importPackages(pkgSpan, fd.Package(), handler)
 	if err != nil || pkg == nil {
 		return err
@@ -115,10 +109,6 @@ func (s *Symbols) Import(fd protoreflect.FileDescriptor, handler *reporter.Handl
 		if err := s.Import(fd.Imports().Get(i).FileDescriptor, handler); err != nil {
 			return err
 		}
-	}
-
-	if res, ok := fd.(*result); ok && res.hasSource() {
-		return s.importResultWithExtensions(pkg, res, handler)
 	}
 
 	return s.importFileWithExtensions(pkg, fd, handler)
@@ -141,7 +131,7 @@ func (s *Symbols) importFileWithExtensions(pkg *packageSymbols, fd protoreflect.
 		}
 		span := sourceSpanForNumber(fld)
 		extendee := fld.ContainingMessage()
-		return s.AddExtension(packageFor(extendee), extendee.FullName(), fld.Number(), span, handler)
+		return s.AddExtension(extendee.ParentFile().Package(), extendee.FullName(), fld.Number(), span, handler)
 	})
 }
 
@@ -320,9 +310,6 @@ func sourceSpanFor(d protoreflect.Descriptor) ast.SourceSpan {
 	if file == nil {
 		return ast.UnknownSpan(unknownFilePath)
 	}
-	if result, ok := file.(*result); ok {
-		return nameSpan(result.FileNode(), result.Node(protoutil.ProtoFromDescriptor(d)))
-	}
 	path, ok := internal.ComputePath(d)
 	if !ok {
 		return ast.UnknownSpan(file.Path())
@@ -420,124 +407,6 @@ func (s *packageSymbols) commitFileLocked(f protoreflect.FileDescriptor) {
 		s.files = map[protoreflect.FileDescriptor]struct{}{}
 	}
 	s.files[f] = struct{}{}
-}
-
-func (s *Symbols) importResultWithExtensions(pkg *packageSymbols, r *result, handler *reporter.Handler) error {
-	imported, err := pkg.importResult(r, handler)
-	if err != nil {
-		return err
-	}
-	if !imported {
-		// nothing else to do
-		return nil
-	}
-
-	return walk.Descriptors(r, func(d protoreflect.Descriptor) error {
-		fd, ok := d.(*extTypeDescriptor)
-		if !ok {
-			return nil
-		}
-		file := r.FileNode()
-		node := r.FieldNode(fd.FieldDescriptorProto())
-		info := file.NodeInfo(node.FieldTag())
-		extendee := fd.ContainingMessage()
-		return s.AddExtension(packageFor(extendee), extendee.FullName(), fd.Number(), info, handler)
-	})
-}
-
-func (s *Symbols) importResult(r *result, handler *reporter.Handler) error {
-	pkg, err := s.importPackages(packageNameSpan(r), r.Package(), handler)
-	if err != nil || pkg == nil {
-		return err
-	}
-	_, err = pkg.importResult(r, handler)
-	return err
-}
-
-func (s *packageSymbols) importResult(r *result, handler *reporter.Handler) (bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if _, ok := s.files[r]; ok {
-		// already imported
-		return false, nil
-	}
-
-	// first pass: check for conflicts
-	if err := s.checkResultLocked(r, handler); err != nil {
-		return false, err
-	}
-	if err := handler.Error(); err != nil {
-		return false, err
-	}
-
-	// second pass: commit all symbols
-	s.commitFileLocked(r)
-
-	return true, nil
-}
-
-func (s *packageSymbols) checkResultLocked(r *result, handler *reporter.Handler) error {
-	resultSyms := map[protoreflect.FullName]symbolEntry{}
-	return walk.Descriptors(r, func(d protoreflect.Descriptor) error {
-		_, isEnumVal := d.(protoreflect.EnumValueDescriptor)
-		file := r.FileNode()
-		name := d.FullName()
-		node := r.Node(protoutil.ProtoFromDescriptor(d))
-		span := nameSpan(file, node)
-		// check symbols already in this symbol table
-		if existing, ok := s.symbols[name]; ok {
-			if err := reportSymbolCollision(span, name, isEnumVal, existing, handler); err != nil {
-				return err
-			}
-		}
-
-		// also check symbols from this result (that are not yet in symbol table)
-		if existing, ok := resultSyms[name]; ok {
-			if err := reportSymbolCollision(span, name, isEnumVal, existing, handler); err != nil {
-				return err
-			}
-		}
-		resultSyms[name] = symbolEntry{
-			span:        span,
-			isEnumValue: isEnumVal,
-		}
-
-		return nil
-	})
-}
-
-func packageNameSpan(r *result) ast.SourceSpan {
-	if node, ok := r.FileNode().(*ast.FileNode); ok {
-		for _, decl := range node.Decls {
-			if pkgNode, ok := decl.(*ast.PackageNode); ok {
-				return r.FileNode().NodeInfo(pkgNode.Name)
-			}
-		}
-	}
-	return ast.UnknownSpan(r.Path())
-}
-
-func nameSpan(file ast.FileDeclNode, n ast.Node) ast.SourceSpan {
-	// TODO: maybe ast package needs a NamedNode interface to simplify this?
-	switch n := n.(type) {
-	case ast.FieldDeclNode:
-		return file.NodeInfo(n.FieldName())
-	case ast.MessageDeclNode:
-		return file.NodeInfo(n.MessageName())
-	case ast.OneofDeclNode:
-		return file.NodeInfo(n.OneofName())
-	case ast.EnumValueDeclNode:
-		return file.NodeInfo(n.GetName())
-	case *ast.EnumNode:
-		return file.NodeInfo(n.Name)
-	case *ast.ServiceNode:
-		return file.NodeInfo(n.Name)
-	case ast.RPCDeclNode:
-		return file.NodeInfo(n.GetName())
-	default:
-		return file.NodeInfo(n)
-	}
 }
 
 // AddExtension records the given extension, which is used to ensure that no two files

@@ -209,7 +209,8 @@ func runProtoc(t *testing.T, protocPath string, importPaths []string, fixtureAbs
 	dir := t.TempDir()
 	outPath := filepath.Join(dir, "fixture.pb")
 
-	args := []string{"-o", outPath, "--include_imports"}
+	args := make([]string, 0, 4+len(importPaths))
+	args = append(args, "-o", outPath, "--include_imports")
 	for _, ip := range importPaths {
 		args = append(args, "--proto_path="+ip)
 	}

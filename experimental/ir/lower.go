@@ -34,10 +34,9 @@ import (
 //
 // A zero [Session] is ready to use.
 type Session struct {
-	intern intern.Table
+	intern   intern.Table
+	builtins builtinIDs
 
-	once             sync.Once
-	builtins         builtinIDs
 	optionalBuiltins map[intern.ID]struct{}
 
 	// dpFallback is a session-scoped, lazily-built [*File] for the baked-in
@@ -49,7 +48,9 @@ type Session struct {
 	//
 	// See the lengthy comment in lower_options.go on why this project
 	// honours vendored descriptor.protos for option resolution.
-	dpFallback     *File
+	dpFallback *File
+
+	once           sync.Once
 	dpFallbackOnce sync.Once
 }
 

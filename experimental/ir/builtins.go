@@ -262,17 +262,18 @@ func resolveBuiltins(file *File, r *report.Report) {
 			// otherwise surface as a downstream "not declared by this
 			// descriptor.proto" error far from this site.
 			fallbackRef := file.session.copyBuiltinFromFallback(file, id, kind.kind)
-			if !fallbackRef.IsZero() {
+			switch {
+			case !fallbackRef.IsZero():
 				copied = true
 				sym = GetRef(file, fallbackRef)
-			} else if !isOptionalBuiltinField(tyField) {
+			case !isOptionalBuiltinField(tyField):
 				r.Errorf("`%s` is missing required symbol `%s`", file.Path(), file.session.intern.Value(id)).Apply(
 					report.Snippet(file.AST()),
 					report.Helpf("the descriptor.proto supplied to the compiler does not declare this %s; "+
 						"it may be vendored from a version that predates this symbol, or may be genuinely corrupt", kind.kind.noun()),
 				)
 				continue
-			} else {
+			default:
 				continue
 			}
 		}
