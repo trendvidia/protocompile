@@ -286,15 +286,27 @@ func buildExperimentalRegistry(top *ir.File, fdpOpts []fdp.DescriptorOption) (*p
 }
 
 // experimentalOpener adapts a protocompile.Resolver to a
-// source.Opener. WKTs are served from source.WKTs(); other paths flow
-// through the supplied resolver. Result types other than Source are
-// surfaced as not-found for now.
+// source.Opener. The user's resolver is consulted first so that
+// project-supplied overrides of well-known types (e.g. a custom
+// `google/protobuf/descriptor.proto` that adds extra fields to
+// `EnumOptions`) win; [source.WKTs] is the fallback for paths the
+// resolver doesn't know. This matches the legacy
+// `WithStandardImports` semantics, where the wrapped resolver is
+// tried first and the baked-in well-knowns are the fallback.
+//
+// When the user-supplied descriptor.proto is a *partial* vendored
+// override (declares only some of the descriptor types), the IR's
+// [resolveBuiltins] consults a session-scoped baked-in fallback to
+// materialise missing builtin symbols as stubs in the user's file —
+// see `experimental/ir/builtins_copy.go`.
+//
+// Result types other than Source are surfaced as not-found for now.
 func experimentalOpener(resolver protocompile.Resolver) source.Opener {
 	wkts := source.WKTs()
 	if resolver == nil {
 		return wkts
 	}
-	return &source.Openers{wkts, &resolverOpener{resolver: resolver}}
+	return &source.Openers{&resolverOpener{resolver: resolver}, wkts}
 }
 
 type resolverOpener struct {

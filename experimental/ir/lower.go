@@ -15,11 +15,16 @@
 package ir
 
 import (
+	"fmt"
+	"io"
 	"sync"
 
 	"github.com/trendvidia/protocompile/experimental/ast"
+	"github.com/trendvidia/protocompile/experimental/parser"
 	"github.com/trendvidia/protocompile/experimental/report"
+	"github.com/trendvidia/protocompile/experimental/source"
 	"github.com/trendvidia/protocompile/internal/intern"
+	"github.com/trendvidia/protocompile/wellknownimports"
 )
 
 // Session is shared global configuration and state for all IR values that are
@@ -34,6 +39,18 @@ type Session struct {
 	once             sync.Once
 	builtins         builtinIDs
 	optionalBuiltins map[intern.ID]struct{}
+
+	// dpFallback is a session-scoped, lazily-built [*File] for the baked-in
+	// well-known `google/protobuf/descriptor.proto`. It serves as the source
+	// of builtin symbols when a user supplies a partial vendored
+	// descriptor.proto override (e.g., one that only declares the *Options
+	// messages with extra HACK fields). [resolveBuiltins] copies missing
+	// symbols out of this file into the user's file's arenas.
+	//
+	// See the lengthy comment in lower_options.go on why this project
+	// honours vendored descriptor.protos for option resolution.
+	dpFallback     *File
+	dpFallbackOnce sync.Once
 }
 
 // RecordInternStats enables instrumentation of the session's intern table.
@@ -83,6 +100,50 @@ func (s *Session) init() {
 		s.intern.Preload(&s.builtins)
 		s.optionalBuiltins = optionalBuiltinIDs(&s.builtins)
 	})
+}
+
+// fallbackDescriptorProto lowers the baked-in well-known
+// `google/protobuf/descriptor.proto` once per session and returns the
+// resulting [*File]. It is the source of builtin symbols when the
+// user-supplied descriptor.proto is a partial vendored override that
+// only declares a subset of the descriptor types.
+//
+// Lowering the baked-in WKT goes through the same [Session.Lower] flow
+// as any other file; descriptor.proto has no imports of its own, so the
+// no-op importer never fires. Diagnostics produced during this internal
+// lowering are discarded because they can only reflect a bug in the
+// baked-in WKT itself, not in the user's input.
+func (s *Session) fallbackDescriptorProto() *File {
+	s.dpFallbackOnce.Do(func() {
+		f, err := wellknownimports.FS().Open(DescriptorProtoPath)
+		if err != nil {
+			panic(fmt.Errorf("protocompile/ir: open baked-in %q: %w", DescriptorProtoPath, err))
+		}
+		text, err := io.ReadAll(f)
+		_ = f.Close()
+		if err != nil {
+			panic(fmt.Errorf("protocompile/ir: read baked-in %q: %w", DescriptorProtoPath, err))
+		}
+
+		// Parse with the canonical path so [File.IsDescriptorProto]
+		// returns true and [resolveBuiltins] populates dpBuiltins on the
+		// fallback. The descriptor.proto WKT has no imports, so the
+		// no-op importer is never called.
+		src := source.NewFile(DescriptorProtoPath, string(text))
+		var rpt report.Report
+		astFile, ok := parser.Parse(DescriptorProtoPath, src, &rpt)
+		if !ok {
+			panic(fmt.Errorf("protocompile/ir: parse baked-in %q: %v",
+				DescriptorProtoPath, rpt.Diagnostics))
+		}
+
+		var noopImporter Importer = func(int, string, ast.DeclImport) (*File, error) {
+			panic(fmt.Errorf("protocompile/ir: baked-in %q unexpectedly requested an import",
+				DescriptorProtoPath))
+		}
+		s.dpFallback, _ = s.Lower(astFile, &rpt, noopImporter)
+	})
+	return s.dpFallback
 }
 
 func lower(file *File, r *report.Report, importer Importer) {
