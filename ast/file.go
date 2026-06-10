@@ -80,7 +80,8 @@ func newFileNode(info *FileInfo, syntax *SyntaxNode, edition *EditionNode, decls
 	for _, decl := range decls {
 		switch decl := decl.(type) {
 		case *PackageNode, *ImportNode, *OptionNode, *MessageNode,
-			*EnumNode, *ExtendNode, *ServiceNode, *EmptyDeclNode:
+			*EnumNode, *ExtendNode, *ServiceNode, *EmptyDeclNode,
+			*TypeDeclNode, *FunctionDeclNode, *AnnotationDeclNode:
 		default:
 			panic(fmt.Sprintf("invalid FileElement type: %T", decl))
 		}
@@ -161,6 +162,9 @@ var _ FileElement = (*EnumNode)(nil)
 var _ FileElement = (*ExtendNode)(nil)
 var _ FileElement = (*ServiceNode)(nil)
 var _ FileElement = (*EmptyDeclNode)(nil)
+var _ FileElement = (*TypeDeclNode)(nil)
+var _ FileElement = (*FunctionDeclNode)(nil)
+var _ FileElement = (*AnnotationDeclNode)(nil)
 
 // SyntaxNode represents a syntax declaration, which if present must be
 // the first non-comment content. Example:

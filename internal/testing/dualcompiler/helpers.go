@@ -24,7 +24,7 @@ import (
 	"google.golang.org/protobuf/testing/protocmp"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/bufbuild/protocompile"
+	"github.com/trendvidia/protocompile"
 )
 
 const (

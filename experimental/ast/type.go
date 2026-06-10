@@ -18,10 +18,10 @@ package ast
 import (
 	"iter"
 
-	"github.com/bufbuild/protocompile/experimental/id"
-	"github.com/bufbuild/protocompile/experimental/source"
-	"github.com/bufbuild/protocompile/experimental/token"
-	"github.com/bufbuild/protocompile/internal/arena"
+	"github.com/trendvidia/protocompile/experimental/id"
+	"github.com/trendvidia/protocompile/experimental/source"
+	"github.com/trendvidia/protocompile/experimental/token"
+	"github.com/trendvidia/protocompile/internal/arena"
 )
 
 // TypeAny is any Type* type in this package.

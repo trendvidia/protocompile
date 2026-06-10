@@ -36,7 +36,7 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/pmezard/go-difflib/difflib"
 
-	"github.com/bufbuild/protocompile/internal/prototest"
+	"github.com/trendvidia/protocompile/internal/prototest"
 )
 
 // A corpus describes a test data corpus. This is essentially a way for doing table-driven

@@ -15,9 +15,9 @@
 package ast
 
 import (
-	"github.com/bufbuild/protocompile/experimental/id"
-	"github.com/bufbuild/protocompile/experimental/source"
-	"github.com/bufbuild/protocompile/internal/arena"
+	"github.com/trendvidia/protocompile/experimental/id"
+	"github.com/trendvidia/protocompile/experimental/source"
+	"github.com/trendvidia/protocompile/internal/arena"
 )
 
 // DeclAny is any Decl* type in this package.
@@ -122,6 +122,60 @@ func (d DeclAny) AsRange() DeclRange {
 	return id.Wrap(d.Context(), id.ID[DeclRange](d.ID().Value()))
 }
 
+// AsType converts a DeclAny into a DeclType, if that is the declaration
+// it contains.
+//
+// Otherwise, returns zero.
+func (d DeclAny) AsType() DeclType {
+	if d.Kind() != DeclKindType {
+		return DeclType{}
+	}
+
+	return id.Wrap(d.Context(), id.ID[DeclType](d.ID().Value()))
+}
+
+// AsFunction converts a DeclAny into a DeclFunction, if that is the declaration
+// it contains.
+//
+// Otherwise, returns zero.
+func (d DeclAny) AsFunction() DeclFunction {
+	if d.Kind() != DeclKindFunction {
+		return DeclFunction{}
+	}
+
+	return id.Wrap(d.Context(), id.ID[DeclFunction](d.ID().Value()))
+}
+
+// AsAnnotation converts a DeclAny into a DeclAnnotation, if that is the
+// declaration it contains.
+//
+// Otherwise, returns zero.
+func (d DeclAny) AsAnnotation() DeclAnnotation {
+	if d.Kind() != DeclKindAnnotation {
+		return DeclAnnotation{}
+	}
+
+	return id.Wrap(d.Context(), id.ID[DeclAnnotation](d.ID().Value()))
+}
+
+// AsAnnotationUse converts a DeclAny into a DeclAnnotationUse, if that
+// is the declaration it contains.
+//
+// A DeclAnnotationUse may appear at the top level as an orphan use site
+// (the parser produces one when a `@name(args)` does not successfully
+// bind to a following declaration). When a use site is correctly
+// attached to a declaration, it lives in that declaration's
+// [DeclX.Annotations] sequence and does not appear in [DeclAny].
+//
+// Otherwise, returns zero.
+func (d DeclAny) AsAnnotationUse() DeclAnnotationUse {
+	if d.Kind() != DeclKindAnnotationUse {
+		return DeclAnnotationUse{}
+	}
+
+	return id.Wrap(d.Context(), id.ID[DeclAnnotationUse](d.ID().Value()))
+}
+
 // Span implements [source.Spanner].
 func (d DeclAny) Span() source.Span {
 	switch d.Kind() {
@@ -139,6 +193,14 @@ func (d DeclAny) Span() source.Span {
 		return d.AsRange().Span()
 	case DeclKindSyntax:
 		return d.AsSyntax().Span()
+	case DeclKindType:
+		return d.AsType().Span()
+	case DeclKindFunction:
+		return d.AsFunction().Span()
+	case DeclKindAnnotation:
+		return d.AsAnnotation().Span()
+	case DeclKindAnnotationUse:
+		return d.AsAnnotationUse().Span()
 	default:
 		return source.Span{}
 	}
@@ -154,11 +216,17 @@ func (k DeclKind) EncodeDynID(value int32) (int32, int32, bool) {
 
 // decls is storage for every kind of Decl in a Context.
 type decls struct {
-	empties  arena.Arena[rawDeclEmpty]
-	syntaxes arena.Arena[rawDeclSyntax]
-	packages arena.Arena[rawDeclPackage]
-	imports  arena.Arena[rawDeclImport]
-	defs     arena.Arena[rawDeclDef]
-	bodies   arena.Arena[rawDeclBody]
-	ranges   arena.Arena[rawDeclRange]
+	empties          arena.Arena[rawDeclEmpty]
+	syntaxes         arena.Arena[rawDeclSyntax]
+	packages         arena.Arena[rawDeclPackage]
+	imports          arena.Arena[rawDeclImport]
+	defs             arena.Arena[rawDeclDef]
+	bodies           arena.Arena[rawDeclBody]
+	ranges           arena.Arena[rawDeclRange]
+	types            arena.Arena[rawDeclType]
+	functions        arena.Arena[rawDeclFunction]
+	functionParams   arena.Arena[rawDeclFunctionParam]
+	annotations      arena.Arena[rawDeclAnnotation]
+	annotationParams arena.Arena[rawDeclAnnotationParam]
+	annotationUses   arena.Arena[rawDeclAnnotationUse]
 }

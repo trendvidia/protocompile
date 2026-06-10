@@ -27,10 +27,10 @@ import (
 
 	"golang.org/x/sync/semaphore"
 
-	"github.com/bufbuild/protocompile/experimental/report"
-	"github.com/bufbuild/protocompile/internal"
-	"github.com/bufbuild/protocompile/internal/ext/slicesx"
-	"github.com/bufbuild/protocompile/internal/ext/timex"
+	"github.com/trendvidia/protocompile/experimental/report"
+	"github.com/trendvidia/protocompile/internal"
+	"github.com/trendvidia/protocompile/internal/ext/slicesx"
+	"github.com/trendvidia/protocompile/internal/ext/timex"
 )
 
 var (

@@ -21,20 +21,20 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bufbuild/protocompile/experimental/ast"
-	"github.com/bufbuild/protocompile/experimental/ast/predeclared"
-	"github.com/bufbuild/protocompile/experimental/internal/taxa"
-	"github.com/bufbuild/protocompile/experimental/ir/presence"
-	"github.com/bufbuild/protocompile/experimental/report"
-	"github.com/bufbuild/protocompile/experimental/seq"
-	"github.com/bufbuild/protocompile/experimental/source"
-	"github.com/bufbuild/protocompile/experimental/token"
-	"github.com/bufbuild/protocompile/experimental/token/keyword"
-	"github.com/bufbuild/protocompile/internal/decimal"
-	"github.com/bufbuild/protocompile/internal/ext/iterx"
-	"github.com/bufbuild/protocompile/internal/ext/slicesx"
-	"github.com/bufbuild/protocompile/internal/ext/stringsx"
-	"github.com/bufbuild/protocompile/internal/tags"
+	"github.com/trendvidia/protocompile/experimental/ast"
+	"github.com/trendvidia/protocompile/experimental/ast/predeclared"
+	"github.com/trendvidia/protocompile/experimental/internal/taxa"
+	"github.com/trendvidia/protocompile/experimental/ir/presence"
+	"github.com/trendvidia/protocompile/experimental/report"
+	"github.com/trendvidia/protocompile/experimental/seq"
+	"github.com/trendvidia/protocompile/experimental/source"
+	"github.com/trendvidia/protocompile/experimental/token"
+	"github.com/trendvidia/protocompile/experimental/token/keyword"
+	"github.com/trendvidia/protocompile/internal/decimal"
+	"github.com/trendvidia/protocompile/internal/ext/iterx"
+	"github.com/trendvidia/protocompile/internal/ext/slicesx"
+	"github.com/trendvidia/protocompile/internal/ext/stringsx"
+	"github.com/trendvidia/protocompile/internal/tags"
 )
 
 const (
@@ -286,6 +286,40 @@ func (e *evaluator) evalBits(args evalArgs) (rawValueBits, bool) {
 	return 0, false
 }
 
+// isDelimited reports whether a message-typed field is encoded with the
+// delimited (group) wire format — true for proto2 `group` fields and for
+// editions fields that explicitly set `features.message_encoding =
+// DELIMITED` in their compact options.
+//
+// This intentionally peeks at the field's AST instead of using
+// [Member.FeatureSet], because feature inheritance is computed in
+// [buildAllFeatureInfo], which runs strictly after [resolveOptions] (and
+// therefore strictly after this code path in [lower.go]). Inherited
+// settings from the enclosing message/file are not consulted because
+// they would require the (not-yet-built) feature tree; the legacy
+// pipeline gets those for free via protoreflect descriptors, which are
+// only built after all evaluation completes.
+func isDelimited(m Member) bool {
+	if m.IsGroup() {
+		return true
+	}
+	for opt := range seq.Values(m.AST().Options().Entries()) {
+		if opt.Path.Canonicalized() != "features.message_encoding" {
+			continue
+		}
+		value := opt.Value.AsPath()
+		if value.Path.IsZero() {
+			continue
+		}
+		// Accept either `DELIMITED` or any qualifier ending in `.DELIMITED`.
+		canon := value.Path.Canonicalized()
+		if canon == "DELIMITED" || strings.HasSuffix(canon, ".DELIMITED") {
+			return true
+		}
+	}
+	return false
+}
+
 // evalKey evaluates a key in a message literal.
 func (e *evaluator) evalKey(args evalArgs, expr ast.ExprField) Member {
 	// There are a number of potentially incorrect ways of specifying
@@ -335,7 +369,7 @@ func (e *evaluator) evalKey(args evalArgs, expr ast.ExprField) Member {
 
 	var member Member
 	var path string
-	var hasBrackets, isPath, isNumber, isString bool
+	var hasBrackets, isPath, isNumber, isString, groupSynonym bool
 	key := expr.Key()
 again:
 	switch key.Kind() {
@@ -396,6 +430,24 @@ again:
 	// Try checking if this is just a member of the message directly.
 	if !hasBrackets {
 		member = ty.MemberByName(path)
+
+		// Group-synonym fallback: in protoc's text format, a delimited
+		// (group-encoded) field may be referenced by its element type's
+		// short name in addition to its own field name. The field name
+		// itself is the lower-cased form of the type's short name (e.g.
+		// `Bar bar = 2` with delimited encoding accepts both `Bar:` and
+		// `bar:`). This mirrors `options/options.go:2186-2206` in the
+		// legacy interpreter.
+		if member.IsZero() && isPath {
+			cand := ty.MemberByName(strings.ToLower(path))
+			if !cand.IsZero() && cand.IsMessageField() &&
+				cand.Element().Name() == path &&
+				cand.Element().Scope() == cand.Scope() &&
+				isDelimited(cand) {
+				member = cand
+				groupSynonym = true
+			}
+		}
 	}
 	if member.IsZero() {
 		if isPath && !hasBrackets && strings.HasPrefix(path, "(") {
@@ -456,7 +508,9 @@ validate:
 	// Validate that the key was spelled correctly: if it is a field,
 	// it is a single identifier with the name of that field, and has no
 	// brackets; if it is an extension, it is the FQN and it has brackets.
-	wrongPath := member.IsMessageField() && path != member.Name()
+	// The group-synonym fallback also produces a `path != member.Name()`
+	// mismatch by design; suppress the spelling check in that case.
+	wrongPath := member.IsMessageField() && !groupSynonym && path != member.Name()
 	misspelled := !isPath || hasBrackets != member.IsExtension() || wrongPath
 
 	if misspelled {

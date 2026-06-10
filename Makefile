@@ -50,6 +50,24 @@ all: ## Build, test, and lint (default)
 	$(MAKE) test
 	$(MAKE) lint
 
+.PHONY: ci-local
+ci-local: ## Run the gates that CI's lint+test jobs run (no Docker, no GitHub minutes)
+	@echo "==> [1/4] make generate"
+	@$(MAKE) --no-print-directory generate
+	@echo "==> [2/4] make checkgenerate"
+	@$(MAKE) --no-print-directory checkgenerate
+	@echo "==> [3/4] make lint"
+	@$(MAKE) --no-print-directory lint
+	@echo "==> [4/4] make test"
+	@$(MAKE) --no-print-directory test
+	@echo "ci-local: all gates passed."
+
+.PHONY: ci-local-full
+ci-local-full: ci-local ## Run ci-local plus benchmarks (slow; mirrors the full CI matrix)
+	@echo "==> [5/5] make benchmarks"
+	@$(MAKE) --no-print-directory benchmarks
+	@echo "ci-local-full: all gates passed."
+
 .PHONY: clean
 clean: ## Delete intermediate build artifacts
 	@# -X only removes untracked files, -d recurses into directories, -f actually removes files/dirs

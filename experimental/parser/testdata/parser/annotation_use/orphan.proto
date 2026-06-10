@@ -1,0 +1,7 @@
+syntax = "proto3";
+
+// `@foo` with no following declaration becomes a top-level orphan
+// annotation; the linker will diagnose it. Until A5b's orphan
+// recovery is widened, subsequent orphans in the same run are dropped.
+
+@foo

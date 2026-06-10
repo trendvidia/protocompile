@@ -117,13 +117,20 @@ var properties = [...]property{
 	Match:  valid | word,
 	Case:   valid | word,
 
-	As:     valid | word,
-	Func:   valid | word,
-	Const:  valid | word,
-	Let:    valid | word,
-	Var:    valid | word,
-	Type:   valid | word,
-	Extern: valid | word,
+	As:    valid | word,
+	Func:  valid | word,
+	Const: valid | word,
+	Let:   valid | word,
+	Var:   valid | word,
+	// Type, Function, and Annotation are protowire v1.2 schema-extension
+	// keywords (RFC-001). They are marked `protobuf` so the lexer treats
+	// them as soft keywords — they keep parsing as identifiers in
+	// non-declaration contexts (e.g. `oneof type` or a message field
+	// named `function`).
+	Type:       valid | word | protobuf,
+	Function:   valid | word | protobuf,
+	Annotation: valid | word | protobuf,
+	Extern:     valid | word,
 
 	And: valid | word,
 	Or:  valid | word,

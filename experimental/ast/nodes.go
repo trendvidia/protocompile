@@ -19,9 +19,9 @@ import (
 	"math"
 	"slices"
 
-	"github.com/bufbuild/protocompile/experimental/id"
-	"github.com/bufbuild/protocompile/experimental/token"
-	"github.com/bufbuild/protocompile/internal/ext/iterx"
+	"github.com/trendvidia/protocompile/experimental/id"
+	"github.com/trendvidia/protocompile/experimental/token"
+	"github.com/trendvidia/protocompile/internal/ext/iterx"
 )
 
 // Nodes provides storage for the various AST node types, and can be used
@@ -246,6 +246,100 @@ func (n *Nodes) NewDeclRange(args DeclRangeArgs) DeclRange {
 		keyword: args.Keyword.ID(),
 		options: args.Options.ID(),
 		semi:    args.Semicolon.ID(),
+	})))
+}
+
+// NewDeclType creates a new DeclType node.
+func (n *Nodes) NewDeclType(args DeclTypeArgs) DeclType {
+	n.panicIfNotOurs(
+		args.Keyword.Context(), args.Name.Context(), args.Equals.Context(),
+		args.Value.Context(), args.Semicolon.Context())
+
+	return id.Wrap(n.File(), id.ID[DeclType](n.decls.types.NewCompressed(rawDeclType{
+		keyword: args.Keyword.ID(),
+		name:    args.Name.ID(),
+		equals:  args.Equals.ID(),
+		value:   args.Value.ID(),
+		semi:    args.Semicolon.ID(),
+	})))
+}
+
+// NewDeclFunction creates a new DeclFunction node.
+//
+// To add parameters to the returned declaration, use [DeclFunction.Params].
+func (n *Nodes) NewDeclFunction(args DeclFunctionArgs) DeclFunction {
+	n.panicIfNotOurs(
+		args.Keyword.Context(), args.Name.Context(), args.Parens.Context(),
+		args.Options.Context(), args.Semicolon.Context())
+
+	return id.Wrap(n.File(), id.ID[DeclFunction](n.decls.functions.NewCompressed(rawDeclFunction{
+		keyword: args.Keyword.ID(),
+		name:    args.Name.ID(),
+		parens:  args.Parens.ID(),
+		options: args.Options.ID(),
+		semi:    args.Semicolon.ID(),
+	})))
+}
+
+// NewDeclFunctionParam creates a new DeclFunctionParam node.
+func (n *Nodes) NewDeclFunctionParam(args DeclFunctionParamArgs) DeclFunctionParam {
+	n.panicIfNotOurs(args.Name.Context(), args.Colon.Context(), args.Type.Context())
+
+	return id.Wrap(n.File(), id.ID[DeclFunctionParam](n.decls.functionParams.NewCompressed(rawDeclFunctionParam{
+		name:  args.Name.ID(),
+		colon: args.Colon.ID(),
+		ty:    args.Type.ID(),
+	})))
+}
+
+// NewDeclAnnotation creates a new DeclAnnotation node.
+//
+// To add parameters to the returned declaration, use
+// [DeclAnnotation.Params]. Set args.Parens to [token.Zero] for the
+// parameterless form (`annotation Name;`).
+func (n *Nodes) NewDeclAnnotation(args DeclAnnotationArgs) DeclAnnotation {
+	n.panicIfNotOurs(
+		args.Keyword.Context(), args.Name.Context(), args.Parens.Context(),
+		args.Semicolon.Context())
+
+	return id.Wrap(n.File(), id.ID[DeclAnnotation](n.decls.annotations.NewCompressed(rawDeclAnnotation{
+		keyword: args.Keyword.ID(),
+		name:    args.Name.ID(),
+		parens:  args.Parens.ID(),
+		semi:    args.Semicolon.ID(),
+	})))
+}
+
+// NewDeclAnnotationParam creates a new DeclAnnotationParam node.
+//
+// Set args.Equals to [token.Zero] and args.Default to a zero ExprAny
+// when the parameter has no default value.
+func (n *Nodes) NewDeclAnnotationParam(args DeclAnnotationParamArgs) DeclAnnotationParam {
+	n.panicIfNotOurs(
+		args.Name.Context(), args.Colon.Context(), args.Type.Context(),
+		args.Equals.Context(), args.Default.Context())
+
+	return id.Wrap(n.File(), id.ID[DeclAnnotationParam](n.decls.annotationParams.NewCompressed(rawDeclAnnotationParam{
+		name:   args.Name.ID(),
+		colon:  args.Colon.ID(),
+		ty:     args.Type.ID(),
+		equals: args.Equals.ID(),
+		deflt:  args.Default.ID(),
+	})))
+}
+
+// NewDeclAnnotationUse creates a new DeclAnnotationUse node.
+//
+// Set args.Parens to [token.Zero] for the bare `@Name` form. Arguments
+// are added after construction via [DeclAnnotationUse.Args].
+func (n *Nodes) NewDeclAnnotationUse(args DeclAnnotationUseArgs) DeclAnnotationUse {
+	n.panicIfNotOurs(
+		args.At.Context(), args.Name.Context(), args.Parens.Context())
+
+	return id.Wrap(n.File(), id.ID[DeclAnnotationUse](n.decls.annotationUses.NewCompressed(rawDeclAnnotationUse{
+		at:     args.At.ID(),
+		name:   args.Name.raw,
+		parens: args.Parens.ID(),
 	})))
 }
 

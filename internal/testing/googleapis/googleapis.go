@@ -33,7 +33,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/bufbuild/protocompile/experimental/source"
+	"github.com/trendvidia/protocompile/experimental/source"
 )
 
 var (

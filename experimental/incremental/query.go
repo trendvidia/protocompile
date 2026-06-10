@@ -17,7 +17,7 @@ package incremental
 import (
 	"fmt"
 
-	"github.com/bufbuild/protocompile/experimental/internal/cycle"
+	"github.com/trendvidia/protocompile/experimental/internal/cycle"
 )
 
 // Query represents an incremental compilation query.

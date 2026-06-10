@@ -18,14 +18,14 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/bufbuild/protocompile/experimental/ast"
-	"github.com/bufbuild/protocompile/experimental/internal/errtoken"
-	"github.com/bufbuild/protocompile/experimental/internal/just"
-	"github.com/bufbuild/protocompile/experimental/internal/taxa"
-	"github.com/bufbuild/protocompile/experimental/report"
-	"github.com/bufbuild/protocompile/experimental/source"
-	"github.com/bufbuild/protocompile/experimental/token"
-	"github.com/bufbuild/protocompile/experimental/token/keyword"
+	"github.com/trendvidia/protocompile/experimental/ast"
+	"github.com/trendvidia/protocompile/experimental/internal/errtoken"
+	"github.com/trendvidia/protocompile/experimental/internal/just"
+	"github.com/trendvidia/protocompile/experimental/internal/taxa"
+	"github.com/trendvidia/protocompile/experimental/report"
+	"github.com/trendvidia/protocompile/experimental/source"
+	"github.com/trendvidia/protocompile/experimental/token"
+	"github.com/trendvidia/protocompile/experimental/token/keyword"
 )
 
 // delimited is a mechanism for parsing a punctuation-delimited list.

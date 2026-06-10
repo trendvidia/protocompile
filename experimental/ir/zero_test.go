@@ -21,8 +21,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/bufbuild/protocompile/experimental/id"
-	"github.com/bufbuild/protocompile/experimental/ir"
+	"github.com/trendvidia/protocompile/experimental/id"
+	"github.com/trendvidia/protocompile/experimental/ir"
 )
 
 func TestZero(t *testing.T) {

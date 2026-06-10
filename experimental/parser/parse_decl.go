@@ -17,16 +17,16 @@ package parser
 import (
 	"slices"
 
-	"github.com/bufbuild/protocompile/experimental/ast"
-	"github.com/bufbuild/protocompile/experimental/internal/errtoken"
-	"github.com/bufbuild/protocompile/experimental/internal/just"
-	"github.com/bufbuild/protocompile/experimental/internal/taxa"
-	"github.com/bufbuild/protocompile/experimental/report"
-	"github.com/bufbuild/protocompile/experimental/seq"
-	"github.com/bufbuild/protocompile/experimental/source"
-	"github.com/bufbuild/protocompile/experimental/token"
-	"github.com/bufbuild/protocompile/experimental/token/keyword"
-	"github.com/bufbuild/protocompile/internal/ext/slicesx"
+	"github.com/trendvidia/protocompile/experimental/ast"
+	"github.com/trendvidia/protocompile/experimental/internal/errtoken"
+	"github.com/trendvidia/protocompile/experimental/internal/just"
+	"github.com/trendvidia/protocompile/experimental/internal/taxa"
+	"github.com/trendvidia/protocompile/experimental/report"
+	"github.com/trendvidia/protocompile/experimental/seq"
+	"github.com/trendvidia/protocompile/experimental/source"
+	"github.com/trendvidia/protocompile/experimental/token"
+	"github.com/trendvidia/protocompile/experimental/token/keyword"
+	"github.com/trendvidia/protocompile/internal/ext/slicesx"
 )
 
 type exprComma struct {
@@ -74,6 +74,10 @@ func parseDecl(p *parser, c *token.Cursor, in taxa.Noun) ast.DeclAny {
 
 		// This is an empty decl.
 		return p.NewDeclEmpty(first).AsAny()
+	}
+
+	if first.Keyword() == keyword.At {
+		return parseAnnotatedDecl(p, c, in)
 	}
 
 	// This is a bare declaration body.
@@ -268,6 +272,31 @@ func parseDecl(p *parser, c *token.Cursor, in taxa.Noun) ast.DeclAny {
 		// expression.
 		c.Rewind(mark)
 		return parseRange(p, c).AsAny()
+
+	case keyword.Type:
+		// Protowire v1.2 schema extension (RFC-001). Type declarations are
+		// only parsed at the top level; everywhere else `type` is a
+		// contextual identifier and falls through to defParser.
+		if in != taxa.TopLevel {
+			break
+		}
+		return parseTypeDecl(p, c, kw, path).AsAny()
+
+	case keyword.Function:
+		// Protowire v1.2 schema extension (RFC-001). Same contextual-keyword
+		// rules as `type`.
+		if in != taxa.TopLevel {
+			break
+		}
+		return parseFunctionDecl(p, c, kw, path).AsAny()
+
+	case keyword.Annotation:
+		// Protowire v1.2 schema extension (RFC-001). Same contextual-keyword
+		// rules as `type`.
+		if in != taxa.TopLevel {
+			break
+		}
+		return parseAnnotationDecl(p, c, kw, path).AsAny()
 	}
 
 	def := &defParser{

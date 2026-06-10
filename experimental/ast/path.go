@@ -19,12 +19,12 @@ import (
 	"iter"
 	"strings"
 
-	"github.com/bufbuild/protocompile/experimental/ast/predeclared"
-	"github.com/bufbuild/protocompile/experimental/id"
-	"github.com/bufbuild/protocompile/experimental/source"
-	"github.com/bufbuild/protocompile/experimental/token"
-	"github.com/bufbuild/protocompile/experimental/token/keyword"
-	"github.com/bufbuild/protocompile/internal/ext/iterx"
+	"github.com/trendvidia/protocompile/experimental/ast/predeclared"
+	"github.com/trendvidia/protocompile/experimental/id"
+	"github.com/trendvidia/protocompile/experimental/source"
+	"github.com/trendvidia/protocompile/experimental/token"
+	"github.com/trendvidia/protocompile/experimental/token/keyword"
+	"github.com/trendvidia/protocompile/internal/ext/iterx"
 )
 
 // Path represents a multi-part identifier.

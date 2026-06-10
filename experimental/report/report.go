@@ -24,9 +24,9 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/bufbuild/protocompile/experimental/source"
-	"github.com/bufbuild/protocompile/internal/ext/cmpx"
-	compilerpb "github.com/bufbuild/protocompile/internal/gen/buf/compiler/v1alpha1"
+	"github.com/trendvidia/protocompile/experimental/source"
+	"github.com/trendvidia/protocompile/internal/ext/cmpx"
+	compilerpb "github.com/trendvidia/protocompile/internal/gen/buf/compiler/v1alpha1"
 )
 
 // Report is a collection of diagnostics.

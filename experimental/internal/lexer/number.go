@@ -21,13 +21,13 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/bufbuild/protocompile/experimental/internal/errtoken"
-	"github.com/bufbuild/protocompile/experimental/internal/taxa"
-	"github.com/bufbuild/protocompile/experimental/internal/tokenmeta"
-	"github.com/bufbuild/protocompile/experimental/token"
-	"github.com/bufbuild/protocompile/internal/decimal"
-	"github.com/bufbuild/protocompile/internal/ext/unicodex"
-	"github.com/bufbuild/protocompile/internal/ext/unsafex"
+	"github.com/trendvidia/protocompile/experimental/internal/errtoken"
+	"github.com/trendvidia/protocompile/experimental/internal/taxa"
+	"github.com/trendvidia/protocompile/experimental/internal/tokenmeta"
+	"github.com/trendvidia/protocompile/experimental/token"
+	"github.com/trendvidia/protocompile/internal/decimal"
+	"github.com/trendvidia/protocompile/internal/ext/unicodex"
+	"github.com/trendvidia/protocompile/internal/ext/unsafex"
 )
 
 var (

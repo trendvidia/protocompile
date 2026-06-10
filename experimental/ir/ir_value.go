@@ -23,16 +23,16 @@ import (
 
 	"google.golang.org/protobuf/encoding/protowire"
 
-	"github.com/bufbuild/protocompile/experimental/ast"
-	"github.com/bufbuild/protocompile/experimental/ast/predeclared"
-	"github.com/bufbuild/protocompile/experimental/id"
-	"github.com/bufbuild/protocompile/experimental/report"
-	"github.com/bufbuild/protocompile/experimental/seq"
-	"github.com/bufbuild/protocompile/experimental/source"
-	"github.com/bufbuild/protocompile/internal/arena"
-	"github.com/bufbuild/protocompile/internal/ext/mapsx"
-	"github.com/bufbuild/protocompile/internal/ext/slicesx"
-	"github.com/bufbuild/protocompile/internal/intern"
+	"github.com/trendvidia/protocompile/experimental/ast"
+	"github.com/trendvidia/protocompile/experimental/ast/predeclared"
+	"github.com/trendvidia/protocompile/experimental/id"
+	"github.com/trendvidia/protocompile/experimental/report"
+	"github.com/trendvidia/protocompile/experimental/seq"
+	"github.com/trendvidia/protocompile/experimental/source"
+	"github.com/trendvidia/protocompile/internal/arena"
+	"github.com/trendvidia/protocompile/internal/ext/mapsx"
+	"github.com/trendvidia/protocompile/internal/ext/slicesx"
+	"github.com/trendvidia/protocompile/internal/intern"
 )
 
 // Value is an evaluated expression, corresponding to an option in a Protobuf
@@ -896,10 +896,20 @@ func (v MessageValue) marshal(buf []byte, r *report.Report, ranges *[][2]int) ([
 		})
 	}
 
+	// Emit fields in field-number order. The IR preserves source-
+	// declaration order in [MessageValue.Fields], but the canonical
+	// proto wire encoding protoc produces is field-number sorted.
+	// Sorting here keeps the experimental fdp byte-for-byte consistent
+	// with the legacy pipeline (and protoc) regardless of how the
+	// user wrote the message literal.
+	fields := slices.Collect(v.Fields())
+	slices.SortStableFunc(fields, func(a, b Value) int {
+		return cmp.Compare(a.Field().Number(), b.Field().Number())
+	})
 	var n int
-	for v := range v.Fields() {
+	for _, fv := range fields {
 		var k int
-		buf, k = v.marshal(buf, r, ranges)
+		buf, k = fv.marshal(buf, r, ranges)
 		n += k
 	}
 	return buf, n

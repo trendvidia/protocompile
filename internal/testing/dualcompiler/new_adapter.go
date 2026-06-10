@@ -23,13 +23,14 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
+	"google.golang.org/protobuf/types/dynamicpb"
 
-	"github.com/bufbuild/protocompile/experimental/fdp"
-	"github.com/bufbuild/protocompile/experimental/incremental"
-	"github.com/bufbuild/protocompile/experimental/incremental/queries"
-	"github.com/bufbuild/protocompile/experimental/ir"
-	"github.com/bufbuild/protocompile/experimental/report"
-	"github.com/bufbuild/protocompile/experimental/source"
+	"github.com/trendvidia/protocompile/experimental/fdp"
+	"github.com/trendvidia/protocompile/experimental/incremental"
+	"github.com/trendvidia/protocompile/experimental/incremental/queries"
+	"github.com/trendvidia/protocompile/experimental/ir"
+	"github.com/trendvidia/protocompile/experimental/report"
+	"github.com/trendvidia/protocompile/experimental/source"
 )
 
 // newCompilerAdapter wraps the experimental incremental compiler.
@@ -160,6 +161,18 @@ func (f *newCompiledFile) FileDescriptor() (protoreflect.FileDescriptor, error) 
 }
 
 // FileDescriptorProto implements CompiledFile.
+//
+// Two-pass unmarshal: the first pass uses the global resolver to give
+// us the file's structure (messages, enums, fields, options
+// containing only standard fields and globally-registered extensions).
+// We then build a per-file extension resolver from the descriptor's
+// own definitions and re-unmarshal so that options like
+// `[testprotos.flfubar]` come back as typed extension fields instead
+// of raw unknown bytes. Without this step, proto.Equal and protocmp
+// comparisons against the legacy compiler's output spuriously diverge
+// because the legacy adapter returns a proto whose extensions are
+// already typed (it pulls the proto from a linker.File that carries
+// its own extension types).
 func (f *newCompiledFile) FileDescriptorProto() (*descriptorpb.FileDescriptorProto, error) {
 	data, err := fdp.DescriptorProtoBytes(
 		f.file,
@@ -169,10 +182,113 @@ func (f *newCompiledFile) FileDescriptorProto() (*descriptorpb.FileDescriptorPro
 		return nil, err
 	}
 
-	fdp := &descriptorpb.FileDescriptorProto{}
-	if err := proto.Unmarshal(data, fdp); err != nil {
+	raw := &descriptorpb.FileDescriptorProto{}
+	if err := proto.Unmarshal(data, raw); err != nil {
 		return nil, err
 	}
 
-	return fdp, nil
+	// Build a Files registry containing this file and its transitive
+	// imports. If anything fails, fall back to the raw FDP — we'd
+	// rather return a result with untyped extensions than fail the
+	// compile.
+	files, err := buildFileRegistry(f.file, raw)
+	if err != nil {
+		return raw, nil
+	}
+
+	resolver := dynamicpb.NewTypes(files)
+	final := &descriptorpb.FileDescriptorProto{}
+	if err := (proto.UnmarshalOptions{Resolver: resolver}).Unmarshal(data, final); err != nil {
+		return raw, nil
+	}
+	return final, nil
+}
+
+// buildFileRegistry collects the file and all of its transitive
+// imports into a protoregistry.Files, generating each dependency's
+// FileDescriptorProto on the fly via the experimental fdp generator.
+// The registry serves the dynamicpb extension-type resolver so that
+// extensions defined anywhere in the dependency tree resolve to typed
+// fields when the top-level descriptor is unmarshaled.
+//
+// Registration is best-effort: a failure on one dependency does not
+// abort the others, since the resolver only needs to know about the
+// extensions actually referenced from the top-level file. The top-
+// level file's own registration error is propagated, because without
+// it the resolver provides no value over the global registry.
+func buildFileRegistry(file *ir.File, raw *descriptorpb.FileDescriptorProto) (*protoregistry.Files, error) {
+	files := new(protoregistry.Files)
+
+	registered := make(map[string]bool)
+	var register func(irFile *ir.File, top bool) error
+	register = func(irFile *ir.File, top bool) error {
+		path := irFile.Path()
+		if registered[path] {
+			return nil
+		}
+		registered[path] = true
+
+		// Register dependencies first so RegisterFile can find them.
+		// Failures on transitive imports are tolerated.
+		imports := irFile.Imports()
+		for i := range imports.Len() {
+			_ = register(imports.At(i).File, false)
+		}
+
+		// Skip files already in the global registry (WKTs like
+		// descriptor.proto) so RegisterFile does not error on
+		// duplicates.
+		if _, err := protoregistry.GlobalFiles.FindFileByPath(path); err == nil {
+			return nil
+		}
+
+		// Reuse the already-built raw FDP for the top-level file; ask
+		// the fdp generator for a fresh one on each dependency.
+		var dep *descriptorpb.FileDescriptorProto
+		if top {
+			dep = raw
+		} else {
+			d, err := fdp.DescriptorProto(irFile)
+			if err != nil || d == nil {
+				return err
+			}
+			dep = d
+		}
+
+		// Resolve dependencies against the registry being built (for
+		// files we've registered above) chained with the global
+		// registry (for WKTs like descriptor.proto).
+		fd, err := protodesc.NewFile(dep, chainedFiles{files, protoregistry.GlobalFiles})
+		if err != nil {
+			return err
+		}
+		return files.RegisterFile(fd)
+	}
+
+	if err := register(file, true); err != nil {
+		return nil, err
+	}
+	return files, nil
+}
+
+// chainedFiles tries each Files in order when resolving a file by path
+// or descriptor by name. Used so protodesc.NewFile can resolve a
+// dependency against the per-compile registry first and fall back to
+// the global registry for WKTs.
+type chainedFiles struct {
+	primary, secondary protodesc.Resolver
+}
+
+func (c chainedFiles) FindFileByPath(path string) (protoreflect.FileDescriptor, error) {
+	if fd, err := c.primary.FindFileByPath(path); err == nil {
+		return fd, nil
+	}
+	return c.secondary.FindFileByPath(path)
+}
+
+func (c chainedFiles) FindDescriptorByName(name protoreflect.FullName) (protoreflect.Descriptor, error) {
+	if d, err := c.primary.FindDescriptorByName(name); err == nil {
+		return d, nil
+	}
+	return c.secondary.FindDescriptorByName(name)
 }

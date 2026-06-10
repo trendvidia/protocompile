@@ -25,8 +25,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/bufbuild/protocompile/ast"
-	"github.com/bufbuild/protocompile/reporter"
+	"github.com/trendvidia/protocompile/ast"
+	"github.com/trendvidia/protocompile/reporter"
 )
 
 type runeReader struct {
@@ -165,6 +165,15 @@ var keywords = map[string]int{
 	"returns":    _RETURNS,
 	"export":     _EXPORT,
 	"local":      _LOCAL,
+	// Contextual keywords introduced by protowire v1.2 schema extensions
+	// (RFC-001). Recognized as keywords only at the start of a top-level
+	// declaration; accepted as identifiers everywhere else via the
+	// identifier / nonDeclIdent / *Name productions in proto.y. Existing
+	// schemas using these words as identifiers (e.g., oneof type { ... },
+	// common in Google APIs) continue to parse unchanged.
+	"type":       _TYPE,
+	"function":   _FUNCTION,
+	"annotation": _ANNOTATION,
 }
 
 func (l *protoLex) maybeNewLine(r rune) {

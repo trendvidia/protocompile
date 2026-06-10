@@ -1,0 +1,29 @@
+decls:
+- syntax: { kind: KIND_SYNTAX, value.literal.string_value: "proto3" }
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "M" }]
+    body.decls:
+    - def:
+        kind: KIND_FIELD
+        name.components: [{ ident: "type" }]
+        type.path.components: [{ ident: "string" }]
+        value.literal.int_value: 1
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "N" }]
+    body.decls:
+    - def:
+        kind: KIND_ONEOF
+        name.components: [{ ident: "type" }]
+        body.decls:
+        - def:
+            kind: KIND_FIELD
+            name.components: [{ ident: "a" }]
+            type.path.components: [{ ident: "string" }]
+            value.literal.int_value: 1
+        - def:
+            kind: KIND_FIELD
+            name.components: [{ ident: "b" }]
+            type.path.components: [{ ident: "int32" }]
+            value.literal.int_value: 2

@@ -15,13 +15,13 @@
 package ir
 
 import (
-	"github.com/bufbuild/protocompile/experimental/ast"
-	"github.com/bufbuild/protocompile/experimental/id"
-	"github.com/bufbuild/protocompile/experimental/internal/taxa"
-	"github.com/bufbuild/protocompile/experimental/report"
-	"github.com/bufbuild/protocompile/experimental/seq"
-	"github.com/bufbuild/protocompile/internal/arena"
-	"github.com/bufbuild/protocompile/internal/ext/iterx"
+	"github.com/trendvidia/protocompile/experimental/ast"
+	"github.com/trendvidia/protocompile/experimental/id"
+	"github.com/trendvidia/protocompile/experimental/internal/taxa"
+	"github.com/trendvidia/protocompile/experimental/report"
+	"github.com/trendvidia/protocompile/experimental/seq"
+	"github.com/trendvidia/protocompile/internal/arena"
+	"github.com/trendvidia/protocompile/internal/ext/iterx"
 )
 
 // evaluateFieldNumbers evaluates all non-extension field numbers: that is,

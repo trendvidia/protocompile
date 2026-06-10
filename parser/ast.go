@@ -15,7 +15,7 @@
 package parser
 
 import (
-	"github.com/bufbuild/protocompile/ast"
+	"github.com/trendvidia/protocompile/ast"
 )
 
 // the types below are accumulator types, just used in intermediate productions
@@ -24,6 +24,21 @@ import (
 type compactOptionSlices struct {
 	options []*ast.OptionNode
 	commas  []*ast.RuneNode
+}
+
+// functionParamSlices accumulates function-declaration parameters during
+// parsing. Used by the protowire v1.2 schema-extension grammar (RFC-001).
+type functionParamSlices struct {
+	params []*ast.FunctionParamNode
+	commas []*ast.RuneNode
+}
+
+// annotationParamSlices accumulates annotation-declaration parameters
+// during parsing. Used by the protowire v1.2 schema-extension grammar
+// (RFC-001).
+type annotationParamSlices struct {
+	params []*ast.AnnotationParamNode
+	commas []*ast.RuneNode
 }
 
 func toStringValueNode(strs []*ast.StringLiteralNode) ast.StringValueNode {

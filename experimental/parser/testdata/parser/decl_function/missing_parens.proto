@@ -1,0 +1,4 @@
+syntax = "proto3";
+
+function foo;
+function bar [opt = 1];

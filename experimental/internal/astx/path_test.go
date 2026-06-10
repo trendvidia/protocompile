@@ -18,8 +18,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/bufbuild/protocompile/experimental/ast"
-	"github.com/bufbuild/protocompile/internal/prototest"
+	"github.com/trendvidia/protocompile/experimental/ast"
+	"github.com/trendvidia/protocompile/internal/prototest"
 )
 
 func TestFakePathLayout(t *testing.T) {

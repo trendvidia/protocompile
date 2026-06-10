@@ -18,7 +18,7 @@ import (
 	"iter"
 	"strings"
 
-	"github.com/bufbuild/protocompile/internal/ext/iterx"
+	"github.com/trendvidia/protocompile/internal/ext/iterx"
 )
 
 // Trie implements a map from strings to V, except lookups return the key

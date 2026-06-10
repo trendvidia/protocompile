@@ -19,7 +19,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/bufbuild/protocompile/internal/cases"
+	"github.com/trendvidia/protocompile/internal/cases"
 )
 
 func TestCases(t *testing.T) {

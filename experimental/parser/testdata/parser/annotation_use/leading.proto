@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package test;
+
+@deprecated
+message M {
+  string x = 1;
+}
+
+@authored("alice")
+@reviewed
+enum E {
+  E_UNSET = 0;
+  E_ONE = 1;
+}
+
+@since("2026-06-01")
+service S {
+  rpc Ping(M) returns (M);
+}

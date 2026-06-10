@@ -25,9 +25,9 @@ import (
 	"sync"
 	"unicode"
 
-	"github.com/bufbuild/protocompile/internal/ext/bigx"
-	"github.com/bufbuild/protocompile/internal/ext/bytesx"
-	"github.com/bufbuild/protocompile/internal/ext/unsafex"
+	"github.com/trendvidia/protocompile/internal/ext/bigx"
+	"github.com/trendvidia/protocompile/internal/ext/bytesx"
+	"github.com/trendvidia/protocompile/internal/ext/unsafex"
 )
 
 var bufs = sync.Pool{New: func() any { return new(bytesx.Writer) }}

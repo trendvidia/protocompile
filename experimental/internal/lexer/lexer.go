@@ -20,12 +20,12 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/bufbuild/protocompile/experimental/report"
-	"github.com/bufbuild/protocompile/experimental/source"
-	"github.com/bufbuild/protocompile/experimental/token"
-	"github.com/bufbuild/protocompile/experimental/token/keyword"
-	"github.com/bufbuild/protocompile/internal/decimal"
-	"github.com/bufbuild/protocompile/internal/ext/stringsx"
+	"github.com/trendvidia/protocompile/experimental/report"
+	"github.com/trendvidia/protocompile/experimental/source"
+	"github.com/trendvidia/protocompile/experimental/token"
+	"github.com/trendvidia/protocompile/experimental/token/keyword"
+	"github.com/trendvidia/protocompile/internal/decimal"
+	"github.com/trendvidia/protocompile/internal/ext/stringsx"
 )
 
 // MaxFileSize is the maximum file size the lexer supports.

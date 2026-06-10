@@ -18,12 +18,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bufbuild/protocompile/experimental/ast/printer"
-	"github.com/bufbuild/protocompile/experimental/parser"
-	"github.com/bufbuild/protocompile/experimental/report"
-	"github.com/bufbuild/protocompile/experimental/seq"
-	"github.com/bufbuild/protocompile/experimental/source"
-	"github.com/bufbuild/protocompile/internal/golden"
+	"github.com/trendvidia/protocompile/experimental/ast/printer"
+	"github.com/trendvidia/protocompile/experimental/parser"
+	"github.com/trendvidia/protocompile/experimental/report"
+	"github.com/trendvidia/protocompile/experimental/seq"
+	"github.com/trendvidia/protocompile/experimental/source"
+	"github.com/trendvidia/protocompile/internal/golden"
 )
 
 // TestRoundTrip exercises round-tripping a protobuf source through [printer.PrintFile].

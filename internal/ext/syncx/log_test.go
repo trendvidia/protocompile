@@ -20,8 +20,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/bufbuild/protocompile/internal/ext/synctestx"
-	"github.com/bufbuild/protocompile/internal/ext/syncx"
+	"github.com/trendvidia/protocompile/internal/ext/synctestx"
+	"github.com/trendvidia/protocompile/internal/ext/syncx"
 )
 
 func TestLog(t *testing.T) {

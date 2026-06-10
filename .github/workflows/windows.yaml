@@ -1,13 +1,14 @@
 name: windows
+# Cost-conscious trigger policy — see ci.yaml and CONTRIBUTING.md for the
+# full rationale. windows runners are particularly expensive, so this
+# workflow is even more restrictive than ci.yaml: it fires only on
+# release events, tag pushes, and manual dispatch.
 on:
+  release:
+    types: [published]
   push:
-    branches: [main]
     tags: ['v*']
-  pull_request:
-    branches: [main]
-  schedule:
-    - cron: '15 22 * * *'
-  workflow_dispatch: {} # support manual runs
+  workflow_dispatch: {} # manual runs via `gh workflow run`
 permissions:
   contents: read
 jobs:

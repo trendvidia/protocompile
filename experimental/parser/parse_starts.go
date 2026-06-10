@@ -15,20 +15,20 @@
 package parser
 
 import (
-	"github.com/bufbuild/protocompile/experimental/internal/taxa"
-	"github.com/bufbuild/protocompile/experimental/token"
-	"github.com/bufbuild/protocompile/experimental/token/keyword"
-	"github.com/bufbuild/protocompile/internal/ext/slicesx"
+	"github.com/trendvidia/protocompile/experimental/internal/taxa"
+	"github.com/trendvidia/protocompile/experimental/token"
+	"github.com/trendvidia/protocompile/experimental/token/keyword"
+	"github.com/trendvidia/protocompile/internal/ext/slicesx"
 )
 
 var (
 	startsPath = taxa.NewSet(taxa.Ident, taxa.Noun(keyword.Parens), taxa.Noun(keyword.Dot))
-	startsDecl = startsPath.With(taxa.Noun(keyword.Braces), taxa.Noun(keyword.Semi))
+	startsDecl = startsPath.With(taxa.Noun(keyword.Braces), taxa.Noun(keyword.Semi), taxa.Noun(keyword.At))
 )
 
 func canStartDecl(tok token.Token) bool {
 	return canStartPath(tok) ||
-		slicesx.Among(tok.Keyword(), keyword.Semi, keyword.Braces)
+		slicesx.Among(tok.Keyword(), keyword.Semi, keyword.Braces, keyword.At)
 }
 
 // canStartPath returns whether or not tok can start a path.

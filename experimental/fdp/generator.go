@@ -23,20 +23,20 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/bufbuild/protocompile/experimental/ast"
-	"github.com/bufbuild/protocompile/experimental/ast/predeclared"
-	"github.com/bufbuild/protocompile/experimental/ast/syntax"
-	"github.com/bufbuild/protocompile/experimental/ir"
-	"github.com/bufbuild/protocompile/experimental/ir/presence"
-	"github.com/bufbuild/protocompile/experimental/seq"
-	"github.com/bufbuild/protocompile/experimental/source"
-	"github.com/bufbuild/protocompile/experimental/token"
-	"github.com/bufbuild/protocompile/experimental/token/keyword"
-	"github.com/bufbuild/protocompile/internal"
-	"github.com/bufbuild/protocompile/internal/ext/cmpx"
-	"github.com/bufbuild/protocompile/internal/ext/iterx"
-	"github.com/bufbuild/protocompile/internal/ext/slicesx"
-	"github.com/bufbuild/protocompile/internal/tags"
+	"github.com/trendvidia/protocompile/experimental/ast"
+	"github.com/trendvidia/protocompile/experimental/ast/predeclared"
+	"github.com/trendvidia/protocompile/experimental/ast/syntax"
+	"github.com/trendvidia/protocompile/experimental/ir"
+	"github.com/trendvidia/protocompile/experimental/ir/presence"
+	"github.com/trendvidia/protocompile/experimental/seq"
+	"github.com/trendvidia/protocompile/experimental/source"
+	"github.com/trendvidia/protocompile/experimental/token"
+	"github.com/trendvidia/protocompile/experimental/token/keyword"
+	"github.com/trendvidia/protocompile/internal"
+	"github.com/trendvidia/protocompile/internal/ext/cmpx"
+	"github.com/trendvidia/protocompile/internal/ext/iterx"
+	"github.com/trendvidia/protocompile/internal/ext/slicesx"
+	"github.com/trendvidia/protocompile/internal/tags"
 )
 
 // Options records a set of [DescriptorOptions].
@@ -414,7 +414,16 @@ func (g *generator) field(f ir.Member, fdp *descriptorpb.FieldDescriptorProto) {
 		if v, ok := d.AsBool(); ok {
 			fdp.DefaultValue = addr(strconv.FormatBool(v))
 		} else if v := d.AsEnum(); !v.IsZero() {
-			fdp.DefaultValue = addr(v.Name())
+			// Prefer the identifier the user wrote so an alias default
+			// (e.g. `[default = ZED]` where `ZED` aliases `ZERO`)
+			// renders with the alias name. v.Name() always returns the
+			// primary enum value name; the legacy compiler and protoc
+			// both preserve the user-supplied spelling.
+			name := v.Name()
+			if ident := d.ValueAST().AsPath().AsIdent(); !ident.IsZero() {
+				name = ident.Name()
+			}
+			fdp.DefaultValue = addr(name)
 		} else if v, ok := d.AsInt(); ok {
 			fdp.DefaultValue = addr(strconv.FormatInt(v, 10))
 		} else if v, ok := d.AsUInt(); ok {
@@ -428,7 +437,18 @@ func (g *generator) field(f ir.Member, fdp *descriptorpb.FieldDescriptorProto) {
 			case math.IsNaN(v):
 				fdp.DefaultValue = addr("nan") // Goodbye NaN payload. :(
 			default:
-				fdp.DefaultValue = addr(strconv.FormatFloat(v, 'g', -1, 64))
+				// Single-precision (`float`) fields render at float32
+				// resolution to match what `protoc` emits in
+				// default_value. The IR carries the value as a float64,
+				// but formatting at bitSize=64 surfaces the float32
+				// round-trip mantissa (3.141590118408203 from the
+				// source-text 3.14159), which diverges from protoc.
+				bitSize := 64
+				if f.Element().Predeclared() == predeclared.Float {
+					bitSize = 32
+					v = float64(float32(v))
+				}
+				fdp.DefaultValue = addr(strconv.FormatFloat(v, 'g', -1, bitSize))
 			}
 		} else if v, ok := d.AsString(); ok {
 			if f.Element().Predeclared() == predeclared.Bytes {

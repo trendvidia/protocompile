@@ -17,7 +17,7 @@ package keyword
 import (
 	"iter"
 
-	"github.com/bufbuild/protocompile/internal/trie"
+	"github.com/trendvidia/protocompile/internal/trie"
 )
 
 var kwTrie = func() *trie.Trie[Keyword] {

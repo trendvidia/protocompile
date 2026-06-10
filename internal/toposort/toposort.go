@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"iter"
 
-	"github.com/bufbuild/protocompile/internal/ext/slicesx"
+	"github.com/trendvidia/protocompile/internal/ext/slicesx"
 )
 
 const (

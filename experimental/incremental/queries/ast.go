@@ -15,10 +15,10 @@
 package queries
 
 import (
-	"github.com/bufbuild/protocompile/experimental/ast"
-	"github.com/bufbuild/protocompile/experimental/incremental"
-	"github.com/bufbuild/protocompile/experimental/parser"
-	"github.com/bufbuild/protocompile/experimental/source"
+	"github.com/trendvidia/protocompile/experimental/ast"
+	"github.com/trendvidia/protocompile/experimental/incremental"
+	"github.com/trendvidia/protocompile/experimental/parser"
+	"github.com/trendvidia/protocompile/experimental/source"
 )
 
 // AST is an [incremental.Query] for the AST of a Protobuf file.

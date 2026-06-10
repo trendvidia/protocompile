@@ -1,0 +1,7 @@
+syntax = "proto3";
+
+package test;
+
+function is_e164();
+function matches(value: string, pattern: string);
+function valid_address(msg: myco.commons.Address) [error_code = "common.address"];

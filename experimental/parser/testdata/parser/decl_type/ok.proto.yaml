@@ -1,0 +1,11 @@
+decls:
+- syntax: { kind: KIND_SYNTAX, value.literal.string_value: "proto3" }
+- package.path.components: [{ ident: "test" }]
+- type_alias: { name: "Email", value.path.components: [{ ident: "string" }] }
+- type_alias:
+    name: "Address"
+    value.path.components:
+    - ident: "myco"
+    - { ident: "commons", separator: SEPARATOR_DOT }
+    - { ident: "Address", separator: SEPARATOR_DOT }
+- type_alias: { name: "Age", value.path.components: [{ ident: "int32" }] }

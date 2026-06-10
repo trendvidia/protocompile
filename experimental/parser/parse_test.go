@@ -18,11 +18,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bufbuild/protocompile/experimental/internal/astx"
-	"github.com/bufbuild/protocompile/experimental/report"
-	"github.com/bufbuild/protocompile/experimental/source"
-	"github.com/bufbuild/protocompile/internal/golden"
-	"github.com/bufbuild/protocompile/internal/prototest"
+	"github.com/trendvidia/protocompile/experimental/internal/astx"
+	"github.com/trendvidia/protocompile/experimental/report"
+	"github.com/trendvidia/protocompile/experimental/source"
+	"github.com/trendvidia/protocompile/internal/golden"
+	"github.com/trendvidia/protocompile/internal/prototest"
 )
 
 const (

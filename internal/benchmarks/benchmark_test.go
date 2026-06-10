@@ -34,16 +34,16 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/bufbuild/protocompile"
-	"github.com/bufbuild/protocompile/ast"
-	"github.com/bufbuild/protocompile/internal/ext/bitsx"
-	"github.com/bufbuild/protocompile/internal/protoc"
-	"github.com/bufbuild/protocompile/internal/testing/googleapis"
-	"github.com/bufbuild/protocompile/internal/testing/memory"
-	"github.com/bufbuild/protocompile/parser"
-	"github.com/bufbuild/protocompile/parser/fastscan"
-	"github.com/bufbuild/protocompile/protoutil"
-	"github.com/bufbuild/protocompile/reporter"
+	"github.com/trendvidia/protocompile"
+	"github.com/trendvidia/protocompile/ast"
+	"github.com/trendvidia/protocompile/internal/ext/bitsx"
+	"github.com/trendvidia/protocompile/internal/protoc"
+	"github.com/trendvidia/protocompile/internal/testing/googleapis"
+	"github.com/trendvidia/protocompile/internal/testing/memory"
+	"github.com/trendvidia/protocompile/parser"
+	"github.com/trendvidia/protocompile/parser/fastscan"
+	"github.com/trendvidia/protocompile/protoutil"
+	"github.com/trendvidia/protocompile/reporter"
 )
 
 var (

@@ -18,7 +18,7 @@ import (
 	"slices"
 	"unicode/utf8"
 
-	"github.com/bufbuild/protocompile/internal/ext/unsafex"
+	"github.com/trendvidia/protocompile/internal/ext/unsafex"
 )
 
 // Writer is like [bytes.Buffer], but only provides writing operations and

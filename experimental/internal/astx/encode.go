@@ -20,12 +20,12 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/bufbuild/protocompile/experimental/ast"
-	"github.com/bufbuild/protocompile/experimental/seq"
-	"github.com/bufbuild/protocompile/experimental/source"
-	"github.com/bufbuild/protocompile/experimental/token"
-	"github.com/bufbuild/protocompile/experimental/token/keyword"
-	compilerpb "github.com/bufbuild/protocompile/internal/gen/buf/compiler/v1alpha1"
+	"github.com/trendvidia/protocompile/experimental/ast"
+	"github.com/trendvidia/protocompile/experimental/seq"
+	"github.com/trendvidia/protocompile/experimental/source"
+	"github.com/trendvidia/protocompile/experimental/token"
+	"github.com/trendvidia/protocompile/experimental/token/keyword"
+	compilerpb "github.com/trendvidia/protocompile/internal/gen/buf/compiler/v1alpha1"
 )
 
 // ToProtoOptions contains options for the [File.ToProto] function.
@@ -316,6 +316,7 @@ func (c *protoEncoder) decl(decl ast.DeclAny) *compilerpb.Decl {
 			Name:          c.path(decl.Name()),
 			Value:         c.expr(decl.Value()),
 			Options:       c.options(decl.Options()),
+			Annotations:   c.annotations(decl.Annotations()),
 			Span:          c.span(decl),
 			KeywordSpan:   c.span(decl.KeywordToken()),
 			EqualsSpan:    c.span(decl.Equals()),
@@ -348,9 +349,112 @@ func (c *protoEncoder) decl(decl ast.DeclAny) *compilerpb.Decl {
 
 		return &compilerpb.Decl{Decl: &compilerpb.Decl_Def{Def: proto}}
 
+	case ast.DeclKindType:
+		decl := decl.AsType()
+		return &compilerpb.Decl{Decl: &compilerpb.Decl_TypeAlias_{TypeAlias: &compilerpb.Decl_TypeAlias{
+			Name:          decl.Name().Text(),
+			Value:         c.expr(decl.Value()),
+			Annotations:   c.annotations(decl.Annotations()),
+			Span:          c.span(decl),
+			KeywordSpan:   c.span(decl.KeywordToken()),
+			NameSpan:      c.span(decl.Name()),
+			EqualsSpan:    c.span(decl.Equals()),
+			SemicolonSpan: c.span(decl.Semicolon()),
+		}}}
+
+	case ast.DeclKindFunction:
+		decl := decl.AsFunction()
+		var params []*compilerpb.Decl_Function_Param
+		for p := range seq.Values(decl.Params()) {
+			params = append(params, &compilerpb.Decl_Function_Param{
+				Name:      p.Name().Text(),
+				Type:      c.type_(p.Type()),
+				Span:      c.span(p),
+				NameSpan:  c.span(p.Name()),
+				ColonSpan: c.span(p.Colon()),
+			})
+		}
+		return &compilerpb.Decl{Decl: &compilerpb.Decl_Function_{Function: &compilerpb.Decl_Function{
+			Name:          decl.Name().Text(),
+			Params:        params,
+			Options:       c.options(decl.Options()),
+			Annotations:   c.annotations(decl.Annotations()),
+			Span:          c.span(decl),
+			KeywordSpan:   c.span(decl.KeywordToken()),
+			NameSpan:      c.span(decl.Name()),
+			ParensSpan:    c.span(decl.Parens()),
+			SemicolonSpan: c.span(decl.Semicolon()),
+		}}}
+
+	case ast.DeclKindAnnotationUse:
+		decl := decl.AsAnnotationUse()
+		var args []*compilerpb.Expr
+		for arg := range seq.Values(decl.Args()) {
+			args = append(args, c.expr(arg))
+		}
+		return &compilerpb.Decl{Decl: &compilerpb.Decl_AnnotationUse_{AnnotationUse: &compilerpb.Decl_AnnotationUse{
+			Name:       c.path(decl.Name()),
+			Args:       args,
+			Span:       c.span(decl),
+			AtSpan:     c.span(decl.At()),
+			ParensSpan: c.span(decl.Parens()),
+		}}}
+
+	case ast.DeclKindAnnotation:
+		decl := decl.AsAnnotation()
+		var params []*compilerpb.Decl_Annotation_Param
+		for p := range seq.Values(decl.Params()) {
+			params = append(params, &compilerpb.Decl_Annotation_Param{
+				Name:       p.Name().Text(),
+				Type:       c.type_(p.Type()),
+				Default:    c.expr(p.Default()),
+				Span:       c.span(p),
+				NameSpan:   c.span(p.Name()),
+				ColonSpan:  c.span(p.Colon()),
+				EqualsSpan: c.span(p.Equals()),
+			})
+		}
+		return &compilerpb.Decl{Decl: &compilerpb.Decl_Annotation_{Annotation: &compilerpb.Decl_Annotation{
+			Name:          decl.Name().Text(),
+			Params:        params,
+			Annotations:   c.annotations(decl.Annotations()),
+			Span:          c.span(decl),
+			KeywordSpan:   c.span(decl.KeywordToken()),
+			NameSpan:      c.span(decl.Name()),
+			ParensSpan:    c.span(decl.Parens()),
+			SemicolonSpan: c.span(decl.Semicolon()),
+		}}}
+
 	default:
 		panic(fmt.Sprintf("protocompile/ast: unknown DeclKind: %d", k))
 	}
+}
+
+// annotations encodes a sequence of annotation use sites attached to a
+// carrier declaration. Returns nil for an empty sequence.
+func (c *protoEncoder) annotations(anns interface {
+	Len() int
+	At(int) ast.DeclAnnotationUse
+}) []*compilerpb.Decl_AnnotationUse {
+	if anns.Len() == 0 {
+		return nil
+	}
+	out := make([]*compilerpb.Decl_AnnotationUse, anns.Len())
+	for i := range out {
+		ann := anns.At(i)
+		var args []*compilerpb.Expr
+		for arg := range seq.Values(ann.Args()) {
+			args = append(args, c.expr(arg))
+		}
+		out[i] = &compilerpb.Decl_AnnotationUse{
+			Name:       c.path(ann.Name()),
+			Args:       args,
+			Span:       c.span(ann),
+			AtSpan:     c.span(ann.At()),
+			ParensSpan: c.span(ann.Parens()),
+		}
+	}
+	return out
 }
 
 func (c *protoEncoder) options(options ast.CompactOptions) *compilerpb.Options {

@@ -1,0 +1,20 @@
+decls:
+- syntax: { kind: KIND_SYNTAX, value.literal.string_value: "proto3" }
+- package.path.components: [{ ident: "test" }]
+- annotation.name: "required"
+- annotation:
+    name: "description"
+    params: [{ name: "text", type.path.components: [{ ident: "string" }] }]
+- annotation:
+    name: "validate"
+    params:
+    - { name: "rule", type.path.components: [{ ident: "expression" }] }
+    - name: "code"
+      type.path.components: [{ ident: "string" }]
+      default.literal.string_value: ""
+    - name: "message"
+      type.path.components: [{ ident: "string" }]
+      default.literal.string_value: ""
+- annotation:
+    name: "example"
+    params: [{ name: "value", type.path.components: [{ ident: "any" }] }]

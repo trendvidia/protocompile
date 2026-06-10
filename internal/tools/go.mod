@@ -1,4 +1,4 @@
-module github.com/bufbuild/protocompile/internal/tools
+module github.com/trendvidia/protocompile/internal/tools
 
 go 1.25.7
 

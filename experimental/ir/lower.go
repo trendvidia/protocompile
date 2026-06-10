@@ -17,9 +17,9 @@ package ir
 import (
 	"sync"
 
-	"github.com/bufbuild/protocompile/experimental/ast"
-	"github.com/bufbuild/protocompile/experimental/report"
-	"github.com/bufbuild/protocompile/internal/intern"
+	"github.com/trendvidia/protocompile/experimental/ast"
+	"github.com/trendvidia/protocompile/experimental/report"
+	"github.com/trendvidia/protocompile/internal/intern"
 )
 
 // Session is shared global configuration and state for all IR values that are

@@ -64,6 +64,14 @@ linters:
       # temporary hacks, and use godox to prevent committing them.
       keywords:
         - FIXME
+    gomoddirectives:
+      # internal/benchmarks/go.mod uses a local replace to the parent module
+      # (`replace github.com/trendvidia/protocompile => ../..`) because there
+      # is no published version under the renamed module path that the
+      # benchmarks can require. External consumers do NOT need this replace;
+      # it is strictly internal to this repo's monorepo layout. See FORK.md
+      # for the two-branch model that constrains how this is set up.
+      replace-local: true
     gosec:
       excludes:
         # The integer overflow is excessively noisy since it doesn't seem to
@@ -116,4 +124,4 @@ formatters:
       sections:
         - standard # Standard section: captures all standard packages.
         - default # Default section: contains all imports that could not be matched to another section type.
-        - prefix(github.com/bufbuild/protocompile) # Custom section: groups all imports with the specified Prefix.
+        - prefix(github.com/trendvidia/protocompile) # Custom section: groups all imports with the specified Prefix.

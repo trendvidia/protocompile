@@ -28,8 +28,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/bufbuild/protocompile/internal"
-	"github.com/bufbuild/protocompile/reporter"
+	"github.com/trendvidia/protocompile/internal"
+	"github.com/trendvidia/protocompile/reporter"
 )
 
 func TestEmptyParse(t *testing.T) {
@@ -76,6 +76,215 @@ func TestJunkParse(t *testing.T) {
 			// we expect this to error... but we don't want it to panic
 			require.Error(t, err, "junk input should have returned error")
 			t.Logf("error from parse: %v", err)
+		})
+	}
+}
+
+// TestContextualKeywords verifies that the schema-extension keywords
+// introduced for protowire v1.2 — `type`, `function`, `annotation` —
+// continue to be accepted as identifiers everywhere except declaration-
+// leading positions, preserving backward compatibility with existing
+// schemas (including Google APIs such as Cloud DLP, which use
+// `oneof type { ... }` extensively).
+//
+// See protowire/docs/RFC-001-schema-extensions.md §5.1 and IETF draft
+// `-01` §"Reserved Keywords" for the design rationale.
+func TestContextualKeywords(t *testing.T) {
+	t.Parallel()
+	// Each case exercises one of the new keywords in a position where
+	// the existing grammar accepts an identifier. All must parse cleanly.
+	inputs := map[string]string{
+		"oneof-named-type":         `syntax = "proto3"; message M { oneof type     { string a = 1; } }`,
+		"oneof-named-function":     `syntax = "proto3"; message M { oneof function { string a = 1; } }`,
+		"oneof-named-annotation":   `syntax = "proto3"; message M { oneof annotation{ string a = 1; } }`,
+		"field-named-type":         `syntax = "proto3"; message M { string type = 1; }`,
+		"field-named-function":     `syntax = "proto3"; message M { string function = 1; }`,
+		"field-named-annotation":   `syntax = "proto3"; message M { string annotation = 1; }`,
+		"enum-value-named-type":    `syntax = "proto3"; enum E { type = 0; }`,
+		"message-named-type":       `syntax = "proto3"; message type { string a = 1; }`,
+		"message-named-function":   `syntax = "proto3"; message function { string a = 1; }`,
+		"message-named-annotation": `syntax = "proto3"; message annotation { string a = 1; }`,
+	}
+	for name, input := range inputs {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			errHandler := reporter.NewHandler(nil)
+			fileNode, err := Parse(name+".proto", strings.NewReader(input), errHandler)
+			require.NoError(t, err, "input must parse without error")
+			result, err := ResultFromAST(fileNode, true, errHandler)
+			require.NoError(t, err, "AST must lower without error")
+			require.NotNil(t, result.FileDescriptorProto(), "descriptor must be produced")
+		})
+	}
+}
+
+// TestTypeDecl verifies parsing of the `type Name = Base;` declaration
+// introduced by protowire v1.2 schema extensions (RFC-001 §5.1).
+//
+// Trailing annotation lists (@validate(...) etc.) attach in a later PR;
+// this test only covers the base form.
+func TestTypeDecl(t *testing.T) {
+	t.Parallel()
+	positive := map[string]string{
+		"primitive-base":           `syntax = "proto3"; type Email = string;`,
+		"alias-base":               `syntax = "proto3"; type Email = string; type CompanyEmail = Email;`,
+		"qualified-base":           `syntax = "proto3"; type Money = google.protobuf.Int64Value;`,
+		"deeply-qualified-base":    `syntax = "proto3"; type T = a.b.c.d.E;`,
+		"adjacent-to-message":      `syntax = "proto3"; type Email = string; message User { string email = 1; }`,
+		"adjacent-to-other-decls":  `syntax = "proto3"; package foo; type Email = string; message User {} type ID = string;`,
+		"named-with-keyword-ident": `syntax = "proto3"; type type = string;`,         // contextual: `type` after `type` is the alias name
+		"name-using-other-kw":      `syntax = "proto3"; type function = annotation;`, // `function` is the name; `annotation` is the base (both contextual)
+	}
+	for name, input := range positive {
+		t.Run("pos/"+name, func(t *testing.T) {
+			t.Parallel()
+			errHandler := reporter.NewHandler(nil)
+			fileNode, err := Parse(name+".proto", strings.NewReader(input), errHandler)
+			require.NoError(t, err, "input must parse without error")
+			result, err := ResultFromAST(fileNode, true, errHandler)
+			require.NoError(t, err, "AST must lower without error")
+			require.NotNil(t, result.FileDescriptorProto(), "descriptor must be produced")
+		})
+	}
+
+	negative := map[string]string{
+		"missing-equals":     `syntax = "proto3"; type Email string;`,
+		"missing-base":       `syntax = "proto3"; type Email = ;`,
+		"missing-name":       `syntax = "proto3"; type = string;`,
+		"empty-base-segment": `syntax = "proto3"; type Email = string.;`,
+	}
+	for name, input := range negative {
+		t.Run("neg/"+name, func(t *testing.T) {
+			t.Parallel()
+			errHandler := reporter.NewHandler(reporter.NewReporter(
+				func(_ reporter.ErrorWithPos) error { return nil },
+				nil,
+			))
+			_, err := Parse(name+".proto", strings.NewReader(input), errHandler)
+			require.Error(t, err, "malformed input should error")
+		})
+	}
+}
+
+// TestFunctionDecl verifies parsing of the `function name(params...) [options];`
+// declaration introduced by protowire v1.2 schema extensions (RFC-001 §5.1).
+//
+// Trailing annotation lists (@validate(...) etc.) attach in a later PR;
+// this test covers the signature form with optional bracket-form options.
+func TestFunctionDecl(t *testing.T) {
+	t.Parallel()
+	positive := map[string]string{
+		"zero-arg":                 `syntax = "proto3"; function flush();`,
+		"one-arg":                  `syntax = "proto3"; function is_e164(value: string);`,
+		"two-args":                 `syntax = "proto3"; function matches(value: string, pattern: string);`,
+		"many-args":                `syntax = "proto3"; function between(value: int32, lo: int32, hi: int32, inclusive: bool);`,
+		"qualified-param-type":     `syntax = "proto3"; function valid_address(msg: myco.commons.Address);`,
+		"bracket-option":           `syntax = "proto3"; function matches(value: string, pattern: string) [error_code = "common.matches"];`,
+		"multiple-bracket-options": `syntax = "proto3"; function is_e164(value: string) [error_code = "e164", openapi_map = "format:e164"];`,
+		"adjacent-to-message":      `syntax = "proto3"; function is_e164(value: string); message User { string phone = 1; }`,
+		"adjacent-to-other-decls":  `syntax = "proto3"; package foo; type Email = string; function matches(value: string, pattern: string); message User {}`,
+		"contextual-kw-as-param":   `syntax = "proto3"; function f(type: string, function: int32, annotation: bool);`, // all three keywords reusable as param names
+		"contextual-kw-as-fn-name": `syntax = "proto3"; function annotation(value: string);`,                          // function named after a contextual keyword
+		"contextual-kw-as-fn-type": `syntax = "proto3"; function f(x: annotation);`,                                   // param type is a (contextual) keyword
+	}
+	for name, input := range positive {
+		t.Run("pos/"+name, func(t *testing.T) {
+			t.Parallel()
+			errHandler := reporter.NewHandler(nil)
+			fileNode, err := Parse(name+".proto", strings.NewReader(input), errHandler)
+			require.NoError(t, err, "input must parse without error")
+			result, err := ResultFromAST(fileNode, true, errHandler)
+			require.NoError(t, err, "AST must lower without error")
+			require.NotNil(t, result.FileDescriptorProto(), "descriptor must be produced")
+		})
+	}
+
+	negative := map[string]string{
+		"missing-name":             `syntax = "proto3"; function (value: string);`,
+		"missing-open-paren":       `syntax = "proto3"; function f value: string);`,
+		"missing-close-paren":      `syntax = "proto3"; function f(value: string;`,
+		"missing-colon-in-param":   `syntax = "proto3"; function f(value string);`,
+		"missing-param-type":       `syntax = "proto3"; function f(value:);`,
+		"trailing-comma":           `syntax = "proto3"; function f(value: string,);`,
+		"leading-comma":            `syntax = "proto3"; function f(, value: string);`,
+		"missing-name-after-colon": `syntax = "proto3"; function f(: string);`,
+	}
+	for name, input := range negative {
+		t.Run("neg/"+name, func(t *testing.T) {
+			t.Parallel()
+			errHandler := reporter.NewHandler(reporter.NewReporter(
+				func(_ reporter.ErrorWithPos) error { return nil },
+				nil,
+			))
+			_, err := Parse(name+".proto", strings.NewReader(input), errHandler)
+			require.Error(t, err, "malformed input should error")
+		})
+	}
+}
+
+// TestAnnotationDecl verifies parsing of the `annotation Name(params...);`
+// declaration introduced by protowire v1.2 schema extensions (RFC-001 §5.1).
+//
+// Three forms are accepted:
+//
+//	annotation Name;                   // no parens, no params
+//	annotation Name();                 // empty parens
+//	annotation Name(p: T, q: U = ...); // one or more params with optional defaults
+//
+// Use sites (e.g., @validate(...)) attach in a later PR.
+func TestAnnotationDecl(t *testing.T) {
+	t.Parallel()
+	positive := map[string]string{
+		"no-parens":                        `syntax = "proto3"; annotation required;`,
+		"empty-parens":                     `syntax = "proto3"; annotation required();`,
+		"one-param-primitive":              `syntax = "proto3"; annotation description(text: string);`,
+		"one-param-with-default":           `syntax = "proto3"; annotation deprecated(reason: string = "");`,
+		"two-params-mixed-defaults":        `syntax = "proto3"; annotation http(method: string = "GET", path: string);`,
+		"expression-param-type":            `syntax = "proto3"; annotation validate(rule: expression, code: string = "", message: string = "");`,
+		"any-param-type":                   `syntax = "proto3"; annotation example(value: any);`,
+		"qualified-param-type":             `syntax = "proto3"; annotation typed(value: myco.commons.Address);`,
+		"int-default":                      `syntax = "proto3"; annotation min(value: int32 = 0);`,
+		"float-default":                    `syntax = "proto3"; annotation rate(value: double = 0.5);`,
+		"bool-default":                     `syntax = "proto3"; annotation enabled(value: bool = true);`,
+		"signed-int-default":               `syntax = "proto3"; annotation offset(value: int32 = -1);`,
+		"adjacent-to-other-decls":          `syntax = "proto3"; package foo; type Email = string; annotation validate(rule: expression); function f(x: string); message M {}`,
+		"contextual-kw-as-annotation-name": `syntax = "proto3"; annotation type();`,
+		"contextual-kw-as-param-name":      `syntax = "proto3"; annotation foo(type: string, function: bool, annotation: int32);`,
+		"contextual-kw-as-param-type":      `syntax = "proto3"; annotation foo(value: annotation);`,
+		"multiple-annotations":             `syntax = "proto3"; annotation a(); annotation b(x: string); annotation c;`,
+	}
+	for name, input := range positive {
+		t.Run("pos/"+name, func(t *testing.T) {
+			t.Parallel()
+			errHandler := reporter.NewHandler(nil)
+			fileNode, err := Parse(name+".proto", strings.NewReader(input), errHandler)
+			require.NoError(t, err, "input must parse without error")
+			result, err := ResultFromAST(fileNode, true, errHandler)
+			require.NoError(t, err, "AST must lower without error")
+			require.NotNil(t, result.FileDescriptorProto(), "descriptor must be produced")
+		})
+	}
+
+	negative := map[string]string{
+		"missing-name":             `syntax = "proto3"; annotation (text: string);`,
+		"missing-close-paren":      `syntax = "proto3"; annotation foo(text: string;`,
+		"missing-param-type":       `syntax = "proto3"; annotation foo(text:);`,
+		"missing-colon-in-param":   `syntax = "proto3"; annotation foo(text string);`,
+		"missing-default-after-eq": `syntax = "proto3"; annotation foo(text: string = );`,
+		"trailing-comma":           `syntax = "proto3"; annotation foo(text: string,);`,
+		"leading-comma":            `syntax = "proto3"; annotation foo(, text: string);`,
+		"missing-semicolon":        `syntax = "proto3"; annotation required`,
+		"missing-name-after-colon": `syntax = "proto3"; annotation foo(: string);`,
+	}
+	for name, input := range negative {
+		t.Run("neg/"+name, func(t *testing.T) {
+			t.Parallel()
+			errHandler := reporter.NewHandler(reporter.NewReporter(
+				func(_ reporter.ErrorWithPos) error { return nil },
+				nil,
+			))
+			_, err := Parse(name+".proto", strings.NewReader(input), errHandler)
+			require.Error(t, err, "malformed input should error")
 		})
 	}
 }

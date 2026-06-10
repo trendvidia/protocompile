@@ -21,9 +21,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/bufbuild/protocompile/experimental/ast"
-	"github.com/bufbuild/protocompile/experimental/source"
-	"github.com/bufbuild/protocompile/experimental/token"
+	"github.com/trendvidia/protocompile/experimental/ast"
+	"github.com/trendvidia/protocompile/experimental/source"
+	"github.com/trendvidia/protocompile/experimental/token"
 )
 
 func TestZero(t *testing.T) {
@@ -36,6 +36,12 @@ func TestZero(t *testing.T) {
 	testZero[ast.DeclImport](t)
 	testZero[ast.DeclPackage](t)
 	testZero[ast.DeclRange](t)
+	testZero[ast.DeclType](t)
+	testZero[ast.DeclFunction](t)
+	testZero[ast.DeclFunctionParam](t)
+	testZero[ast.DeclAnnotation](t)
+	testZero[ast.DeclAnnotationParam](t)
+	testZero[ast.DeclAnnotationUse](t)
 	testZero[ast.DefEnum](t)
 
 	testZero[ast.DefEnumValue](t)

@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package test;
+
+type Email = string;
+type Address = myco.commons.Address;
+
+function is_e164();
+function matches(value: string, pattern: string);
+function valid_address(msg: myco.commons.Address) [error_code = "common.address"];
+
+annotation required;
+annotation description(text: string);
+annotation validate(rule: expression, code: string = "");

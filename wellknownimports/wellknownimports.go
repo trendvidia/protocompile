@@ -27,7 +27,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/bufbuild/protocompile"
+	"github.com/trendvidia/protocompile"
 )
 
 //go:embed google/protobuf/*.proto google/protobuf/*/*.proto

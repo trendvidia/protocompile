@@ -1,0 +1,5 @@
+decls:
+- syntax: { kind: KIND_SYNTAX, value.literal.string_value: "proto3" }
+- annotation_use: {}
+- empty: {}
+- def: { kind: KIND_MESSAGE, name.components: [{ ident: "M" }], body: {} }

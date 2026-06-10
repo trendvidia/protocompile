@@ -15,12 +15,12 @@
 package queries
 
 import (
-	"github.com/bufbuild/protocompile/experimental/ast"
-	"github.com/bufbuild/protocompile/experimental/incremental"
-	"github.com/bufbuild/protocompile/experimental/ir"
-	"github.com/bufbuild/protocompile/experimental/report"
-	"github.com/bufbuild/protocompile/experimental/source"
-	"github.com/bufbuild/protocompile/internal/ext/iterx"
+	"github.com/trendvidia/protocompile/experimental/ast"
+	"github.com/trendvidia/protocompile/experimental/incremental"
+	"github.com/trendvidia/protocompile/experimental/ir"
+	"github.com/trendvidia/protocompile/experimental/report"
+	"github.com/trendvidia/protocompile/experimental/source"
+	"github.com/trendvidia/protocompile/internal/ext/iterx"
 )
 
 // IR is an [incremental.Query] for the lowered IR of a Protobuf file.

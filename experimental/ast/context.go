@@ -17,13 +17,13 @@ package ast
 import (
 	"iter"
 
-	"github.com/bufbuild/protocompile/experimental/id"
-	"github.com/bufbuild/protocompile/experimental/seq"
-	"github.com/bufbuild/protocompile/experimental/source"
-	"github.com/bufbuild/protocompile/experimental/token"
-	"github.com/bufbuild/protocompile/internal/arena"
-	"github.com/bufbuild/protocompile/internal/ext/iterx"
-	"github.com/bufbuild/protocompile/internal/ext/unsafex"
+	"github.com/trendvidia/protocompile/experimental/id"
+	"github.com/trendvidia/protocompile/experimental/seq"
+	"github.com/trendvidia/protocompile/experimental/source"
+	"github.com/trendvidia/protocompile/experimental/token"
+	"github.com/trendvidia/protocompile/internal/arena"
+	"github.com/trendvidia/protocompile/internal/ext/iterx"
+	"github.com/trendvidia/protocompile/internal/ext/unsafex"
 )
 
 // File is the top-level AST node for a Protobuf file.
@@ -157,6 +157,18 @@ func (f *File) FromID(id uint64, want any) any {
 		return f.decls.ranges.Deref(arena.Pointer[rawDeclRange](id))
 	case **rawDeclSyntax:
 		return f.decls.syntaxes.Deref(arena.Pointer[rawDeclSyntax](id))
+	case **rawDeclType:
+		return f.decls.types.Deref(arena.Pointer[rawDeclType](id))
+	case **rawDeclFunction:
+		return f.decls.functions.Deref(arena.Pointer[rawDeclFunction](id))
+	case **rawDeclFunctionParam:
+		return f.decls.functionParams.Deref(arena.Pointer[rawDeclFunctionParam](id))
+	case **rawDeclAnnotation:
+		return f.decls.annotations.Deref(arena.Pointer[rawDeclAnnotation](id))
+	case **rawDeclAnnotationParam:
+		return f.decls.annotationParams.Deref(arena.Pointer[rawDeclAnnotationParam](id))
+	case **rawDeclAnnotationUse:
+		return f.decls.annotationUses.Deref(arena.Pointer[rawDeclAnnotationUse](id))
 
 	case **rawExprError:
 		return f.exprs.errors.Deref(arena.Pointer[rawExprError](id))

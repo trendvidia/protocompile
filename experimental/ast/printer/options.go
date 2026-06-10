@@ -17,7 +17,7 @@ package printer
 import (
 	"math"
 
-	"github.com/bufbuild/protocompile/experimental/dom"
+	"github.com/trendvidia/protocompile/experimental/dom"
 )
 
 // Options controls the printer's overall behavior.

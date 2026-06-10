@@ -19,12 +19,12 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/bufbuild/protocompile/experimental/id"
-	"github.com/bufbuild/protocompile/experimental/ir/presence"
-	"github.com/bufbuild/protocompile/experimental/report"
-	"github.com/bufbuild/protocompile/experimental/seq"
-	pcinternal "github.com/bufbuild/protocompile/internal"
-	"github.com/bufbuild/protocompile/internal/tags"
+	"github.com/trendvidia/protocompile/experimental/id"
+	"github.com/trendvidia/protocompile/experimental/ir/presence"
+	"github.com/trendvidia/protocompile/experimental/report"
+	"github.com/trendvidia/protocompile/experimental/seq"
+	pcinternal "github.com/trendvidia/protocompile/internal"
+	"github.com/trendvidia/protocompile/internal/tags"
 )
 
 // generateMapEntries generates map entry types for all map-typed fields.

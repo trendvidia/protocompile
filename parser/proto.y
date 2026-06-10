@@ -7,7 +7,7 @@ import (
 	"math"
 	"strings"
 
-	"github.com/bufbuild/protocompile/ast"
+	"github.com/trendvidia/protocompile/ast"
 )
 
 %}
@@ -71,6 +71,14 @@ import (
 	b            *ast.RuneNode
 	bs           []*ast.RuneNode
 	err          error
+	// Protowire v1.2 schema-extension declarations.
+	tyd          nodeWithRunes[*ast.TypeDeclNode]
+	fnd          nodeWithRunes[*ast.FunctionDeclNode]
+	fnParam      *ast.FunctionParamNode
+	fnParams     *functionParamSlices
+	annd         nodeWithRunes[*ast.AnnotationDeclNode]
+	annParam     *ast.AnnotationParamNode
+	annParams    *annotationParamSlices
 }
 
 // any non-terminal which returns a value needs a type, which is
@@ -122,6 +130,14 @@ import (
 %type <str>          stringLit
 %type <svc>          serviceDecl
 %type <svcElements>  serviceElement serviceElements serviceBody
+// Protowire v1.2 schema-extension declarations.
+%type <tyd>          typeDecl
+%type <fnd>          functionDecl
+%type <fnParam>      functionParam
+%type <fnParams>     functionParamList functionParamListOpt
+%type <annd>         annotationDecl
+%type <annParam>     annotationParam
+%type <annParams>    annotationParamList annotationParamListOpt
 %type <mtd>          methodDecl
 %type <mtdElements>  methodElement methodElements methodBody
 %type <mtdMsgType>   methodMessageType
@@ -137,6 +153,12 @@ import (
 %token <id>  _DOUBLE _FLOAT _INT32 _INT64 _UINT32 _UINT64 _SINT32 _SINT64 _FIXED32 _FIXED64 _SFIXED32 _SFIXED64
 %token <id>  _BOOL _STRING _BYTES _GROUP _ONEOF _MAP _EXTENSIONS _TO _MAX _RESERVED _ENUM _MESSAGE _EXTEND
 %token <id>  _SERVICE _RPC _STREAM _RETURNS _EXPORT _LOCAL
+// Contextual keywords introduced by protowire v1.2 (RFC-001). They are
+// only recognized as keywords when they start a top-level declaration
+// in PRs 2-4 of M1; until then (and outside file scope thereafter) the
+// `identifier`, `nonDeclIdent`, and `*Name` productions below accept
+// them as ordinary identifiers, preserving full backward compatibility.
+%token <id>  _TYPE _FUNCTION _ANNOTATION
 %token <err> _ERROR
 // we define all of these, even ones that aren't used, to improve error messages
 // so it shows the unexpected symbol instead of showing "$unk"
@@ -205,6 +227,15 @@ fileElement : importDecl {
 	  $$ = toElements[ast.FileElement](toFileElement, $1.Node, $1.Runes)
 	}
 	| serviceDecl {
+	  $$ = toElements[ast.FileElement](toFileElement, $1.Node, $1.Runes)
+	}
+	| typeDecl {
+	  $$ = toElements[ast.FileElement](toFileElement, $1.Node, $1.Runes)
+	}
+	| functionDecl {
+	  $$ = toElements[ast.FileElement](toFileElement, $1.Node, $1.Runes)
+	}
+	| annotationDecl {
 	  $$ = toElements[ast.FileElement](toFileElement, $1.Node, $1.Runes)
 	}
 	| error {
@@ -1213,6 +1244,105 @@ serviceDecl : _SERVICE identifier '{' serviceBody '}' semicolons {
 		$$ = newNodeWithRunes(ast.NewServiceNode($1.ToKeyword(), $2, $3, $4, $5), $6...)
 	}
 
+// typeDecl: protowire v1.2 schema-extension type alias.
+//   type Email = string;
+// Annotation lists (e.g., trailing @validate(...)) attach in a follow-up PR.
+//
+// The base type is parsed via qualifiedIdentifier (same as packageDecl)
+// rather than typeName; typeName includes leading-dot and error-recovery
+// alternatives that cause reduce/reduce conflicts when the base-type
+// position is followed by a file-scope-keyword lookahead.
+typeDecl : _TYPE identifier '=' qualifiedIdentifier semicolons {
+		semi, extra := protolex.(*protoLex).requireSemicolon($5)
+		$$ = newNodeWithRunes(ast.NewTypeDeclNode($1.ToKeyword(), $2, $3, $4.toIdentValueNode(nil), semi), extra...)
+	}
+
+// functionDecl: protowire v1.2 schema-extension function declaration.
+//   function is_e164(value: string);
+//   function matches(value: string, pattern: string) [error_code = "..."];
+//   function valid_address(msg: Address);
+// The body is implemented in the engine runtime and registered by FQN at
+// engine init; this is signature-only. Annotation lists (e.g., trailing
+// @validate / @description / etc.) attach in a follow-up PR.
+functionDecl : _FUNCTION identifier '(' functionParamListOpt ')' semicolons {
+		semi, extra := protolex.(*protoLex).requireSemicolon($6)
+		$$ = newNodeWithRunes(ast.NewFunctionDeclNode($1.ToKeyword(), $2, $3, $4.params, $4.commas, $5, nil, semi), extra...)
+	}
+	| _FUNCTION identifier '(' functionParamListOpt ')' compactOptions semicolons {
+		semi, extra := protolex.(*protoLex).requireSemicolon($7)
+		$$ = newNodeWithRunes(ast.NewFunctionDeclNode($1.ToKeyword(), $2, $3, $4.params, $4.commas, $5, $6, semi), extra...)
+	}
+
+functionParamListOpt : {
+		$$ = &functionParamSlices{}
+	}
+	| functionParamList {
+		$$ = $1
+	}
+
+functionParamList : functionParam {
+		$$ = &functionParamSlices{params: []*ast.FunctionParamNode{$1}}
+	}
+	| functionParamList ',' functionParam {
+		$1.params = append($1.params, $3)
+		$1.commas = append($1.commas, $2)
+		$$ = $1
+	}
+
+functionParam : identifier ':' qualifiedIdentifier {
+		$$ = ast.NewFunctionParamNode($1, $2, $3.toIdentValueNode(nil))
+	}
+
+// annotationDecl: protowire v1.2 schema-extension annotation declaration.
+//   annotation required;
+//   annotation description(text: string);
+//   annotation validate(rule: expression, code: string = "", message: string = "");
+//   annotation example(value: any);
+// Use sites (e.g., @validate(this in [...])) attach in a follow-up PR.
+//
+// Three forms are accepted:
+//   1. `annotation Name;` — no parens, no params
+//   2. `annotation Name();` — empty parens
+//   3. `annotation Name(param1: T1, param2: T2 = default, ...);` — with params
+//
+// Parameter types are parsed via qualifiedIdentifier (same trap PR 2 and
+// PR 3 documented — qualifiedIdentifierDot causes reduce/reduce conflicts
+// at file-scope-keyword lookaheads). The reserved parameter-type names
+// from the spec (expression, string, int32, ..., any) all already lex as
+// either keywords accepted by `identifier` or as bare identifiers, so this
+// production accepts all of them without further work.
+annotationDecl : _ANNOTATION identifier semicolons {
+		semi, extra := protolex.(*protoLex).requireSemicolon($3)
+		$$ = newNodeWithRunes(ast.NewAnnotationDeclNode($1.ToKeyword(), $2, nil, nil, nil, nil, semi), extra...)
+	}
+	| _ANNOTATION identifier '(' annotationParamListOpt ')' semicolons {
+		semi, extra := protolex.(*protoLex).requireSemicolon($6)
+		$$ = newNodeWithRunes(ast.NewAnnotationDeclNode($1.ToKeyword(), $2, $3, $4.params, $4.commas, $5, semi), extra...)
+	}
+
+annotationParamListOpt : {
+		$$ = &annotationParamSlices{}
+	}
+	| annotationParamList {
+		$$ = $1
+	}
+
+annotationParamList : annotationParam {
+		$$ = &annotationParamSlices{params: []*ast.AnnotationParamNode{$1}}
+	}
+	| annotationParamList ',' annotationParam {
+		$1.params = append($1.params, $3)
+		$1.commas = append($1.commas, $2)
+		$$ = $1
+	}
+
+annotationParam : identifier ':' qualifiedIdentifier {
+		$$ = ast.NewAnnotationParamNode($1, $2, $3.toIdentValueNode(nil), nil, nil)
+	}
+	| identifier ':' qualifiedIdentifier '=' scalarValue {
+		$$ = ast.NewAnnotationParamNode($1, $2, $3.toIdentValueNode(nil), $4, $5)
+	}
+
 serviceBody : semicolons {
 	  $$ = prependRunes(toServiceElement, $1, nil)
 	}
@@ -1314,6 +1444,9 @@ msgElementName : _NAME
 	| _RPC
 	| _STREAM
 	| _RETURNS
+	| _TYPE
+	| _FUNCTION
+	| _ANNOTATION
 
 
 // excludes group, optional, required, and repeated
@@ -1359,6 +1492,9 @@ extElementName : _NAME
 	| _RETURNS
 	| _EXPORT
 	| _LOCAL
+	| _TYPE
+	| _FUNCTION
+	| _ANNOTATION
 
 // excludes reserved, option
 enumValueName : _NAME
@@ -1405,6 +1541,9 @@ enumValueName : _NAME
 	| _RETURNS
 	| _EXPORT
 	| _LOCAL
+	| _TYPE
+	| _FUNCTION
+	| _ANNOTATION
 
 // excludes group, option, optional, required, and repeated
 oneofElementName : _NAME
@@ -1448,6 +1587,9 @@ oneofElementName : _NAME
 	| _RETURNS
 	| _EXPORT
 	| _LOCAL
+	| _TYPE
+	| _FUNCTION
+	| _ANNOTATION
 
 // excludes group
 notGroupElementName : _NAME
@@ -1495,6 +1637,9 @@ notGroupElementName : _NAME
 	| _RETURNS
 	| _EXPORT
 	| _LOCAL
+	| _TYPE
+	| _FUNCTION
+	| _ANNOTATION
 
 // excludes stream
 mtdElementName : _NAME
@@ -1542,6 +1687,9 @@ mtdElementName : _NAME
 	| _RETURNS
 	| _EXPORT
 	| _LOCAL
+	| _TYPE
+	| _FUNCTION
+	| _ANNOTATION
 
 declIdent : _ENUM
 	| _MESSAGE
@@ -1592,6 +1740,9 @@ nonDeclIdent : _NAME
 	| _RETURNS
 	| _EXPORT
 	| _LOCAL
+	| _TYPE
+	| _FUNCTION
+	| _ANNOTATION
 
 identifier : _NAME
 	| _SYNTAX
@@ -1639,5 +1790,8 @@ identifier : _NAME
 	| _RETURNS
 	| _EXPORT
 	| _LOCAL
+	| _TYPE
+	| _FUNCTION
+	| _ANNOTATION
 
 %%

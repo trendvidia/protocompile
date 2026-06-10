@@ -18,7 +18,7 @@ import (
 	"iter"
 	"slices"
 
-	"github.com/bufbuild/protocompile/internal/ext/iterx"
+	"github.com/trendvidia/protocompile/internal/ext/iterx"
 )
 
 // Map is a helper for generating a mapped iterator over a slice, to avoid

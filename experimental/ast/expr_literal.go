@@ -15,8 +15,8 @@
 package ast
 
 import (
-	"github.com/bufbuild/protocompile/experimental/id"
-	"github.com/bufbuild/protocompile/experimental/token"
+	"github.com/trendvidia/protocompile/experimental/id"
+	"github.com/trendvidia/protocompile/experimental/token"
 )
 
 // ExprLiteral is an expression corresponding to a string or number literal.

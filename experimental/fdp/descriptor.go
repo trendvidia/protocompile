@@ -19,7 +19,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/bufbuild/protocompile/experimental/ir"
+	"github.com/trendvidia/protocompile/experimental/ir"
 )
 
 // DescriptorProto generates a single [*descriptorpb.FileDescriptorProto] for the given

@@ -22,8 +22,8 @@ import (
 	"unicode/utf16"
 	_ "unsafe" // For go:linkname.
 
-	"github.com/bufbuild/protocompile/experimental/source/length"
-	"github.com/bufbuild/protocompile/internal/ext/unicodex"
+	"github.com/trendvidia/protocompile/experimental/source/length"
+	"github.com/trendvidia/protocompile/internal/ext/unicodex"
 )
 
 // File is a source code file involved in a diagnostic.
@@ -173,7 +173,7 @@ func (f *File) EOF() Span {
 	return f.Span(eof+1, eof+1)
 }
 
-//go:linkname location github.com/bufbuild/protocompile/experimental/report.fileLocation
+//go:linkname location github.com/trendvidia/protocompile/experimental/report.fileLocation
 func location(f *File, offset int, units length.Unit, allowNonPrint bool) Location {
 	lines := f.lines()
 

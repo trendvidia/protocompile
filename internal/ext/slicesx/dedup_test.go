@@ -20,8 +20,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/bufbuild/protocompile/internal/ext/cmpx"
-	"github.com/bufbuild/protocompile/internal/ext/slicesx"
+	"github.com/trendvidia/protocompile/internal/ext/cmpx"
+	"github.com/trendvidia/protocompile/internal/ext/slicesx"
 )
 
 func TestDedup(t *testing.T) {
