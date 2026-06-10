@@ -14,9 +14,9 @@
 
 package source
 
-import "github.com/trendvidia/protocompile/wellknownimports"
+import wkt "github.com/trendvidia/protocompile/wellknownimports/fs"
 
-var wktFS = FS{FS: wellknownimports.FS()}
+var wktFS = FS{FS: wkt.FS()}
 
 // WKTs returns an [Opener] that yields in-memory Protobuf well-known type sources.
 func WKTs() Opener {

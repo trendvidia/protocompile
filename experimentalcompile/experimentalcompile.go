@@ -50,31 +50,29 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/dynamicpb"
 
-	"github.com/trendvidia/protocompile"
 	"github.com/trendvidia/protocompile/experimental/fdp"
 	"github.com/trendvidia/protocompile/experimental/incremental"
 	"github.com/trendvidia/protocompile/experimental/incremental/queries"
 	"github.com/trendvidia/protocompile/experimental/ir"
 	"github.com/trendvidia/protocompile/experimental/report"
 	"github.com/trendvidia/protocompile/experimental/source"
+	"github.com/trendvidia/protocompile/internal/exphook"
 	"github.com/trendvidia/protocompile/linker"
 	"github.com/trendvidia/protocompile/reporter"
 )
 
 func init() {
-	protocompile.RegisterExperimentalCompile(Compile)
+	exphook.Register(Compile)
 }
 
 // Compile runs the experimental pipeline against the given files and
 // returns the same [linker.Files] shape that the legacy compiler
-// returns. The compiler's Resolver is adapted to a source.Opener for
-// the experimental pipeline.
-//
-// This function is the registered implementation behind
-// [protocompile.Compiler.UseExperimentalParser]. It can also be called
-// directly when the explicit entry point is preferred.
-func Compile(ctx context.Context, c *protocompile.Compiler, files []string) (linker.Files, error) {
-	opener := experimentalOpener(c.Resolver)
+// returns. The supplied [exphook.Args] is filled by the root
+// `protocompile` package from a `*protocompile.Compiler` before
+// dispatch; callers that prefer the explicit entry point can construct
+// Args themselves.
+func Compile(ctx context.Context, args exphook.Args, files []string) (linker.Files, error) {
+	opener := experimentalOpener(args.Resolver)
 	executor := incremental.New()
 	session := &ir.Session{}
 
@@ -98,17 +96,16 @@ func Compile(ctx context.Context, c *protocompile.Compiler, files []string) (lin
 		}
 	}
 
-	fdpOpts := fdpOptionsFor(c.SourceInfoMode)
+	fdpOpts := fdpOptionsFor(args.SourceInfoMode)
 
-	// Honor [protocompile.Compiler.Symbols]: when non-nil, each
-	// compiled file is imported into the shared symbol table so
-	// collisions across this Compile call and previous ones are
-	// reported. The reporter handler is reused across all Import
-	// calls so a single error report is consistent regardless of
-	// which file surfaced the collision.
+	// Honor `Symbols`: when non-nil, each compiled file is imported
+	// into the shared symbol table so collisions across this Compile
+	// call and previous ones are reported. The reporter handler is
+	// reused across all Import calls so a single error report is
+	// consistent regardless of which file surfaced the collision.
 	var handler *reporter.Handler
-	if c.Symbols != nil {
-		handler = reporter.NewHandler(c.Reporter)
+	if args.Symbols != nil {
+		handler = reporter.NewHandler(args.Reporter)
 	}
 
 	out := make(linker.Files, len(results))
@@ -120,18 +117,17 @@ func Compile(ctx context.Context, c *protocompile.Compiler, files []string) (lin
 		if err != nil {
 			return nil, fmt.Errorf("convert %s to linker.File: %w", files[i], err)
 		}
-		if c.Symbols != nil {
-			if err := c.Symbols.Import(lf, handler); err != nil {
+		if args.Symbols != nil {
+			if err := args.Symbols.Import(lf, handler); err != nil {
 				return nil, fmt.Errorf("symbol collision in %s: %w", files[i], err)
 			}
 		}
-		// Honor [protocompile.Compiler.RetainASTs]: when set, the
-		// returned linker.File also implements [IRHolder] so callers
-		// can recover the experimental [*ir.File] (and through it the
-		// AST). The flag matches the legacy compiler's semantics —
-		// the AST is retained for further processing only when the
-		// caller explicitly opts in.
-		if c.RetainASTs {
+		// Honor `RetainASTs`: when set, the returned linker.File also
+		// implements [IRHolder] so callers can recover the experimental
+		// [*ir.File] (and through it the AST). The flag matches the
+		// legacy compiler's semantics — the AST is retained for further
+		// processing only when the caller explicitly opts in.
+		if args.RetainASTs {
 			lf = &irHoldingFile{File: lf, ir: r.Value}
 		}
 		out[i] = lf
@@ -170,23 +166,24 @@ type irHoldingFile struct {
 // IR returns the experimental IR file that backs this linker.File.
 func (h *irHoldingFile) IR() *ir.File { return h.ir }
 
-// fdpOptionsFor maps a [protocompile.SourceInfoMode] to the
-// corresponding set of [fdp.DescriptorOption]s.
+// fdpOptionsFor maps an `exphook.Args.SourceInfoMode` (mirror of
+// `protocompile.SourceInfoMode`) to the corresponding set of
+// [fdp.DescriptorOption]s.
 //
-// The legacy mode is a bit-flag enum; the experimental fdp layer
-// exposes two flags: IncludeSourceCodeInfo (whether to emit
-// SourceCodeInfo at all) and GenerateExtraOptionLocations (whether to
-// emit additional locations for fields inside message-literal
-// option values). [protocompile.SourceInfoExtraComments] (mode 2) has
-// no direct fdp equivalent today and is silently treated the same as
-// SourceInfoStandard — the experimental IR emits its own
-// comment-tracking shape, and refining the mapping is a follow-up.
-func fdpOptionsFor(mode protocompile.SourceInfoMode) []fdp.DescriptorOption {
-	if mode == protocompile.SourceInfoNone {
+// The mode is a bit-flag enum; the experimental fdp layer exposes two
+// flags: IncludeSourceCodeInfo (whether to emit SourceCodeInfo at all)
+// and GenerateExtraOptionLocations (whether to emit additional
+// locations for fields inside message-literal option values).
+// SourceInfoExtraComments (mode 2) has no direct fdp equivalent today
+// and is silently treated the same as SourceInfoStandard — the
+// experimental IR emits its own comment-tracking shape, and refining
+// the mapping is a follow-up.
+func fdpOptionsFor(mode int) []fdp.DescriptorOption {
+	if mode == exphook.SourceInfoNone {
 		return nil
 	}
 	opts := []fdp.DescriptorOption{fdp.IncludeSourceCodeInfo(true)}
-	if mode&protocompile.SourceInfoExtraOptionLocations != 0 {
+	if mode&exphook.SourceInfoExtraOptionLocations != 0 {
 		opts = append(opts, fdp.GenerateExtraOptionLocations(true))
 	}
 	return opts
@@ -323,7 +320,7 @@ func buildExperimentalRegistry(top *ir.File, fdpOpts []fdp.DescriptorOption) (*p
 // see `experimental/ir/builtins_copy.go`.
 //
 // Result types other than Source are surfaced as not-found for now.
-func experimentalOpener(resolver protocompile.Resolver) source.Opener {
+func experimentalOpener(resolver exphook.Resolver) source.Opener {
 	wkts := source.WKTs()
 	if resolver == nil {
 		return wkts
@@ -332,22 +329,22 @@ func experimentalOpener(resolver protocompile.Resolver) source.Opener {
 }
 
 type resolverOpener struct {
-	resolver protocompile.Resolver
+	resolver exphook.Resolver
 }
 
 func (r *resolverOpener) Open(path string) (*source.File, error) {
-	result, err := r.resolver.FindFileByPath(path)
+	src, err := r.resolver.OpenSource(path)
 	if err != nil {
 		return nil, err
 	}
-	if result.Source != nil {
-		data, err := io.ReadAll(result.Source)
-		if err != nil {
-			return nil, err
-		}
-		return source.NewFile(path, string(data)), nil
+	if src == nil {
+		return nil, fs.ErrNotExist
 	}
-	return nil, fs.ErrNotExist
+	data, err := io.ReadAll(src)
+	if err != nil {
+		return nil, err
+	}
+	return source.NewFile(path, string(data)), nil
 }
 
 // chainResolver tries each Resolver in order. Lets protodesc.NewFile

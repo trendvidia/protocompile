@@ -17,25 +17,34 @@
 package wellknownimports
 
 import (
-	"embed"
 	"io"
-	"io/fs"
-	"sync"
+	wktfs "io/fs"
 
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoregistry"
-	"google.golang.org/protobuf/types/descriptorpb"
 
 	"github.com/trendvidia/protocompile"
+	imports "github.com/trendvidia/protocompile/wellknownimports/fs"
 )
 
-//go:embed google/protobuf/*.proto google/protobuf/*/*.proto
-var files embed.FS
-
 // FS returns a filesystem over the built-in well-known imports.
-func FS() fs.FS {
-	return files
+//
+// The actual embed lives in [github.com/trendvidia/protocompile/wellknownimports/fs];
+// the parent package re-exports it for backwards compatibility. Code
+// that does not need `WithStandardImports` (which is the only part of
+// this package that pulls in `protocompile.Resolver` and friends)
+// should import the sub-package directly so the dependency on the
+// root `protocompile` package can be avoided.
+func FS() wktfs.FS {
+	return imports.FS()
+}
+
+// Files returns reflection information for the WKTs included with protocompile,
+// which are not the ones bundled with protoreflect.
+//
+// Like [FS], this re-exports the implementation in
+// [github.com/trendvidia/protocompile/wellknownimports/fs].
+func Files() *protoregistry.Files {
+	return imports.Files()
 }
 
 // WithStandardImports returns a new resolver that can provide the source code for the
@@ -58,32 +67,8 @@ func WithStandardImports(resolver protocompile.Resolver) protocompile.Resolver {
 		resolver,
 		&protocompile.SourceResolver{
 			Accessor: func(path string) (io.ReadCloser, error) {
-				return files.Open(path)
+				return imports.FS().Open(path)
 			},
 		},
 	}
-}
-
-var (
-	//go:embed wkt.pb
-	encoded  []byte
-	registry = sync.OnceValue(func() *protoregistry.Files {
-		fds := new(descriptorpb.FileDescriptorSet)
-		if err := proto.Unmarshal(encoded, fds); err != nil {
-			panic(err)
-		}
-
-		reg, err := protodesc.NewFiles(fds)
-		if err != nil {
-			panic(err)
-		}
-
-		return reg
-	})
-)
-
-// Files returns reflection information for the WKTs included with protocompile,
-// which are not the ones bundled with protoreflect.
-func Files() *protoregistry.Files {
-	return registry()
 }

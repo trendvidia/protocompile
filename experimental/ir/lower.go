@@ -24,7 +24,7 @@ import (
 	"github.com/trendvidia/protocompile/experimental/report"
 	"github.com/trendvidia/protocompile/experimental/source"
 	"github.com/trendvidia/protocompile/internal/intern"
-	"github.com/trendvidia/protocompile/wellknownimports"
+	wkt "github.com/trendvidia/protocompile/wellknownimports/fs"
 )
 
 // Session is shared global configuration and state for all IR values that are
@@ -115,7 +115,7 @@ func (s *Session) init() {
 // baked-in WKT itself, not in the user's input.
 func (s *Session) fallbackDescriptorProto() *File {
 	s.dpFallbackOnce.Do(func() {
-		f, err := wellknownimports.FS().Open(DescriptorProtoPath)
+		f, err := wkt.FS().Open(DescriptorProtoPath)
 		if err != nil {
 			panic(fmt.Errorf("protocompile/ir: open baked-in %q: %w", DescriptorProtoPath, err))
 		}

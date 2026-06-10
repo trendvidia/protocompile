@@ -40,6 +40,10 @@ func NewOldCompiler(opts ...CompilerOption) CompilerInterface {
 
 	compiler := &protocompile.Compiler{
 		Resolver: config.resolver,
+		// Pin this adapter to the legacy pipeline regardless of the
+		// post-M1 default flip — the dualcompiler harness compares
+		// legacy↔experimental, so this side must keep running legacy.
+		UseLegacyParser: true,
 	}
 
 	if config.sourceInfoMode != 0 {

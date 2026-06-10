@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"runtime"
 	"runtime/debug"
 	"slices"
@@ -31,6 +32,7 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 
 	"github.com/trendvidia/protocompile/ast"
+	"github.com/trendvidia/protocompile/internal/exphook"
 	"github.com/trendvidia/protocompile/linker"
 	"github.com/trendvidia/protocompile/options"
 	"github.com/trendvidia/protocompile/parser"
@@ -101,28 +103,24 @@ type Compiler struct {
 	// total memory usage for operations involving a large number of files.
 	RetainASTs bool
 
-	// If true, [Compile] routes through the experimental pipeline
-	// (experimental/parser → experimental/ir → experimental/fdp)
-	// instead of the legacy parser/linker/options/sourceinfo path. The
-	// returned [linker.Files] wrap descriptors built from the
-	// experimental IR.
+	// UseExperimentalParser used to opt this [Compiler] into the
+	// experimental pipeline (experimental/parser → experimental/ir
+	// → experimental/fdp) over the legacy
+	// parser/linker/options/sourceinfo path. As of the M1 default-flip,
+	// the experimental pipeline is the default whenever the
+	// `experimentalcompile` package has been imported (typically via a
+	// blank import — see Compile's doc for the dispatch table). The
+	// field is preserved for backwards compatibility: setting it
+	// `true` is a no-op on the new default, and setting it `false` no
+	// longer forces legacy. To force legacy for the deprecation
+	// window, set
 	//
-	// The experimental pipeline lives in subpackages that themselves
-	// depend on `wellknownimports`, which depends on this package, so
-	// inlining the routing here would create an import cycle. Instead
-	// the actual wiring is supplied by a separate package via
-	// [RegisterExperimentalCompile]. Users opt in by blank-importing
-	// it:
+	//	PROTOCOMPILE_PARSER=legacy
 	//
-	//	import _ "github.com/trendvidia/protocompile/experimentalcompile"
+	// in the environment.
 	//
-	// Without that import, setting this flag returns an error from
-	// [Compile] pointing to the missing registration.
-	//
-	// Equivalence with the legacy pipeline is tracked in
-	// internal/testing/dualcompiler/testdata/sweep.txt and currently
-	// holds for 13 of 14 BOTH_OK fixtures. Three legacy Compiler
-	// fields are honored on the experimental path:
+	// Three legacy Compiler fields are honored on the experimental
+	// path:
 	//
 	//   - SourceInfoMode: maps onto fdp.IncludeSourceCodeInfo and
 	//     fdp.GenerateExtraOptionLocations.
@@ -133,25 +131,116 @@ type Compiler struct {
 	//   - Symbols: each compiled file is fed into the shared symbol
 	//     table; redefinitions across Compile calls surface as
 	//     collision errors.
+	//
+	// Deprecated: this field is retained for backwards compatibility
+	// only. After the legacy pipeline is removed (Track C of the M1
+	// migration), the field and the env-var kill switch will both be
+	// deleted. Adopt the experimental pipeline directly by blank-
+	// importing `experimentalcompile`.
 	UseExperimentalParser bool
+
+	// UseLegacyParser forces this [Compile] call onto the legacy
+	// parser/linker/options/sourceinfo pipeline regardless of whether
+	// the experimental pipeline has been registered or the environment
+	// variable kill switch is set. It exists for the same one-minor-
+	// release deprecation window as the env var — callers that need to
+	// pin to legacy programmatically (e.g. internal harnesses that
+	// compare both pipelines side-by-side) can set this instead of
+	// mutating environment variables.
+	//
+	// If both [UseExperimentalParser] and [UseLegacyParser] are set,
+	// experimental wins (the explicit opt-in is honoured).
+	//
+	// Deprecated: like [UseExperimentalParser], this field disappears
+	// when Track C removes the legacy pipeline.
+	UseLegacyParser bool
 }
 
-// experimentalCompileFunc is the registered implementation supplied by
-// the experimentalcompile package. It is consulted by [Compile] when
-// [Compiler.UseExperimentalParser] is set. The hook indirection breaks
-// the import cycle that would otherwise form: the experimental
-// pipeline transitively depends on `wellknownimports`, which depends
-// on this package.
-var experimentalCompileFunc func(ctx context.Context, c *Compiler, files []string) (linker.Files, error)
-
 // RegisterExperimentalCompile installs the experimental Compile
-// implementation. It is called by the `experimentalcompile` package's
-// init function; user code does not normally call this directly. Set
-// the function back to nil to deregister (useful in tests).
+// implementation. Historically called by the `experimentalcompile`
+// package's init function; today the same registration is performed
+// against [exphook.Register] and this entry point is preserved only
+// for callers that depended on the previous wiring.
 //
 // Registering twice replaces the previously-registered function.
+//
+// Deprecated: use [exphook.Register] (via a blank import of the
+// `experimentalcompile` package). This function will be removed after
+// the legacy pipeline is deleted in Track C.
 func RegisterExperimentalCompile(fn func(ctx context.Context, c *Compiler, files []string) (linker.Files, error)) {
-	experimentalCompileFunc = fn
+	if fn == nil {
+		exphook.Register(nil)
+		return
+	}
+	// Adapt the legacy `*Compiler`-based signature to the new
+	// `exphook.Args`-based one. This is a no-op when callers go
+	// through the new path (experimentalcompile's init() now calls
+	// exphook.Register directly).
+	exphook.Register(func(ctx context.Context, args exphook.Args, files []string) (linker.Files, error) {
+		return fn(ctx, &Compiler{
+			Resolver:       legacyResolverShim{resolver: args.Resolver},
+			Symbols:        args.Symbols,
+			Reporter:       args.Reporter,
+			SourceInfoMode: SourceInfoMode(args.SourceInfoMode),
+			RetainASTs:     args.RetainASTs,
+		}, files)
+	})
+}
+
+// legacyResolverShim wraps an [exphook.Resolver] into a [Resolver] for
+// backwards compatibility with the deprecated
+// [RegisterExperimentalCompile] entry point.
+type legacyResolverShim struct {
+	resolver exphook.Resolver
+}
+
+func (l legacyResolverShim) FindFileByPath(path string) (SearchResult, error) {
+	src, err := l.resolver.OpenSource(path)
+	if err != nil {
+		return SearchResult{}, err
+	}
+	if src == nil {
+		return SearchResult{}, nil
+	}
+	rc, ok := src.(io.ReadCloser)
+	if !ok {
+		rc = io.NopCloser(src)
+	}
+	return SearchResult{Source: rc}, nil
+}
+
+// expArgs builds an [exphook.Args] from this Compiler so the
+// experimental pipeline (which cannot import this package) can read
+// the fields it needs. The [Resolver] is wrapped in an adapter that
+// implements [exphook.Resolver] by calling [Resolver.FindFileByPath]
+// and returning the `Source` field.
+func (c *Compiler) expArgs() exphook.Args {
+	return exphook.Args{
+		Resolver:       expResolverAdapter{resolver: c.Resolver},
+		Symbols:        c.Symbols,
+		Reporter:       c.Reporter,
+		SourceInfoMode: int(c.SourceInfoMode),
+		RetainASTs:     c.RetainASTs,
+	}
+}
+
+// expResolverAdapter adapts a [Resolver] to the [exphook.Resolver]
+// interface that the experimental pipeline consumes. The experimental
+// path only needs source bytes; descriptor/AST/parser-result entries
+// in [SearchResult] are surfaced as not-found.
+type expResolverAdapter struct {
+	resolver Resolver
+}
+
+func (a expResolverAdapter) OpenSource(path string) (io.Reader, error) {
+	if a.resolver == nil {
+		return nil, nil
+	}
+	res, err := a.resolver.FindFileByPath(path)
+	if err != nil {
+		return nil, err
+	}
+	return res.Source, nil
 }
 
 // SourceInfoMode indicates how source code info is generated by a Compiler.
@@ -189,15 +278,41 @@ func (c *Compiler) Compile(ctx context.Context, files ...string) (linker.Files, 
 		return nil, nil
 	}
 
+	// Dispatch table (in order of precedence):
+	//
+	//   1. If [Compiler.UseExperimentalParser] is true, demand
+	//      registration and route through the experimental pipeline.
+	//      This preserves the pre-flip behaviour for callers that
+	//      explicitly opt in: missing registration is a hard error
+	//      pointing at the missing blank import.
+	//   2. Otherwise, if [Compiler.UseLegacyParser] is true OR the
+	//      env var PROTOCOMPILE_PARSER=legacy is set, force the legacy
+	//      pipeline. These are the kill switches kept for one minor
+	//      release window so downstream consumers can pin if they hit
+	//      a regression.
+	//   3. Otherwise, if `experimentalcompile` has been blank-imported
+	//      (so the registration ran), route through it. This is the
+	//      new default — callers no longer have to set
+	//      UseExperimentalParser=true.
+	//   4. Otherwise, fall through to the legacy pipeline. This
+	//      preserves the behaviour of programs that import
+	//      `protocompile` but not `experimentalcompile`.
+	//
+	// After Track C deletes the legacy pipeline this collapses to
+	// "always route to experimental".
+	expFunc := exphook.Get()
 	if c.UseExperimentalParser {
-		if experimentalCompileFunc == nil {
+		if expFunc == nil {
 			return nil, errors.New(
 				"protocompile: UseExperimentalParser=true but no experimental " +
 					"compiler is registered; blank-import " +
 					`"github.com/trendvidia/protocompile/experimentalcompile"`,
 			)
 		}
-		return experimentalCompileFunc(ctx, c, files)
+		return expFunc(ctx, c.expArgs(), files)
+	}
+	if expFunc != nil && !c.UseLegacyParser && os.Getenv("PROTOCOMPILE_PARSER") != "legacy" {
+		return expFunc(ctx, c.expArgs(), files)
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
