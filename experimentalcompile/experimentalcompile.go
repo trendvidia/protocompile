@@ -268,6 +268,28 @@ func buildExperimentalRegistry(top *ir.File, fdpOpts []fdp.DescriptorOption) (*p
 		if err != nil || dep == nil {
 			return err
 		}
+
+		// The fdp generator parks every options message under
+		// `descriptorpb.X.SetUnknown(...)`. That keeps the wire bytes
+		// intact but leaves the typed fields (e.g.
+		// `EnumOptions.AllowAlias`) zero, which trips protodesc's
+		// validation passes — most notably the enum-value uniqueness
+		// check, which only allows duplicates when allow_alias is true.
+		// Re-serialise and unmarshal via the registry-aware resolver
+		// here so the typed fields surface before protodesc sees them.
+		// This mirrors the round-trip irFileToLinkerFile already does
+		// for the top-level descriptor; without it, files like
+		// internal/testdata/options/test.proto (`TestEnum` with two
+		// `= 0` values guarded by `option allow_alias = true`) refuse
+		// to register and the whole compile fails.
+		rawDepBytes, err := fdp.DescriptorProtoBytes(irFile, fdpOpts...)
+		if err == nil {
+			typedDep := new(descriptorpb.FileDescriptorProto)
+			depResolver := dynamicpb.NewTypes(files)
+			if err := (protoUnmarshal{resolver: depResolver}).do(rawDepBytes, typedDep); err == nil {
+				dep = typedDep
+			}
+		}
 		if isTop {
 			topProto = dep
 		}
@@ -286,15 +308,27 @@ func buildExperimentalRegistry(top *ir.File, fdpOpts []fdp.DescriptorOption) (*p
 }
 
 // experimentalOpener adapts a protocompile.Resolver to a
-// source.Opener. WKTs are served from source.WKTs(); other paths flow
-// through the supplied resolver. Result types other than Source are
-// surfaced as not-found for now.
+// source.Opener. The user's resolver is consulted first so that
+// project-supplied overrides of well-known types (e.g. a custom
+// `google/protobuf/descriptor.proto` that adds extra fields to
+// `EnumOptions`) win; [source.WKTs] is the fallback for paths the
+// resolver doesn't know. This matches the legacy
+// `WithStandardImports` semantics, where the wrapped resolver is
+// tried first and the baked-in well-knowns are the fallback.
+//
+// When the user-supplied descriptor.proto is a *partial* vendored
+// override (declares only some of the descriptor types), the IR's
+// [resolveBuiltins] consults a session-scoped baked-in fallback to
+// materialise missing builtin symbols as stubs in the user's file —
+// see `experimental/ir/builtins_copy.go`.
+//
+// Result types other than Source are surfaced as not-found for now.
 func experimentalOpener(resolver protocompile.Resolver) source.Opener {
 	wkts := source.WKTs()
 	if resolver == nil {
 		return wkts
 	}
-	return &source.Openers{wkts, &resolverOpener{resolver: resolver}}
+	return &source.Openers{&resolverOpener{resolver: resolver}, wkts}
 }
 
 type resolverOpener struct {

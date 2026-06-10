@@ -200,10 +200,18 @@ type builtinIDs struct {
 // resolveBuiltins resolves the symbols from descriptor.proto.
 //
 // For each required field (untagged in [builtins]) that cannot be resolved,
-// an error diagnostic is emitted on the descriptor.proto file. Optional
-// fields (tagged `builtin:"optional"`) silently remain zero when absent.
-// Downstream accessors handle zero members gracefully, so non-editions files
-// continue to compile against older vendored copies of descriptor.proto.
+// the symbol is first looked up in the session's fallback descriptor.proto
+// (the baked-in well-known type) and, if found there, copied into `file` as a
+// minimal stub. This matches the project's documented policy of honouring
+// user-supplied vendored descriptor.proto overrides even when they are
+// partial — see the comment block in lower_options.go for the rationale.
+// Only when both the user's file AND the fallback lack the symbol is the
+// "missing required symbol" diagnostic emitted (this should not happen
+// because the baked-in WKT is complete; the diagnostic path is defensive).
+//
+// Optional fields (tagged `builtin:"optional"`) silently remain zero when
+// absent. Downstream accessors handle zero members gracefully, so non-editions
+// files continue to compile against older vendored copies of descriptor.proto.
 func resolveBuiltins(file *File, r *report.Report) {
 	if !file.IsDescriptorProto() {
 		return
@@ -228,6 +236,11 @@ func resolveBuiltins(file *File, r *report.Report) {
 	v := reflect.ValueOf(file.dpBuiltins).Elem()
 	ids := reflect.ValueOf(file.session.builtins)
 
+	// Track whether we materialised any symbols from the fallback. If so we
+	// must re-sort the exported table to preserve the binary-search invariant
+	// in [symtab.lookup].
+	var copied bool
+
 	for i := range v.NumField() {
 		field := v.Field(i)
 		tyField := v.Type().Field(i)
@@ -238,17 +251,40 @@ func resolveBuiltins(file *File, r *report.Report) {
 		ref := file.exported.lookup(id)
 		sym := GetRef(file, ref)
 		if sym.Kind() != kind.kind {
-			if !isOptionalBuiltinField(tyField) {
+			// Symbol is missing or wrong-kind in the user's file. Try the
+			// session's fallback first — the baked-in well-known
+			// descriptor.proto. Copying from it lets users vendor partial
+			// descriptor.proto overrides (e.g., adding extra options fields)
+			// without having to redeclare the entire descriptor type tree.
+			// We attempt this even for optional builtins: option resolution
+			// code paths reach for them whenever the user's proto contains
+			// the corresponding feature, so leaving them zero would
+			// otherwise surface as a downstream "not declared by this
+			// descriptor.proto" error far from this site.
+			fallbackRef := file.session.copyBuiltinFromFallback(file, id, kind.kind)
+			if !fallbackRef.IsZero() {
+				copied = true
+				sym = GetRef(file, fallbackRef)
+			} else if !isOptionalBuiltinField(tyField) {
 				r.Errorf("`%s` is missing required symbol `%s`", file.Path(), file.session.intern.Value(id)).Apply(
 					report.Snippet(file.AST()),
 					report.Helpf("the descriptor.proto supplied to the compiler does not declare this %s; "+
 						"it may be vendored from a version that predates this symbol, or may be genuinely corrupt", kind.kind.noun()),
 				)
+				continue
+			} else {
+				continue
 			}
-			continue
 		}
 		kind.wrap(sym.Raw().data, field)
 	}
+
+	if copied {
+		file.exported.sort(file)
+	}
+	// Drop the in-flight synthesis cache; the cached Types stay reachable
+	// via dst.exported / their parents' nested slots.
+	file.synthedBuiltins = nil
 }
 
 // makeBuiltinWrapper helps construct reflection shims for resolveBuiltins.

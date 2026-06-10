@@ -77,6 +77,17 @@ type File struct {
 
 	dpBuiltins *builtins // Only non-nil for descriptor.proto.
 
+	// synthedBuiltins is a one-shot cache used by [resolveBuiltins] when
+	// the user's vendored descriptor.proto is a partial override and the
+	// IR has to synthesise stub Types for builtin parents the user
+	// omitted. It de-duplicates synthesis across builtins that share a
+	// parent (e.g. all the *.options Members hang off the same eight
+	// *DescriptorProto types) while [File.exported] still has its append-
+	// only trailing region — binary-search lookup can't find anything in
+	// that region until [symtab.sort] runs at the end of
+	// [resolveBuiltins]. Cleared after resolveBuiltins completes.
+	synthedBuiltins map[intern.ID]Type
+
 	arenas struct {
 		types     arena.Arena[rawType]
 		members   arena.Arena[rawMember]
