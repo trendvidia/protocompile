@@ -27,8 +27,12 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protodesc"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/testing/protocmp"
 	"google.golang.org/protobuf/types/descriptorpb"
+	"google.golang.org/protobuf/types/dynamicpb"
 
 	"github.com/trendvidia/protocompile"
 	"github.com/trendvidia/protocompile/internal/protoc"
@@ -48,10 +52,31 @@ import (
 // commenting an entry to silence a failure permanently records a
 // regression and should not happen without reviewer sign-off.
 //
-// Initially empty — populate as protoc-parity is empirically
-// established for each fixture. The first PR's job is just to surface
-// the current divergence shape via the [sweep_protoc.txt] golden.
-var protocMustMatch = []string{}
+// Populated as protoc-parity is empirically established for each
+// fixture. All 17 currently-compilable fixtures match protoc
+// byte-for-byte after the harness round-trips the protoc-emitted FDP
+// through the same per-file dynamicpb resolver the experimental side
+// uses (otherwise protocmp flags identical wire content as a
+// divergence purely on extension-rendering grounds).
+var protocMustMatch = []string{
+	"internal/testdata/desc_test1.proto",
+	"internal/testdata/desc_test2.proto",
+	"internal/testdata/desc_test_comments.proto",
+	"internal/testdata/desc_test_complex.proto",
+	"internal/testdata/desc_test_defaults.proto",
+	"internal/testdata/desc_test_field_types.proto",
+	"internal/testdata/desc_test_options.proto",
+	"internal/testdata/desc_test_proto3.proto",
+	"internal/testdata/desc_test_proto3_optional.proto",
+	"internal/testdata/desc_test_wellknowntypes.proto",
+	"internal/testdata/nopkg/desc_test_nopkg.proto",
+	"internal/testdata/nopkg/desc_test_nopkg_new.proto",
+	"internal/testdata/options/options.proto",
+	"internal/testdata/options/test.proto",
+	"internal/testdata/options/test_editions.proto",
+	"internal/testdata/options/test_proto3.proto",
+	"internal/testdata/pkg/desc_test_pkg.proto",
+}
 
 // TestSweepVsProtoc compiles every .proto fixture under the repo's
 // main testdata roots through both `protoc` and the experimental
@@ -168,15 +193,23 @@ func classifyFixtureVsProtoc(t *testing.T, f fixture, protocPath, rootDir string
 // returns the resulting [FileDescriptorProto] for the target file.
 // Returns a non-nil error if protoc fails to compile the fixture.
 //
-// The output FileDescriptorSet is written to a per-test tempdir and
-// removed when the test ends; only the target file's FDP is extracted
-// from the set (no --include_imports).
+// `--include_imports` is passed so the output FileDescriptorSet
+// contains every transitive dependency; the deps are registered into
+// a [protoregistry.Files] and the target FDP is re-unmarshalled
+// through `dynamicpb.NewTypes(files)`. Without this re-unmarshal,
+// custom extensions that the experimental's [newCompiledFile]
+// already surfaces as typed fields (e.g.
+// `[testprotos.flfubar]`) would still appear as raw wire bytes on
+// the protoc side, and protocmp would flag identical wire content
+// as a divergence purely because of how its renderer represents
+// "typed" vs "untyped" extensions. This brings both sides to the
+// same level of typed surfacing before diffing.
 func runProtoc(t *testing.T, protocPath string, importPaths []string, fixtureAbs, fileForResolver string) (*descriptorpb.FileDescriptorProto, error) {
 	t.Helper()
 	dir := t.TempDir()
 	outPath := filepath.Join(dir, "fixture.pb")
 
-	args := []string{"-o", outPath}
+	args := []string{"-o", outPath, "--include_imports"}
 	for _, ip := range importPaths {
 		args = append(args, "--proto_path="+ip)
 	}
@@ -196,28 +229,108 @@ func runProtoc(t *testing.T, protocPath string, importPaths []string, fixtureAbs
 		return nil, fmt.Errorf("unmarshal protoc output: %w", err)
 	}
 
-	// Pick the FDP whose name matches the resolver path the experimental
-	// receives. protoc records the path it saw on its command line
-	// relative to the import root that contained it; that is exactly
-	// `fileForResolver`.
-	for _, fd := range set.File {
+	target := pickProtocFDP(set.File, fileForResolver)
+	if target == nil {
+		return nil, fmt.Errorf("protoc emitted no FDP matching %q", fileForResolver)
+	}
+
+	// Build a registry from the set's files (in declaration order, which
+	// is dependency-first because protoc emits imports before importers).
+	files, err := buildProtocRegistry(set.File, target.GetName())
+	if err != nil {
+		// Fall back to the raw FDP — better to surface a real diff than
+		// fail the harness on a registry-build edge case.
+		return target, nil
+	}
+
+	// Re-unmarshal the raw bytes for the target through a resolver that
+	// knows the file's extension types. We have to find the raw bytes
+	// for just the target, not the whole set: re-serialise from the
+	// already-decoded `target` (round-trip safe since target was parsed
+	// from the raw bytes already).
+	rawTarget, err := proto.Marshal(target)
+	if err != nil {
+		return target, nil
+	}
+	resolver := dynamicpb.NewTypes(files)
+	final := &descriptorpb.FileDescriptorProto{}
+	if err := (proto.UnmarshalOptions{Resolver: resolver}).Unmarshal(rawTarget, final); err != nil {
+		return target, nil
+	}
+	return final, nil
+}
+
+// pickProtocFDP locates the target FDP in the FileDescriptorSet by
+// path match (preferred) or basename fallback.
+func pickProtocFDP(files []*descriptorpb.FileDescriptorProto, fileForResolver string) *descriptorpb.FileDescriptorProto {
+	for _, fd := range files {
 		if fd.GetName() == fileForResolver {
-			return fd, nil
+			return fd
 		}
 	}
-	// Fall back: pick by basename match in case protoc disambiguated
-	// the path differently (e.g., chose a different import root for
-	// the same fixture).
 	want := filepath.Base(fileForResolver)
-	for _, fd := range set.File {
+	for _, fd := range files {
 		if filepath.Base(fd.GetName()) == want {
-			return fd, nil
+			return fd
 		}
 	}
-	if len(set.File) > 0 {
-		return set.File[len(set.File)-1], nil
+	if len(files) > 0 {
+		return files[len(files)-1]
 	}
-	return nil, fmt.Errorf("protoc emitted an empty FileDescriptorSet")
+	return nil
+}
+
+// buildProtocRegistry registers every file from a protoc-emitted
+// FileDescriptorSet into a [protoregistry.Files] so a dynamicpb
+// resolver can surface typed extensions. Files are visited in the
+// order protoc emitted them (dependency-first); each file is
+// registered against the registry built so far plus
+// [protoregistry.GlobalFiles] (so well-known types resolve too).
+//
+// Registration is best-effort for non-target files: if a transitive
+// dep fails to register, others are still attempted. The target
+// file's failure is propagated because without it the resolver
+// provides no value over the global registry.
+func buildProtocRegistry(files []*descriptorpb.FileDescriptorProto, targetPath string) (*protoregistry.Files, error) {
+	out := new(protoregistry.Files)
+	chain := chainedTestResolver{primary: out, secondary: protoregistry.GlobalFiles}
+	for _, fd := range files {
+		// Skip WKTs that are already in the global registry to avoid
+		// duplicate-registration errors.
+		if _, err := protoregistry.GlobalFiles.FindFileByPath(fd.GetName()); err == nil {
+			continue
+		}
+		fileDesc, err := protodesc.NewFile(fd, chain)
+		if err != nil {
+			if fd.GetName() == targetPath {
+				return nil, err
+			}
+			continue
+		}
+		_ = out.RegisterFile(fileDesc)
+	}
+	return out, nil
+}
+
+// chainedTestResolver tries each protodesc.Resolver in order. Local
+// to this test so we don't have to export the equivalent
+// `chainedFiles` from new_adapter.go.
+type chainedTestResolver struct {
+	primary, secondary protodesc.Resolver
+}
+
+func (c chainedTestResolver) FindFileByPath(path string) (protoreflect.FileDescriptor, error) {
+	if fd, err := c.primary.FindFileByPath(path); err == nil {
+		return fd, nil
+	}
+	return c.secondary.FindFileByPath(path)
+}
+
+func (c chainedTestResolver) FindDescriptorByName(name protoreflect.FullName) (protoreflect.Descriptor, error) {
+	if d, err := c.primary.FindDescriptorByName(name); err == nil {
+		return d, nil
+	}
+	return c.secondary.FindDescriptorByName(name)
 }
 
 // renderProtocReport formats the per-fixture results into the text
