@@ -14,20 +14,23 @@
 
 package protocompile
 
-// Blank-import the experimental compile pipeline so its `init` runs
-// at program start and the experimental implementation registers with
-// [exphook]. [Compile]'s dispatch table then routes through it by
-// default — see compiler.go for the precedence rules and the
-// `PROTOCOMPILE_PARSER=legacy` env-var kill switch.
-//
-// This blank import is what makes the M1 default flip work. It is
-// only possible because the experimental pipeline no longer depends
-// on this package transitively: the experimental sub-packages import
-// the dependency-free `wellknownimports/fs` sub-package for their
-// embedded data, and `experimentalcompile` itself imports
-// `internal/exphook` rather than this package for its contract.
-//
-// Once Track C deletes the legacy pipeline, this file and the env-var
-// kill switch will both be removed; the experimental pipeline becomes
-// the only option and there is no further dispatch decision to make.
-import _ "github.com/trendvidia/protocompile/experimentalcompile"
+import (
+	// Blank-import the experimental compile pipeline so its `init` runs
+	// at program start and the experimental implementation registers
+	// with [exphook]. [Compile]'s dispatch table then routes through it
+	// by default — see compiler.go for the precedence rules and the
+	// `PROTOCOMPILE_PARSER=legacy` env-var kill switch.
+	//
+	// This blank import is what makes the M1 default flip work. It is
+	// only possible because the experimental pipeline no longer depends
+	// on this package transitively: the experimental sub-packages
+	// import the dependency-free `wellknownimports/fs` sub-package for
+	// their embedded data, and `experimentalcompile` itself imports
+	// `internal/exphook` rather than this package for its contract.
+	//
+	// Once Track C deletes the legacy pipeline, this file and the
+	// env-var kill switch will both be removed; the experimental
+	// pipeline becomes the only option and there is no further
+	// dispatch decision to make.
+	_ "github.com/trendvidia/protocompile/experimentalcompile"
+)
