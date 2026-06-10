@@ -12,3 +12,4 @@ tables:
       file: "test.proto"
       index: 1
       visible: true
+    options.message: {}

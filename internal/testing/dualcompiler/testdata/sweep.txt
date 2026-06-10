@@ -14,7 +14,7 @@
 ## Summary
 total: 21
 BOTH_OK_MATCH:  15
-NEW_FAIL:       2
+BOTH_OK_DIFFER: 2
 BOTH_FAIL:      4
 
 ## Per-fixture
@@ -31,9 +31,9 @@ internal/testdata/desc_test_wellknowntypes.proto BOTH_OK_MATCH
 internal/testdata/nopkg/desc_test_nopkg.proto BOTH_OK_MATCH
 internal/testdata/nopkg/desc_test_nopkg_new.proto BOTH_OK_MATCH
 internal/testdata/options/options.proto BOTH_OK_MATCH
-internal/testdata/options/test.proto NEW_FAIL | { cannot find message field `bar` in `google.protobuf.EnumOptions` 2 20 [{{<ptr> 8774 8777} because of this field selector true false []}] [] [] []}
+internal/testdata/options/test.proto BOTH_OK_DIFFER | 65-/63+ lines; first field: "@type"
 internal/testdata/options/test_editions.proto BOTH_OK_MATCH
-internal/testdata/options/test_proto3.proto NEW_FAIL | { cannot find message field `bar` in `google.protobuf.EnumOptions` 2 20 [{{<ptr> 9601 9604} because of this field selector true false []}] [] [] []}
+internal/testdata/options/test_proto3.proto BOTH_OK_DIFFER | 48-/48+ lines; first field: "@type"
 internal/testdata/pkg/desc_test_pkg.proto BOTH_OK_MATCH
 parser/testdata/largeproto.proto BOTH_FAIL | largeproto.proto:19:8: open <repo>/parser/testdata/google/api/client.proto: no such file or directory
 parser/testdata/pathological.proto BOTH_FAIL | pathological.proto:1:1199: message nesting depth must be less than 32

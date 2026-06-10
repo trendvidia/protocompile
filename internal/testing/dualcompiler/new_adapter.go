@@ -50,13 +50,16 @@ func NewNewCompiler(opts ...CompilerOption) CompilerInterface {
 		opt(config)
 	}
 
-	// Create an opener that combines the resolver with WKTs.
-	// WKTs are checked first so they're returned as source files, not descriptors.
+	// Create an opener that consults the user's resolver first, then
+	// falls back to the baked-in WKTs. This matches the production
+	// experimentalcompile.experimentalOpener ordering and lets fixtures
+	// vendor partial overrides of well-known types (e.g. the HACK fields
+	// in `internal/testdata/options/google/protobuf/descriptor.proto`).
 	var opener source.Opener
 	if config.resolver != nil {
 		resolverOpener := ResolverToOpener(config.resolver)
 		wkts := source.WKTs()
-		opener = &source.Openers{wkts, resolverOpener}
+		opener = &source.Openers{resolverOpener, wkts}
 	} else {
 		opener = source.WKTs()
 	}

@@ -268,6 +268,28 @@ func buildExperimentalRegistry(top *ir.File, fdpOpts []fdp.DescriptorOption) (*p
 		if err != nil || dep == nil {
 			return err
 		}
+
+		// The fdp generator parks every options message under
+		// `descriptorpb.X.SetUnknown(...)`. That keeps the wire bytes
+		// intact but leaves the typed fields (e.g.
+		// `EnumOptions.AllowAlias`) zero, which trips protodesc's
+		// validation passes — most notably the enum-value uniqueness
+		// check, which only allows duplicates when allow_alias is true.
+		// Re-serialise and unmarshal via the registry-aware resolver
+		// here so the typed fields surface before protodesc sees them.
+		// This mirrors the round-trip irFileToLinkerFile already does
+		// for the top-level descriptor; without it, files like
+		// internal/testdata/options/test.proto (`TestEnum` with two
+		// `= 0` values guarded by `option allow_alias = true`) refuse
+		// to register and the whole compile fails.
+		rawDepBytes, err := fdp.DescriptorProtoBytes(irFile, fdpOpts...)
+		if err == nil {
+			typedDep := new(descriptorpb.FileDescriptorProto)
+			depResolver := dynamicpb.NewTypes(files)
+			if err := (protoUnmarshal{resolver: depResolver}).do(rawDepBytes, typedDep); err == nil {
+				dep = typedDep
+			}
+		}
 		if isTop {
 			topProto = dep
 		}

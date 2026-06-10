@@ -1,15 +1,9 @@
-error: cannot resolve option setting
-  --> test.proto:5:26
+error: cannot find `DECLARATION` in this scope
+  --> test.proto:5:41
    |
  5 |   extensions 100 to 200 [verification = DECLARATION];
-   |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  ::: google/protobuf/descriptor.proto:1:1
+   |                                         ^^^^^^^^^^^ not found in this scope
    |
- 1 | syntax = "proto2";
-   | ------------------ resolved against this descriptor.proto
-   |
-   = help: `google.protobuf.DescriptorProto.ExtensionRange.options` is not
-           declared by this descriptor.proto; use a newer descriptor.proto or
-           remove this option
+   = help: the full name of this scope is `test`
 
 encountered 1 error
