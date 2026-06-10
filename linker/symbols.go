@@ -409,28 +409,6 @@ func (s *packageSymbols) commitFileLocked(f protoreflect.FileDescriptor) {
 	s.files[f] = struct{}{}
 }
 
-func nameSpan(file ast.FileDeclNode, n ast.Node) ast.SourceSpan {
-	// TODO: maybe ast package needs a NamedNode interface to simplify this?
-	switch n := n.(type) {
-	case ast.FieldDeclNode:
-		return file.NodeInfo(n.FieldName())
-	case ast.MessageDeclNode:
-		return file.NodeInfo(n.MessageName())
-	case ast.OneofDeclNode:
-		return file.NodeInfo(n.OneofName())
-	case ast.EnumValueDeclNode:
-		return file.NodeInfo(n.GetName())
-	case *ast.EnumNode:
-		return file.NodeInfo(n.Name)
-	case *ast.ServiceNode:
-		return file.NodeInfo(n.Name)
-	case ast.RPCDeclNode:
-		return file.NodeInfo(n.GetName())
-	default:
-		return file.NodeInfo(n)
-	}
-}
-
 // AddExtension records the given extension, which is used to ensure that no two files
 // attempt to extend the same message using the same tag. The given pkg should be the
 // package that defines extendee.

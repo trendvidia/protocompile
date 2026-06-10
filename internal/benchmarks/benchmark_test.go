@@ -24,26 +24,20 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
-	"sync/atomic"
 	"testing"
 
 	"github.com/jhump/protoreflect/desc"
 	"github.com/jhump/protoreflect/desc/protoparse"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 
 	"github.com/trendvidia/protocompile"
-	"github.com/trendvidia/protocompile/ast"
 	"github.com/trendvidia/protocompile/internal/ext/bitsx"
 	"github.com/trendvidia/protocompile/internal/protoc"
 	"github.com/trendvidia/protocompile/internal/testing/googleapis"
 	"github.com/trendvidia/protocompile/internal/testing/memory"
-	"github.com/trendvidia/protocompile/parser"
-	"github.com/trendvidia/protocompile/parser/fastscan"
 	"github.com/trendvidia/protocompile/protoutil"
-	"github.com/trendvidia/protocompile/reporter"
 )
 
 var (
@@ -208,92 +202,6 @@ func benchmarkGoogleapisProtoparse(b *testing.B, factory func() *protoparse.Pars
 	}
 }
 
-func BenchmarkGoogleapisFastScan(b *testing.B) {
-	par := runtime.GOMAXPROCS(-1)
-	cpus := runtime.NumCPU()
-	if par > cpus {
-		par = cpus
-	}
-	type entry struct {
-		filename   string
-		scanResult fastscan.Result
-	}
-	for range b.N {
-		workCh := make(chan string, par)
-		resultsCh := make(chan entry, par)
-		grp, ctx := errgroup.WithContext(b.Context())
-		// producer
-		grp.Go(func() error {
-			defer close(workCh)
-			for _, name := range googleapisSources {
-				select {
-				case workCh <- filepath.Join(googleapisDir, name):
-				case <-ctx.Done():
-					return ctx.Err()
-				}
-			}
-			return nil
-		})
-		var numProcs atomic.Int32
-		numProcs.Store(int32(par))
-		for range par {
-			// consumers/processors
-			grp.Go(func() error {
-				defer func() {
-					if numProcs.Add(-1) == 0 {
-						// last one to leave closes the channel
-						close(resultsCh)
-					}
-				}()
-				for {
-					var filename string
-					select {
-					case name, ok := <-workCh:
-						if !ok {
-							return nil
-						}
-						filename = name
-					case <-ctx.Done():
-						return ctx.Err()
-					}
-					r, err := os.Open(filename)
-					if err != nil {
-						return err
-					}
-					res, err := fastscan.Scan(filename, r)
-					_ = r.Close()
-					if err != nil {
-						return err
-					}
-					select {
-					case resultsCh <- entry{filename: filename, scanResult: res}:
-					case <-ctx.Done():
-						return ctx.Err()
-					}
-				}
-			})
-		}
-		results := make(map[string]fastscan.Result, len(googleapisSources))
-		grp.Go(func() error {
-			// accumulator
-			for {
-				select {
-				case entry, ok := <-resultsCh:
-					if !ok {
-						return nil
-					}
-					results[entry.filename] = entry.scanResult
-				case <-ctx.Done():
-					return ctx.Err()
-				}
-			}
-		})
-
-		err := grp.Wait()
-		require.NoError(b, err)
-	}
-}
-
 func BenchmarkGoogleapisProtoc(b *testing.B) {
 	benchmarkGoogleapisProtoc(b, "--include_source_info")
 }
@@ -402,26 +310,6 @@ func TestGoogleapisProtocompileResultMemoryNoSourceInfo(t *testing.T) {
 	fds, err := c.Compile(t.Context(), googleapisSources...)
 	require.NoError(t, err)
 	measure(t, fds)
-}
-
-func TestGoogleapisProtocompileASTMemory(t *testing.T) {
-	var asts []*ast.FileNode
-	for _, file := range googleapisSources {
-		func() {
-			f, err := os.OpenFile(filepath.Join(googleapisDir, file), os.O_RDONLY, 0)
-			require.NoError(t, err)
-			defer func() {
-				if err := f.Close(); err != nil {
-					_, _ = fmt.Fprintf(os.Stderr, "warning: failed to close %s: %v\n", f.Name(), err)
-				}
-			}()
-			h := reporter.NewHandler(nil)
-			ast, err := parser.Parse(file, f, h)
-			require.NoError(t, err)
-			asts = append(asts, ast)
-		}()
-	}
-	measure(t, asts)
 }
 
 func TestGoogleapisProtoparseResultMemory(t *testing.T) {

@@ -52,7 +52,7 @@ func TestUseExperimentalParser_RoutesThroughExperimental(t *testing.T) {
 	})
 
 	c := protocompile.Compiler{
-		Resolver:              resolver,
+		Resolver: resolver,
 	}
 
 	files, err := c.Compile(t.Context(), "hello.proto")
@@ -120,7 +120,7 @@ func TestRetainASTs_OffByDefault(t *testing.T) {
 	t.Parallel()
 
 	c := protocompile.Compiler{
-		Resolver:              minimalResolver(),
+		Resolver: minimalResolver(),
 	}
 	files, err := c.Compile(t.Context(), "hello.proto")
 	require.NoError(t, err)
@@ -137,8 +137,8 @@ func TestRetainASTs_ExposesIRAndAST(t *testing.T) {
 	t.Parallel()
 
 	c := protocompile.Compiler{
-		Resolver:              minimalResolver(),
-		RetainASTs:            true,
+		Resolver:   minimalResolver(),
+		RetainASTs: true,
 	}
 	files, err := c.Compile(t.Context(), "hello.proto")
 	require.NoError(t, err)
@@ -163,7 +163,7 @@ func TestSymbols_NoSymbolsTableSucceeds(t *testing.T) {
 	t.Parallel()
 
 	c := protocompile.Compiler{
-		Resolver:              minimalResolver(),
+		Resolver: minimalResolver(),
 	}
 	files, err := c.Compile(t.Context(), "hello.proto")
 	require.NoError(t, err)
@@ -209,16 +209,16 @@ message Greeting {
 	symbols := new(linker.Symbols)
 
 	c1 := protocompile.Compiler{
-		Resolver:              resolver,
-		Symbols:               symbols,
+		Resolver: resolver,
+		Symbols:  symbols,
 	}
 	files, err := c1.Compile(t.Context(), "a.proto")
 	require.NoError(t, err, "first compile should populate the shared symbol table")
 	require.Len(t, files, 1)
 
 	c2 := protocompile.Compiler{
-		Resolver:              resolver,
-		Symbols:               symbols,
+		Resolver: resolver,
+		Symbols:  symbols,
 	}
 	_, err = c2.Compile(t.Context(), "b.proto")
 	require.Error(t, err, "second compile defining hello.Greeting again must surface a collision")
@@ -263,8 +263,8 @@ message Greeting {
 	})
 
 	c := protocompile.Compiler{
-		Resolver:              resolver,
-		SourceInfoMode:        mode,
+		Resolver:       resolver,
+		SourceInfoMode: mode,
 	}
 
 	files, err := c.Compile(t.Context(), "hello.proto")

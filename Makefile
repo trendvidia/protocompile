@@ -9,7 +9,7 @@ MAKEFLAGS += --no-print-directory
 BIN ?= $(abspath .tmp/bin)
 CACHE := $(abspath .tmp/cache)
 COPYRIGHT_YEARS := 2020-2026
-LICENSE_IGNORE := -E -e "/testdata/|^wellknownimports/google/protobuf/|^[^/]+\.ya?ml$$|^\.github/"
+LICENSE_IGNORE := -E -e "/testdata/|^wellknownimports/fs/google/protobuf/|^[^/]+\.ya?ml$$|^\.github/"
 # Set to use a different compiler. For example, `GO=go1.18rc1 make test`.
 GO ?= go
 TOOLS_MOD_DIR := ./internal/tools
@@ -135,7 +135,7 @@ checkgenerate:
 	@echo git status --porcelain
 	@if [[ -n "$$(git status --porcelain | tee /dev/stderr)" ]]; then \
 	  git diff; \
-	  xxd wellknownimports/wkt.pb; \
+	  xxd wellknownimports/fs/wkt.pb; \
 	  false; \
 	fi
 
@@ -163,11 +163,14 @@ $(PROTOC): $(CACHE)/protoc-$(PROTOC_VERSION).zip
 
 .PHONY: wellknownimports
 wellknownimports: $(PROTOC) $(sort $(wildcard $(PROTOC_DIR)/include/google/protobuf/*.proto)) $(sort $(wildcard $(PROTOC_DIR)/include/google/protobuf/*/*.proto))
-	@rm -rf wellknownimports/google 2>/dev/null && true
-	@mkdir -p wellknownimports/google/protobuf/compiler
-	cp -R $(PROTOC_DIR)/include/google/protobuf/*.proto wellknownimports/google/protobuf
-	cp -R $(PROTOC_DIR)/include/google/protobuf/compiler/*.proto wellknownimports/google/protobuf/compiler
-	find wellknownimports/google -type f | sed 's|wellknownimports/||' | sort | xargs $(PROTOC) -I wellknownimports -owellknownimports/wkt.pb
+	@# The embedded WKTs and pre-built FileDescriptorSet live in the
+	@# `wellknownimports/fs` sub-package (broken out from
+	@# `wellknownimports` in PR #41 to break a Track C import cycle).
+	@rm -rf wellknownimports/fs/google 2>/dev/null && true
+	@mkdir -p wellknownimports/fs/google/protobuf/compiler
+	cp -R $(PROTOC_DIR)/include/google/protobuf/*.proto wellknownimports/fs/google/protobuf
+	cp -R $(PROTOC_DIR)/include/google/protobuf/compiler/*.proto wellknownimports/fs/google/protobuf/compiler
+	find wellknownimports/fs/google -type f | sed 's|wellknownimports/fs/||' | sort | xargs $(PROTOC) -I wellknownimports/fs -owellknownimports/fs/wkt.pb
 
 internal/testdata/all.protoset: $(PROTOC) $(sort $(wildcard internal/testdata/*.proto))
 	cd $(@D) && $(PROTOC) --descriptor_set_out=$(@F) --include_imports -I. $(filter-out protoc,$(^F))
