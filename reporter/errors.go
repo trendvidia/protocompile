@@ -17,8 +17,6 @@ package reporter
 import (
 	"errors"
 	"fmt"
-
-	"github.com/trendvidia/protocompile/ast"
 )
 
 // ErrInvalidSource is a sentinel error that is returned by compilation and
@@ -30,15 +28,15 @@ var ErrInvalidSource = errors.New("parse failed: invalid proto source")
 // about the location in the file that caused the error.
 type ErrorWithPos interface {
 	error
-	ast.SourceSpan
+	SourceSpan
 	// GetPosition returns the start source position that caused the underlying error.
-	GetPosition() ast.SourcePos
+	GetPosition() SourcePos
 	// Unwrap returns the underlying error.
 	Unwrap() error
 }
 
 // Error creates a new ErrorWithPos from the given error and source position.
-func Error(span ast.SourceSpan, err error) ErrorWithPos {
+func Error(span SourceSpan, err error) ErrorWithPos {
 	var ewp ErrorWithPos
 	if errors.As(err, &ewp) {
 		// replace existing position with given one
@@ -49,12 +47,12 @@ func Error(span ast.SourceSpan, err error) ErrorWithPos {
 
 // Errorf creates a new ErrorWithPos whose underlying error is created using the
 // given message format and arguments (via fmt.Errorf).
-func Errorf(span ast.SourceSpan, format string, args ...any) ErrorWithPos {
+func Errorf(span SourceSpan, format string, args ...any) ErrorWithPos {
 	return Error(span, fmt.Errorf(format, args...))
 }
 
 type errorWithSpan struct {
-	ast.SourceSpan
+	SourceSpan
 	underlying error
 }
 
@@ -63,7 +61,7 @@ func (e *errorWithSpan) Error() string {
 	return fmt.Sprintf("%s: %v", sourcePos, e.underlying)
 }
 
-func (e *errorWithSpan) GetPosition() ast.SourcePos {
+func (e *errorWithSpan) GetPosition() SourcePos {
 	return e.Start()
 }
 

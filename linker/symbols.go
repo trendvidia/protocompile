@@ -20,7 +20,6 @@ import (
 
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	"github.com/trendvidia/protocompile/ast"
 	"github.com/trendvidia/protocompile/internal"
 	"github.com/trendvidia/protocompile/internal/tags"
 	"github.com/trendvidia/protocompile/reporter"
@@ -52,7 +51,7 @@ type packageSymbols struct {
 	children map[protoreflect.FullName]*packageSymbols
 	files    map[protoreflect.FileDescriptor]struct{}
 	symbols  map[protoreflect.FullName]symbolEntry
-	exts     map[extNumber]ast.SourceSpan
+	exts     map[extNumber]reporter.SourceSpan
 }
 
 type extNumber struct {
@@ -61,13 +60,13 @@ type extNumber struct {
 }
 
 type symbolEntry struct {
-	span        ast.SourceSpan
+	span        reporter.SourceSpan
 	isEnumValue bool
 	isPackage   bool
 }
 
 type extDecl struct {
-	span     ast.SourceSpan
+	span     reporter.SourceSpan
 	extendee protoreflect.FullName
 	tag      protoreflect.FieldNumber
 }
@@ -159,7 +158,7 @@ func (s *packageSymbols) importFile(fd protoreflect.FileDescriptor, handler *rep
 	return true, nil
 }
 
-func (s *Symbols) importPackages(pkgSpan ast.SourceSpan, pkg protoreflect.FullName, handler *reporter.Handler) (*packageSymbols, error) {
+func (s *Symbols) importPackages(pkgSpan reporter.SourceSpan, pkg protoreflect.FullName, handler *reporter.Handler) (*packageSymbols, error) {
 	if pkg == "" {
 		return &s.pkgTrie, nil
 	}
@@ -182,7 +181,7 @@ func (s *Symbols) importPackages(pkgSpan ast.SourceSpan, pkg protoreflect.FullNa
 	}
 }
 
-func (s *packageSymbols) importPackage(pkgSpan ast.SourceSpan, pkg protoreflect.FullName, handler *reporter.Handler) (*packageSymbols, error) {
+func (s *packageSymbols) importPackage(pkgSpan reporter.SourceSpan, pkg protoreflect.FullName, handler *reporter.Handler) (*packageSymbols, error) {
 	s.mu.RLock()
 	existing, ok := s.symbols[pkg]
 	var child *packageSymbols
@@ -245,7 +244,7 @@ func (s *Symbols) getPackage(pkg protoreflect.FullName, exact bool) *packageSymb
 	}
 }
 
-func reportSymbolCollision(span ast.SourceSpan, fqn protoreflect.FullName, additionIsEnumVal bool, existing symbolEntry, handler *reporter.Handler) error {
+func reportSymbolCollision(span reporter.SourceSpan, fqn protoreflect.FullName, additionIsEnumVal bool, existing symbolEntry, handler *reporter.Handler) error {
 	// because of weird scoping for enum values, provide more context in error message
 	// if this conflict is with an enum value
 	var isPkg, suffix string
@@ -263,7 +262,7 @@ func reportSymbolCollision(span ast.SourceSpan, fqn protoreflect.FullName, addit
 	return handler.HandleErrorf(conflict, "symbol %q already defined%s at %v%s", fqn, isPkg, orig.Start(), suffix)
 }
 
-func posLess(a, b ast.SourcePos) bool {
+func posLess(a, b reporter.SourcePos) bool {
 	if a.Filename == b.Filename {
 		if a.Line == b.Line {
 			return a.Col < b.Col
@@ -286,18 +285,18 @@ func (s *packageSymbols) checkFileLocked(f protoreflect.FileDescriptor, handler 
 	})
 }
 
-func sourceSpanForPackage(fd protoreflect.FileDescriptor) ast.SourceSpan {
+func sourceSpanForPackage(fd protoreflect.FileDescriptor) reporter.SourceSpan {
 	loc := fd.SourceLocations().ByPath([]int32{tags.File_Package})
 	if internal.IsZeroLocation(loc) {
-		return ast.UnknownSpan(fd.Path())
+		return reporter.UnknownSpan(fd.Path())
 	}
-	return ast.NewSourceSpan(
-		ast.SourcePos{
+	return reporter.NewSourceSpan(
+		reporter.SourcePos{
 			Filename: fd.Path(),
 			Line:     loc.StartLine,
 			Col:      loc.StartColumn,
 		},
-		ast.SourcePos{
+		reporter.SourcePos{
 			Filename: fd.Path(),
 			Line:     loc.EndLine,
 			Col:      loc.EndColumn,
@@ -305,14 +304,14 @@ func sourceSpanForPackage(fd protoreflect.FileDescriptor) ast.SourceSpan {
 	)
 }
 
-func sourceSpanFor(d protoreflect.Descriptor) ast.SourceSpan {
+func sourceSpanFor(d protoreflect.Descriptor) reporter.SourceSpan {
 	file := d.ParentFile()
 	if file == nil {
-		return ast.UnknownSpan(unknownFilePath)
+		return reporter.UnknownSpan(unknownFilePath)
 	}
 	path, ok := internal.ComputePath(d)
 	if !ok {
-		return ast.UnknownSpan(file.Path())
+		return reporter.UnknownSpan(file.Path())
 	}
 	namePath := path
 	switch d.(type) {
@@ -338,17 +337,17 @@ func sourceSpanFor(d protoreflect.Descriptor) ast.SourceSpan {
 	if internal.IsZeroLocation(loc) {
 		loc = file.SourceLocations().ByPath(path)
 		if internal.IsZeroLocation(loc) {
-			return ast.UnknownSpan(file.Path())
+			return reporter.UnknownSpan(file.Path())
 		}
 	}
 
-	return ast.NewSourceSpan(
-		ast.SourcePos{
+	return reporter.NewSourceSpan(
+		reporter.SourcePos{
 			Filename: file.Path(),
 			Line:     loc.StartLine,
 			Col:      loc.StartColumn,
 		},
-		ast.SourcePos{
+		reporter.SourcePos{
 			Filename: file.Path(),
 			Line:     loc.EndLine,
 			Col:      loc.EndColumn,
@@ -356,14 +355,14 @@ func sourceSpanFor(d protoreflect.Descriptor) ast.SourceSpan {
 	)
 }
 
-func sourceSpanForNumber(fd protoreflect.FieldDescriptor) ast.SourceSpan {
+func sourceSpanForNumber(fd protoreflect.FieldDescriptor) reporter.SourceSpan {
 	file := fd.ParentFile()
 	if file == nil {
-		return ast.UnknownSpan(unknownFilePath)
+		return reporter.UnknownSpan(unknownFilePath)
 	}
 	path, ok := internal.ComputePath(fd)
 	if !ok {
-		return ast.UnknownSpan(file.Path())
+		return reporter.UnknownSpan(file.Path())
 	}
 	numberPath := path
 	numberPath = append(numberPath, tags.Field_Number)
@@ -371,16 +370,16 @@ func sourceSpanForNumber(fd protoreflect.FieldDescriptor) ast.SourceSpan {
 	if internal.IsZeroLocation(loc) {
 		loc = file.SourceLocations().ByPath(path)
 		if internal.IsZeroLocation(loc) {
-			return ast.UnknownSpan(file.Path())
+			return reporter.UnknownSpan(file.Path())
 		}
 	}
-	return ast.NewSourceSpan(
-		ast.SourcePos{
+	return reporter.NewSourceSpan(
+		reporter.SourcePos{
 			Filename: file.Path(),
 			Line:     loc.StartLine,
 			Col:      loc.StartColumn,
 		},
-		ast.SourcePos{
+		reporter.SourcePos{
 			Filename: file.Path(),
 			Line:     loc.EndLine,
 			Col:      loc.EndColumn,
@@ -393,7 +392,7 @@ func (s *packageSymbols) commitFileLocked(f protoreflect.FileDescriptor) {
 		s.symbols = map[protoreflect.FullName]symbolEntry{}
 	}
 	if s.exts == nil {
-		s.exts = map[extNumber]ast.SourceSpan{}
+		s.exts = map[extNumber]reporter.SourceSpan{}
 	}
 	_ = walk.Descriptors(f, func(d protoreflect.Descriptor) error {
 		span := sourceSpanFor(d)
@@ -412,7 +411,7 @@ func (s *packageSymbols) commitFileLocked(f protoreflect.FileDescriptor) {
 // AddExtension records the given extension, which is used to ensure that no two files
 // attempt to extend the same message using the same tag. The given pkg should be the
 // package that defines extendee.
-func (s *Symbols) AddExtension(pkg, extendee protoreflect.FullName, tag protoreflect.FieldNumber, span ast.SourceSpan, handler *reporter.Handler) error {
+func (s *Symbols) AddExtension(pkg, extendee protoreflect.FullName, tag protoreflect.FieldNumber, span reporter.SourceSpan, handler *reporter.Handler) error {
 	if pkg != "" {
 		if !strings.HasPrefix(string(extendee), string(pkg)+".") {
 			return handler.HandleErrorf(span, "could not register extension: extendee %q does not match package %q", extendee, pkg)
@@ -426,7 +425,7 @@ func (s *Symbols) AddExtension(pkg, extendee protoreflect.FullName, tag protoref
 	return pkgSyms.addExtension(extendee, tag, span, handler)
 }
 
-func (s *packageSymbols) addExtension(extendee protoreflect.FullName, tag protoreflect.FieldNumber, span ast.SourceSpan, handler *reporter.Handler) error {
+func (s *packageSymbols) addExtension(extendee protoreflect.FullName, tag protoreflect.FieldNumber, span reporter.SourceSpan, handler *reporter.Handler) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -436,7 +435,7 @@ func (s *packageSymbols) addExtension(extendee protoreflect.FullName, tag protor
 	}
 
 	if s.exts == nil {
-		s.exts = map[extNumber]ast.SourceSpan{}
+		s.exts = map[extNumber]reporter.SourceSpan{}
 	}
 	s.exts[extNum] = span
 	return nil
@@ -444,7 +443,7 @@ func (s *packageSymbols) addExtension(extendee protoreflect.FullName, tag protor
 
 // AddExtensionDeclaration records the given extension declaration, which is used to
 // ensure that no two declarations refer to the same extension.
-func (s *Symbols) AddExtensionDeclaration(extension, extendee protoreflect.FullName, tag protoreflect.FieldNumber, span ast.SourceSpan, handler *reporter.Handler) error {
+func (s *Symbols) AddExtensionDeclaration(extension, extendee protoreflect.FullName, tag protoreflect.FieldNumber, span reporter.SourceSpan, handler *reporter.Handler) error {
 	s.extDeclsMu.Lock()
 	defer s.extDeclsMu.Unlock()
 	existing, ok := s.extDecls[extension]
@@ -468,7 +467,7 @@ func (s *Symbols) AddExtensionDeclaration(extension, extendee protoreflect.FullN
 
 // Lookup finds the registered location of the given name. If the given name has
 // not been seen/registered, nil is returned.
-func (s *Symbols) Lookup(name protoreflect.FullName) ast.SourceSpan {
+func (s *Symbols) Lookup(name protoreflect.FullName) reporter.SourceSpan {
 	// note: getPackage never returns nil when exact=false
 	pkgSyms := s.getPackage(name, false)
 	if entry, ok := pkgSyms.symbols[name]; ok {
@@ -479,7 +478,7 @@ func (s *Symbols) Lookup(name protoreflect.FullName) ast.SourceSpan {
 
 // LookupExtension finds the registered location of the given extension. If the given
 // extension has not been seen/registered, nil is returned.
-func (s *Symbols) LookupExtension(messageName protoreflect.FullName, extensionNumber protoreflect.FieldNumber) ast.SourceSpan {
+func (s *Symbols) LookupExtension(messageName protoreflect.FullName, extensionNumber protoreflect.FieldNumber) reporter.SourceSpan {
 	// note: getPackage never returns nil when exact=false
 	pkgSyms := s.getPackage(messageName, false)
 	return pkgSyms.exts[extNumber{messageName, extensionNumber}]

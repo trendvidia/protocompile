@@ -47,9 +47,9 @@ type Resolver interface {
 // currently not honoured (setting them is equivalent to returning the
 // file as not-found).
 //
-// The pre-Track-C `AST *ast.FileNode` and `ParseResult parser.Result`
-// fields were removed along with the legacy `ast/` and `parser/`
-// packages.
+// The pre-Track-C `AST` and `ParseResult` fields, which carried the
+// legacy AST and parser-result types, were removed along with the
+// legacy `ast/` and `parser/` packages.
 type SearchResult struct {
 	// Source carries the file's source bytes. The experimental
 	// pipeline reads from this and treats a nil reader (with no error)

@@ -85,12 +85,6 @@
 //
 // In some places, the zero value of a pointer-like type is (incorrectly)
 // referred to as nil. This is a documentation bug; instead, it should say zero.
-//
-// # Coming Soon
-//
-// This library will replace the existing [github.com/trendvidia/protocompile/ast]
-// library. Outside of this file, documentation is written assuming this has
-// already happened.
 package ast
 
 //go:generate go run github.com/trendvidia/protocompile/internal/enum enums.yaml
