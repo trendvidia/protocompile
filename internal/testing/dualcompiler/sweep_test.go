@@ -76,6 +76,7 @@ var absPathRegex = regexp.MustCompile(`/[^ :]*/protocompile/`)
 //	#26 — enum-alias preservation: desc_test_defaults.proto (final close).
 //	#28 — typed extensions via per-file dynamicpb resolver: desc_test_complex.proto, desc_test_comments.proto, desc_test_options.proto.
 //	#34 — field-number sorted message-literal wire output: options/options.proto.
+//	#37 — delimited (group) wire encoding in marshalling: options/test_editions.proto.
 var mustMatch = []string{
 	"internal/testdata/desc_test1.proto",
 	"internal/testdata/desc_test2.proto",
@@ -90,6 +91,7 @@ var mustMatch = []string{
 	"internal/testdata/nopkg/desc_test_nopkg.proto",
 	"internal/testdata/nopkg/desc_test_nopkg_new.proto",
 	"internal/testdata/options/options.proto",
+	"internal/testdata/options/test_editions.proto",
 	"internal/testdata/pkg/desc_test_pkg.proto",
 }
 
