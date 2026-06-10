@@ -82,6 +82,26 @@ existing `TestOptionsEncoding` protoset goldens).
 
 ### options/test_editions.proto
 
-Different error: `mismatched types ... expected 'Foo' field, found
-'Foo.Bar'`. Editions-specific type resolution variance. Not yet
-inspected in detail.
+Was: `mismatched types ... expected 'Foo' field, found 'Foo.Bar'`.
+
+Closed at the symbol-resolution layer; fixture now classifies as
+BOTH_OK_DIFFER. Cause was that protoc and the legacy interpreter
+accept a delimited (group-encoded) field's element type name as a
+synonym for the field name in text format (e.g. `Bar:` for a
+`Bar bar = 2 [features.message_encoding = DELIMITED]` field).
+The experimental `evalKey` only attempted the verbatim name and
+then full symbol resolution, which finds the nested type `Foo.Bar`
+and errors. Resolved by adding a lower-cased fallback that honours
+the same conditions the legacy enforces (`options.go:2186-2206`):
+type-name verbatim match, same scope as the field, delimited
+encoding. The delimited check peeks at the field's AST options
+because feature inheritance is computed later in lowering.
+
+The remaining DIFFER is a separate bug in fdp marshalling:
+DELIMITED fields are still emitted as length-prefixed wire format
+(tag-`0x12`, len, body) instead of group format (start-`0x13`,
+body, end-`0x14`). Same field-resolution path; different wire
+encoding. Closing this needs `MessageValue.marshal` and the
+extension-field marshalling to consult `isDelimited` and emit
+SGROUP/EGROUP tags. That work is out of scope for the
+symbol-resolution wedge.
