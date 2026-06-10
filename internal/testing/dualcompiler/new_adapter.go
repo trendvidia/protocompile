@@ -260,14 +260,15 @@ func buildFileRegistry(file *ir.File, raw *descriptorpb.FileDescriptorProto) (*p
 
 		// The fdp generator parks every options message under
 		// `descriptorpb.X.SetUnknown(...)`, so typed fields like
-		// `MessageOptions.map_entry` stay nil even though the wire bytes
-		// carry the value. That nil propagates through protodesc.NewFile
-		// into the registered FileDescriptor, and downstream dynamicpb
-		// users can no longer recognise map-entry types as maps —
-		// surfacing in sweep diffs as e.g. `map[uint64]uint64` (legacy)
-		// versus `[]protocmp.Message` (experimental). Re-serialise and
-		// unmarshal via the in-progress registry so the typed fields
-		// surface before protodesc sees them.
+		// `MessageOptions.map_entry` stay nil even though the wire
+		// bytes carry the value. That nil propagates through
+		// protodesc.NewFile into the registered FileDescriptor, and
+		// downstream dynamicpb users no longer recognise map-entry
+		// types as maps — surfacing later as e.g. `map[uint64]uint64`
+		// (legacy) versus `[]protocmp.Message` (experimental) in
+		// protocmp diffs. Re-serialise and unmarshal via the
+		// in-progress registry so the typed fields surface before
+		// protodesc sees them.
 		depBytes, err := fdp.DescriptorProtoBytes(irFile)
 		if err == nil {
 			typedDep := &descriptorpb.FileDescriptorProto{}
