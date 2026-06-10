@@ -44,13 +44,7 @@ var pointerRegex = regexp.MustCompile(`0x[0-9a-f]+`)
 // absPathRegex matches absolute filesystem paths so the sweep report
 // is portable across machines. Errors from the file resolver embed
 // the full path of any missing dependency.
-//
-// The greedy `*` (not `*?`) anchors on the *last* `/protocompile/` in
-// the path. GitHub Actions clones into
-// `/home/runner/work/protocompile/protocompile/...` — a non-greedy
-// match would stop at the first occurrence and leave a stray
-// `protocompile/` in the report.
-var absPathRegex = regexp.MustCompile(`/[^ :]*/protocompile/`)
+var absPathRegex = regexp.MustCompile(`/[^ :]*?/protocompile/`)
 
 // mustMatch is the list of fixtures that the B-track has already
 // brought to BOTH_OK_MATCH and that future PRs must not regress. Each
