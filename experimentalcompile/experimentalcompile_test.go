@@ -53,7 +53,6 @@ func TestUseExperimentalParser_RoutesThroughExperimental(t *testing.T) {
 
 	c := protocompile.Compiler{
 		Resolver:              resolver,
-		UseExperimentalParser: true,
 	}
 
 	files, err := c.Compile(t.Context(), "hello.proto")
@@ -122,7 +121,6 @@ func TestRetainASTs_OffByDefault(t *testing.T) {
 
 	c := protocompile.Compiler{
 		Resolver:              minimalResolver(),
-		UseExperimentalParser: true,
 	}
 	files, err := c.Compile(t.Context(), "hello.proto")
 	require.NoError(t, err)
@@ -140,7 +138,6 @@ func TestRetainASTs_ExposesIRAndAST(t *testing.T) {
 
 	c := protocompile.Compiler{
 		Resolver:              minimalResolver(),
-		UseExperimentalParser: true,
 		RetainASTs:            true,
 	}
 	files, err := c.Compile(t.Context(), "hello.proto")
@@ -167,7 +164,6 @@ func TestSymbols_NoSymbolsTableSucceeds(t *testing.T) {
 
 	c := protocompile.Compiler{
 		Resolver:              minimalResolver(),
-		UseExperimentalParser: true,
 	}
 	files, err := c.Compile(t.Context(), "hello.proto")
 	require.NoError(t, err)
@@ -214,7 +210,6 @@ message Greeting {
 
 	c1 := protocompile.Compiler{
 		Resolver:              resolver,
-		UseExperimentalParser: true,
 		Symbols:               symbols,
 	}
 	files, err := c1.Compile(t.Context(), "a.proto")
@@ -223,7 +218,6 @@ message Greeting {
 
 	c2 := protocompile.Compiler{
 		Resolver:              resolver,
-		UseExperimentalParser: true,
 		Symbols:               symbols,
 	}
 	_, err = c2.Compile(t.Context(), "b.proto")
@@ -270,7 +264,6 @@ message Greeting {
 
 	c := protocompile.Compiler{
 		Resolver:              resolver,
-		UseExperimentalParser: true,
 		SourceInfoMode:        mode,
 	}
 

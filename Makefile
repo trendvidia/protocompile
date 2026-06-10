@@ -105,7 +105,7 @@ lintfix: $(BIN)/golangci-lint ## Automatically fix some lint errors
 	cd internal/benchmarks && $(BIN)/golangci-lint run --fix
 
 .PHONY: generate
-generate: $(BIN)/license-header $(BIN)/goyacc wellknownimports test-descriptors ext-features-descriptors ## Regenerate code and licenses
+generate: $(BIN)/license-header wellknownimports test-descriptors ext-features-descriptors ## Regenerate code and licenses
 	PATH="$(BIN)$(PATH_SEP)$(PATH)" $(GO) generate ./...
 	@# We want to operate on a list of modified and new files, excluding
 	@# deleted and ignored files. git-ls-files can't do this alone. comm -23 takes
@@ -148,11 +148,6 @@ $(BIN)/golangci-lint: internal/tools/go.mod internal/tools/go.sum
 	@mkdir -p $(@D)
 	cd $(TOOLS_MOD_DIR) && \
 		GOWORK=off $(GO_TOOL_CMD) build -o $@ github.com/golangci/golangci-lint/v2/cmd/golangci-lint
-
-$(BIN)/goyacc: internal/tools/go.mod internal/tools/go.sum
-	@mkdir -p $(@D)
-	cd $(TOOLS_MOD_DIR) && \
-		GOWORK=off $(GO_TOOL_CMD) build -o $@ golang.org/x/tools/cmd/goyacc
 
 $(CACHE)/protoc-$(PROTOC_VERSION).zip:
 	@mkdir -p $(@D)

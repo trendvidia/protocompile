@@ -51,26 +51,16 @@ func (r *resolverOpener) Open(path string) (*source.File, error) {
 		return source.NewFile(path, string(data)), nil
 	}
 
-	// For other result types, we need to convert them to source.
-	// For now, we don't support these cases.
-	//
-	// For AST and Proto, return an error since these should be converted.
-	// For Desc, return ErrNotExist to allow fallback to WKTs source files.
-	// This is important because protocompile.WithStandardImports returns
-	// Desc for WKTs, but the experimental compiler needs source files.
-	if result.AST != nil {
-		return nil, fs.ErrNotExist
-	}
+	// For Proto/Desc, return ErrNotExist so the Openers chain can
+	// fall back to the next opener (WKTs source files). The
+	// experimental pipeline needs source bytes, not pre-built
+	// descriptors.
 	if result.Proto != nil {
 		return nil, fs.ErrNotExist
 	}
 	if result.Desc != nil {
-		// Return not found so the Openers can try the next opener (WKTs)
 		return nil, fs.ErrNotExist
 	}
-
-	// Note: We skip checking ParseResult as it can cause nil pointer issues
-	// and we primarily support Source-based resolution for tests.
 
 	// No result found
 	return nil, fs.ErrNotExist

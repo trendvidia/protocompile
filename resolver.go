@@ -25,9 +25,6 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
-
-	"github.com/trendvidia/protocompile/ast"
-	"github.com/trendvidia/protocompile/parser"
 )
 
 // Resolver is used by the compiler to resolve a proto source file name
@@ -43,35 +40,26 @@ type Resolver interface {
 	FindFileByPath(path string) (SearchResult, error)
 }
 
-// SearchResult represents information about a proto source file. Only one of
-// the various fields must be set, based on what is available for a file. If
-// multiple fields are set, the compiler prefers them in opposite order listed:
-// so it uses a descriptor if present and only falls back to source if nothing
-// else is available.
+// SearchResult represents information about a proto source file. After
+// Track C of the M1 migration, the experimental pipeline reads source
+// bytes from `Source`; the `Proto` and `Desc` fields are preserved on
+// the struct for source-compatibility with pre-Track-C callers but are
+// currently not honoured (setting them is equivalent to returning the
+// file as not-found).
+//
+// The pre-Track-C `AST *ast.FileNode` and `ParseResult parser.Result`
+// fields were removed along with the legacy `ast/` and `parser/`
+// packages.
 type SearchResult struct {
-	// Represents source code for the file. This should be nil if source code
-	// is not available. If no field below is set, then the compiler will parse
-	// the source code into an AST.
+	// Source carries the file's source bytes. The experimental
+	// pipeline reads from this and treats a nil reader (with no error)
+	// as not-found.
 	Source io.Reader
-	// Represents the abstract syntax tree for the file. If no field below is
-	// set, then the compiler will convert the AST into a descriptor proto.
-	AST *ast.FileNode
-	// A descriptor proto that represents the file. If the field below is not
-	// set, then the compiler will link this proto with its dependencies to
-	// produce a linked descriptor.
+	// Proto is currently not honoured. Preserved for source
+	// compatibility.
 	Proto *descriptorpb.FileDescriptorProto
-	// A parse result for the file. This packages both an AST and a descriptor
-	// proto in one. When a parser result is available, it is more efficient
-	// than using an AST search result, since the descriptor proto need not be
-	// re-created. And it provides better error messages than a descriptor proto
-	// search result, since the AST has greater fidelity with regard to source
-	// positions (even if the descriptor proto includes source code info).
-	ParseResult parser.Result
-	// A fully linked descriptor that represents the file. If this field is set,
-	// then the compiler has little or no additional work to do for this file as
-	// it is already compiled. If this value implements linker.File, there is no
-	// additional work. Otherwise, the additional work is to compute an index of
-	// symbols in the file, for efficient lookup.
+	// Desc is currently not honoured. Preserved for source
+	// compatibility.
 	Desc protoreflect.FileDescriptor
 }
 
