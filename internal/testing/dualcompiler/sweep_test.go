@@ -77,6 +77,8 @@ var absPathRegex = regexp.MustCompile(`/[^ :]*/protocompile/`)
 //	#28 — typed extensions via per-file dynamicpb resolver: desc_test_complex.proto, desc_test_comments.proto, desc_test_options.proto.
 //	#34 — field-number sorted message-literal wire output: options/options.proto.
 //	#37 — delimited (group) wire encoding in marshalling: options/test_editions.proto.
+//	#38 — partial vendored descriptor.proto via builtin fallback: closed NEW_FAIL on options/test.proto and options/test_proto3.proto.
+//	#39 — round-trip dependency descriptors so map_entry surfaces typed: closed BOTH_OK_DIFFER on options/test.proto and options/test_proto3.proto.
 var mustMatch = []string{
 	"internal/testdata/desc_test1.proto",
 	"internal/testdata/desc_test2.proto",
@@ -91,7 +93,9 @@ var mustMatch = []string{
 	"internal/testdata/nopkg/desc_test_nopkg.proto",
 	"internal/testdata/nopkg/desc_test_nopkg_new.proto",
 	"internal/testdata/options/options.proto",
+	"internal/testdata/options/test.proto",
 	"internal/testdata/options/test_editions.proto",
+	"internal/testdata/options/test_proto3.proto",
 	"internal/testdata/pkg/desc_test_pkg.proto",
 }
 
