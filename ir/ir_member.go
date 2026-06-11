@@ -61,6 +61,7 @@ type rawMember struct {
 	parent             id.ID[Type]
 	features           id.ID[FeatureSet]
 	options            id.ID[Value]
+	annotationUses     []id.ID[AnnotationUse]
 	oneof              int32
 	optionTargets      uint32
 	jsonName           intern.ID
@@ -383,6 +384,16 @@ func (m Member) Options() MessageValue {
 	return id.Wrap(m.Context(), m.Raw().options).AsMessage()
 }
 
+// Annotations returns the annotation use sites attached to this
+// member (trailing `@name(args)` annotations on a field or enum
+// value). See [Type.Annotations] for the resolution model.
+func (m Member) Annotations() seq.Indexer[AnnotationUse] {
+	if m.IsZero() {
+		return annotationUses(nil, nil)
+	}
+	return annotationUses(m.Context(), m.Raw().annotationUses)
+}
+
 // PseudoOptions returns this member's pseudo options.
 func (m Member) PseudoOptions() PseudoFields {
 	return m.Options().pseudoFields()
@@ -584,13 +595,14 @@ func (e Extend) Extensions() seq.Indexer[Member] {
 type Oneof id.Node[Oneof, *File, *rawOneof]
 
 type rawOneof struct {
-	def       id.ID[ast.DeclDef]
-	fqn, name intern.ID
-	index     uint32
-	container id.ID[Type]
-	members   []id.ID[Member]
-	options   id.ID[Value]
-	features  id.ID[FeatureSet]
+	def            id.ID[ast.DeclDef]
+	fqn, name      intern.ID
+	members        []id.ID[Member]
+	annotationUses []id.ID[AnnotationUse]
+	container      id.ID[Type]
+	options        id.ID[Value]
+	features       id.ID[FeatureSet]
+	index          uint32
 }
 
 // AST returns the declaration for this oneof, if known.
@@ -676,6 +688,15 @@ func (o Oneof) Options() MessageValue {
 		return MessageValue{}
 	}
 	return id.Wrap(o.Context(), o.Raw().options).AsMessage()
+}
+
+// Annotations returns the annotation use sites attached to this
+// oneof. See [Type.Annotations] for the resolution model.
+func (o Oneof) Annotations() seq.Indexer[AnnotationUse] {
+	if o.IsZero() {
+		return annotationUses(nil, nil)
+	}
+	return annotationUses(o.Context(), o.Raw().annotationUses)
 }
 
 // FeatureSet returns the Editions features associated with this oneof.

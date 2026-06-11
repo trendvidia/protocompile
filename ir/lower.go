@@ -171,6 +171,11 @@ func lower(file *File, r *report.Report, importer Importer) {
 	resolveNames(file, r)
 	resolveEarlyOptions(file)
 
+	// Resolve annotation use sites against the symbol table (Phase B2 of
+	// the PSE annotation work). This must run after the symbol table is
+	// built and merged, but doesn't depend on options or features.
+	resolveAnnotationUses(file, r)
+
 	// Perform constant evaluation.
 	evaluateFieldNumbers(file, r)
 

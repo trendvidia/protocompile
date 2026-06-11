@@ -57,6 +57,8 @@ const (
 	Extension
 	EnumValue
 	Method
+	Annotation
+	AnnotationUse
 	CompactOptions
 	MethodIns
 	MethodOuts
@@ -143,6 +145,8 @@ var _table_Noun_String = [...]string{
 	Extension:          "message extension",
 	EnumValue:          "enum value",
 	Method:             "service method",
+	Annotation:         "annotation",
+	AnnotationUse:      "annotation use",
 	CompactOptions:     "compact options",
 	MethodIns:          "method parameter list",
 	MethodOuts:         "method return type",
@@ -212,6 +216,8 @@ var _table_Noun_GoString = [...]string{
 	Extension:          "taxa.Extension",
 	EnumValue:          "taxa.EnumValue",
 	Method:             "taxa.Method",
+	Annotation:         "taxa.Annotation",
+	AnnotationUse:      "taxa.AnnotationUse",
 	CompactOptions:     "taxa.CompactOptions",
 	MethodIns:          "taxa.MethodIns",
 	MethodOuts:         "taxa.MethodOuts",

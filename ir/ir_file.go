@@ -101,6 +101,7 @@ type File struct {
 
 		annotations      arena.Arena[rawAnnotation]
 		annotationParams arena.Arena[rawAnnotationParam]
+		annotationUses   arena.Arena[rawAnnotationUse]
 
 		values   arena.Arena[rawValue]
 		messages arena.Arena[rawMessageValue]
@@ -459,6 +460,8 @@ func (f *File) FromID(id uint64, want any) any {
 		return f.arenas.annotations.Deref(arena.Pointer[rawAnnotation](id))
 	case **rawAnnotationParam:
 		return f.arenas.annotationParams.Deref(arena.Pointer[rawAnnotationParam](id))
+	case **rawAnnotationUse:
+		return f.arenas.annotationUses.Deref(arena.Pointer[rawAnnotationUse](id))
 
 	case **rawValue:
 		return f.arenas.values.Deref(arena.Pointer[rawValue](id))
