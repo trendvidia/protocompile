@@ -161,6 +161,38 @@ $(PROTOC): $(CACHE)/protoc-$(PROTOC_VERSION).zip
 	unzip -o -q $< -d $(PROTOC_DIR) && \
 	touch $@
 
+# Parser-test fixtures vendored from protocolbuffers/protobuf's own test
+# corpus. These are .proto files that protoc's `parser_unittest.cc` and
+# `descriptor_unittest.cc` exercise, giving us protoc's internal test
+# coverage as protocompile fixtures. The dual-compiler sweep
+# (`TestSweepVsProtoc`) runs both compilers on each and proto-diffs
+# the resulting FileDescriptorProto. The set is pinned to the same
+# protobuf version as the protoc binary in use.
+PROTOBUF_FIXTURES := \
+	unittest.proto \
+	unittest_import.proto \
+	unittest_import_public.proto \
+	unittest_proto3.proto \
+	unittest_custom_options.proto \
+	map_unittest.proto \
+	map_proto2_unittest.proto \
+	map_proto3_unittest.proto \
+	test_messages_proto2.proto \
+	test_messages_proto3.proto
+
+.PHONY: protobuf-fixtures
+protobuf-fixtures: ## Refresh protocolbuffers/protobuf parser fixtures pinned to PROTOC_VERSION
+	@rm -rf internal/testdata/protobuf/google
+	@mkdir -p internal/testdata/protobuf/google/protobuf
+	@for f in $(PROTOBUF_FIXTURES); do \
+		echo "  fetching $$f from protobuf v$(PROTOC_VERSION)"; \
+		curl -fsSL -o internal/testdata/protobuf/google/protobuf/$$f \
+			https://raw.githubusercontent.com/protocolbuffers/protobuf/v$(PROTOC_VERSION)/src/google/protobuf/$$f; \
+	done
+	@curl -fsSL -o internal/testdata/protobuf/LICENSE \
+		https://raw.githubusercontent.com/protocolbuffers/protobuf/v$(PROTOC_VERSION)/LICENSE
+	@echo "vendored $(words $(PROTOBUF_FIXTURES)) fixture(s) at v$(PROTOC_VERSION)"
+
 .PHONY: wellknownimports
 wellknownimports: $(PROTOC) $(sort $(wildcard $(PROTOC_DIR)/include/google/protobuf/*.proto)) $(sort $(wildcard $(PROTOC_DIR)/include/google/protobuf/*/*.proto))
 	@# The embedded WKTs and pre-built FileDescriptorSet live in the

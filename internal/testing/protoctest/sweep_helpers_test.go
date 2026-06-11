@@ -18,7 +18,7 @@
 // TestSweepVsProtoc (in sweep_protoc_test.go) still uses these
 // fixture-collection helpers.
 
-package dualcompiler_test
+package protoctest_test
 
 import (
 	"context"
@@ -33,7 +33,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/trendvidia/protocompile/internal/testing/dualcompiler"
+	"github.com/trendvidia/protocompile/internal/testing/protoctest"
 )
 
 var pointerRegex = regexp.MustCompile(`0x[0-9a-f]+`)
@@ -61,6 +61,18 @@ type testReporter interface {
 	Errorf(format string, args ...any)
 }
 
+// fixturesSkippedFromSweep names fixtures whose protoc-vs-protocompile
+// classification depends on the protobuf-go runtime build tag (today
+// only `protolegacy`, which gates message-set wire format support).
+// They are excluded from the sweep so the golden is stable across CI's
+// two test passes (`make test` runs with and without the tag).
+//
+// The fixture files themselves stay on disk for reference and manual
+// reproduction.
+var fixturesSkippedFromSweep = map[string]string{
+	"internal/testdata/protobuf/google/protobuf/unittest_custom_options.proto": "uses message_set_wire_format; outcome depends on the `protolegacy` build tag",
+}
+
 func collectFixtures(t *testing.T) []fixture {
 	t.Helper()
 
@@ -74,6 +86,11 @@ func collectFixtures(t *testing.T) []fixture {
 		{dir: "internal/testdata/options", importPaths: []string{"internal/testdata", "internal/testdata/options"}},
 		{dir: "internal/testdata/nopkg", importPaths: []string{"internal/testdata", "internal/testdata/nopkg"}},
 		{dir: "internal/testdata/pkg", importPaths: []string{"internal/testdata", "internal/testdata/pkg"}},
+		// Fixtures vendored from protocolbuffers/protobuf's own
+		// parser test corpus. Cross-imports use `google/protobuf/X.proto`
+		// paths, so the import root is the vendor-tree top
+		// (`internal/testdata/protobuf`), not the leaf directory.
+		{dir: "internal/testdata/protobuf/google/protobuf", importPaths: []string{"internal/testdata/protobuf"}},
 	}
 
 	var out []fixture
@@ -87,6 +104,9 @@ func collectFixtures(t *testing.T) []fixture {
 				continue
 			}
 			path := filepath.ToSlash(filepath.Join(r.dir, e.Name()))
+			if _, skip := fixturesSkippedFromSweep[path]; skip {
+				continue
+			}
 
 			file := e.Name()
 			for _, ip := range r.importPaths {
@@ -119,7 +139,7 @@ func repoRoot(t *testing.T) string {
 	return wd
 }
 
-func compileOne(ctx context.Context, c dualcompiler.CompilerInterface, file string) (dualcompiler.CompiledFile, error) {
+func compileOne(ctx context.Context, c protoctest.Compiler, file string) (protoctest.CompiledFile, error) {
 	result, err := c.Compile(ctx, file)
 	if err != nil {
 		return nil, err

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package dualcompiler
+package protoctest
 
 import (
 	"context"
@@ -33,18 +33,18 @@ import (
 	"github.com/trendvidia/protocompile/source"
 )
 
-// newCompilerAdapter wraps the experimental incremental compiler.
-type newCompilerAdapter struct {
+// adapter wraps the experimental incremental compiler.
+type adapter struct {
 	executor              *incremental.Executor
 	opener                source.Opener
 	session               *ir.Session
 	includeSourceCodeInfo bool
 }
 
-// NewNewCompiler creates a new CompilerInterface wrapping the experimental compiler.
+// NewCompiler creates a new Compiler wrapping the experimental compiler.
 // Use WithResolver option to specify a custom resolver.
 // The resolver will be converted to an Opener and combined with WKTs.
-func NewNewCompiler(opts ...CompilerOption) CompilerInterface {
+func NewCompiler(opts ...CompilerOption) Compiler {
 	config := &compilerConfig{}
 	for _, opt := range opts {
 		opt(config)
@@ -69,7 +69,7 @@ func NewNewCompiler(opts ...CompilerOption) CompilerInterface {
 		includeSourceCodeInfo = true
 	}
 
-	return &newCompilerAdapter{
+	return &adapter{
 		executor:              incremental.New(),
 		opener:                opener,
 		session:               &ir.Session{},
@@ -77,13 +77,13 @@ func NewNewCompiler(opts ...CompilerOption) CompilerInterface {
 	}
 }
 
-// Name implements CompilerInterface.
-func (a *newCompilerAdapter) Name() string {
+// Name implements Compiler.
+func (a *adapter) Name() string {
 	return "new_compiler"
 }
 
-// Compile implements CompilerInterface.
-func (a *newCompilerAdapter) Compile(ctx context.Context, files ...string) (CompilationResult, error) {
+// Compile implements Compiler.
+func (a *adapter) Compile(ctx context.Context, files ...string) (CompilationResult, error) {
 	// Create IR queries for each file
 	qs := make([]incremental.Query[*ir.File], len(files))
 	for i, file := range files {
@@ -116,20 +116,20 @@ func (a *newCompilerAdapter) Compile(ctx context.Context, files ...string) (Comp
 		}
 	}
 
-	return &newCompilationResult{
+	return &result{
 		files:                 irFiles,
 		includeSourceCodeInfo: a.includeSourceCodeInfo,
 	}, nil
 }
 
-// newCompilationResult wraps IR files.
-type newCompilationResult struct {
+// result wraps IR files.
+type result struct {
 	files                 []*ir.File
 	includeSourceCodeInfo bool
 }
 
 // Files implements CompilationResult.
-func (r *newCompilationResult) Files() []CompiledFile {
+func (r *result) Files() []CompiledFile {
 	result := make([]CompiledFile, len(r.files))
 	for i, file := range r.files {
 		result[i] = &newCompiledFile{

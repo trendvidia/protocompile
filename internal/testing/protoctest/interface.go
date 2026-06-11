@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package dualcompiler provides a test abstraction layer for running tests
-// with both the old protocompile.Compiler and the new experimental compiler.
-package dualcompiler
+// Package protoctest wraps [protocompile.Compiler] behind a tiny
+// abstraction the sweep harness can use. It exists so test code can
+// drive compilation via a thin interface (handy for fakes), and so
+// the protoc-vs-protocompile comparison in [TestSweepVsProtoc] has
+// one place to look for the compiler-under-test wiring.
+package protoctest
 
 import (
 	"context"
@@ -25,9 +28,11 @@ import (
 	"github.com/trendvidia/protocompile"
 )
 
-// CompilerInterface abstracts the differences between the old protocompile.Compiler
-// and the new experimental compiler.
-type CompilerInterface interface {
+// Compiler is the minimal interface the sweep harness uses to drive a
+// compilation; the production wiring is an [adapter] over
+// [protocompile.Compiler] / `incremental.Executor`, but the interface
+// stays narrow so tests can substitute a fake.
+type Compiler interface {
 	// Compile compiles the given proto files and returns the compilation result.
 	Compile(ctx context.Context, files ...string) (CompilationResult, error)
 
@@ -35,13 +40,13 @@ type CompilerInterface interface {
 	Name() string
 }
 
-// CompilationResult wraps the output of compilation from either compiler.
+// CompilationResult wraps a single Compile invocation's output.
 type CompilationResult interface {
 	// Files returns all compiled files.
 	Files() []CompiledFile
 }
 
-// CompiledFile represents a single compiled proto file from either compiler.
+// CompiledFile represents a single compiled .proto file.
 type CompiledFile interface {
 	// Path returns the file path.
 	Path() string
