@@ -60,6 +60,7 @@ type File struct {
 	services    []id.ID[Service]
 	annotations []id.ID[Annotation]
 	functions   []id.ID[Function]
+	typeAliases []id.ID[TypeAlias]
 	features    id.ID[FeatureSet]
 
 	// Table of all symbols transitively imported by this file. This is all
@@ -105,6 +106,7 @@ type File struct {
 		annotationUses   arena.Arena[rawAnnotationUse]
 		functions        arena.Arena[rawFunction]
 		functionParams   arena.Arena[rawFunctionParam]
+		typeAliases      arena.Arena[rawTypeAlias]
 
 		values   arena.Arena[rawValue]
 		messages arena.Arena[rawMessageValue]
@@ -368,6 +370,20 @@ func (f *File) Functions() seq.Indexer[Function] {
 	)
 }
 
+// TypeAliases returns all `type` alias declarations introduced in this file.
+func (f *File) TypeAliases() seq.Indexer[TypeAlias] {
+	var aliases []id.ID[TypeAlias]
+	if f != nil {
+		aliases = f.typeAliases
+	}
+	return seq.NewFixedSlice(
+		aliases,
+		func(_ int, p id.ID[TypeAlias]) TypeAlias {
+			return id.Wrap(f, p)
+		},
+	)
+}
+
 // Options returns the top level options applied to this file.
 func (f *File) Options() MessageValue {
 	var options id.ID[Value]
@@ -483,6 +499,8 @@ func (f *File) FromID(id uint64, want any) any {
 		return f.arenas.functions.Deref(arena.Pointer[rawFunction](id))
 	case **rawFunctionParam:
 		return f.arenas.functionParams.Deref(arena.Pointer[rawFunctionParam](id))
+	case **rawTypeAlias:
+		return f.arenas.typeAliases.Deref(arena.Pointer[rawTypeAlias](id))
 
 	case **rawValue:
 		return f.arenas.values.Deref(arena.Pointer[rawValue](id))

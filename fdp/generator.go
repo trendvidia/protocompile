@@ -186,7 +186,9 @@ func (g *generator) file(file *ir.File, fdp *descriptorpb.FileDescriptorProto) {
 	}
 
 	optionsValue := file.Options()
-	hasFileDecls := file.Annotations().Len() > 0 || file.Functions().Len() > 0
+	hasFileDecls := file.Annotations().Len() > 0 ||
+		file.Functions().Len() > 0 ||
+		file.TypeAliases().Len() > 0
 	if !optionsValue.IsEmpty() || hasFileDecls {
 		fdp.Options = new(descriptorpb.FileOptions)
 		var hadAny bool
@@ -204,6 +206,9 @@ func (g *generator) file(file *ir.File, fdp *descriptorpb.FileDescriptorProto) {
 			hadAny = true
 		}
 		if emitFileFunctions(file, fdp.Options) {
+			hadAny = true
+		}
+		if emitFileTypeDecls(file, fdp.Options) {
 			hadAny = true
 		}
 		if !hadAny {
