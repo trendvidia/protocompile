@@ -19,8 +19,6 @@ package reporter
 
 import (
 	"sync"
-
-	"github.com/trendvidia/protocompile/ast"
 )
 
 // ErrorReporter is responsible for reporting the given error. If the reporter
@@ -152,7 +150,7 @@ func (h *Handler) HandleError(err error) error {
 // If the handler has already aborted (by returning a non-nil error from a prior
 // call to HandleError or HandleErrorf), that same error is returned and the
 // given error is not reported.
-func (h *Handler) HandleErrorWithPos(span ast.SourceSpan, err error) error {
+func (h *Handler) HandleErrorWithPos(span SourceSpan, err error) error {
 	return h.HandleError(Error(span, err))
 }
 
@@ -162,7 +160,7 @@ func (h *Handler) HandleErrorWithPos(span ast.SourceSpan, err error) error {
 // If the handler has already aborted (by returning a non-nil error from a call
 // to HandleError or HandleErrorf), that same error is returned and the given
 // error is not reported.
-func (h *Handler) HandleErrorf(span ast.SourceSpan, format string, args ...any) error {
+func (h *Handler) HandleErrorf(span SourceSpan, format string, args ...any) error {
 	return h.HandleError(Errorf(span, format, args...))
 }
 
@@ -184,13 +182,13 @@ func (h *Handler) HandleWarning(err ErrorWithPos) {
 
 // HandleWarningWithPos handles a warning with the given source position. This will
 // delegate to the handler's configured reporter.
-func (h *Handler) HandleWarningWithPos(span ast.SourceSpan, err error) {
+func (h *Handler) HandleWarningWithPos(span SourceSpan, err error) {
 	h.HandleWarning(Error(span, err))
 }
 
 // HandleWarningf handles a warning with the given source position, creating the
 // actual error value using the given message format and arguments.
-func (h *Handler) HandleWarningf(span ast.SourceSpan, format string, args ...any) {
+func (h *Handler) HandleWarningf(span SourceSpan, format string, args ...any) {
 	h.HandleWarning(Errorf(span, format, args...))
 }
 
