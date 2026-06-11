@@ -12,10 +12,15 @@
 #   ERROR              - harness failed to evaluate the result
 
 ## Summary
-total: 26
+total: 30
 PROTOC_MATCH:       26
+PROTOC_FAIL:        4
 
 ## Per-fixture
+internal/testdata/annotations/basic.proto PROTOC_FAIL | protoc: exit status 1: <repo>/internal/testdata/annotations/basic.proto:12:1: Expected top-level statement (e.g. "message"). <repo>/internal/testdata/annotations/basic.proto:13:1: Expected top-level s...
+internal/testdata/annotations/carriers.proto PROTOC_FAIL | protoc: exit status 1: <repo>/internal/testdata/annotations/carriers.proto:10:1: Expected top-level statement (e.g. "message"). <repo>/internal/testdata/annotations/carriers.proto:12:1: Expected top-l...
+internal/testdata/annotations/defaults.proto PROTOC_FAIL | protoc: exit status 1: <repo>/internal/testdata/annotations/defaults.proto:12:1: Expected top-level statement (e.g. "message"). <repo>/internal/testdata/annotations/defaults.proto:19:1: Expected top-l...
+internal/testdata/annotations/types.proto PROTOC_FAIL | protoc: exit status 1: <repo>/internal/testdata/annotations/types.proto:17:1: Expected top-level statement (e.g. "message").
 internal/testdata/desc_test1.proto PROTOC_MATCH
 internal/testdata/desc_test2.proto PROTOC_MATCH
 internal/testdata/desc_test_comments.proto PROTOC_MATCH

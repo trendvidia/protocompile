@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package test.annotations.defaults;
+
+// Exercises default-value lowering on annotation parameters.
+//
+// Every default here is well-typed against its parameter — the IR
+// type-checker (B3 + the default-value validator) must accept all
+// of them. The FDP carrier records each default in
+// AnnotationParam.default_value.
+
+annotation tag(
+  name: string = "anonymous",
+  count: int32 = 0,
+  ratio: double = 0.5,
+  flag: bool = true
+);
+
+@tag()
+message M {}

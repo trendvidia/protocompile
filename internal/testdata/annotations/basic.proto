@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package test.annotations.basic;
+
+// Exercises the simplest PSE forms: parameterless and one-arg
+// declarations, leading-on-message use, trailing-on-field use.
+//
+// protoc rejects this entire file at the `annotation` keyword.
+// protocompile parses, type-checks, and lowers the use sites into
+// the protowire.schema.v1 carrier extension on each Options message.
+
+annotation required;
+annotation description(text: string);
+
+@description("primary email")
+message Email {
+  @description("RFC-5322 address")
+  string value = 1;
+}
