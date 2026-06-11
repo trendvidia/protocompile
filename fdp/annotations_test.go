@@ -169,6 +169,72 @@ message M {}
 	assert.Equal(t, int64(-7), args[0].GetIntValue())
 }
 
+// TestAnnotationEmissionFileDecls verifies the FileAnnotationDecls
+// extension on FileOptions captures every `annotation` declaration
+// in the file, with the correct param type classification per B3.
+func TestAnnotationEmissionFileDecls(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+message Email {}
+
+annotation required;
+annotation description(text: string);
+annotation validate(rule: expression, code: string);
+annotation example(value: any);
+annotation contact(via: Email);
+`
+
+	f := compileForFDPTest(t, src)
+	require.NotNil(t, f.Options, "file should carry an Options message for the decls extension")
+
+	decls, ok := proto.GetExtension(f.Options, pwsv1.E_AnnotationDecls).(*pwsv1.FileAnnotationDecls)
+	require.True(t, ok)
+	require.NotNil(t, decls)
+
+	byName := map[string]*pwsv1.AnnotationDecl{}
+	for _, d := range decls.Declarations {
+		byName[d.Name] = d
+	}
+	assert.Len(t, byName, 5)
+
+	// `required` is parameterless.
+	if d, ok := byName["test.required"]; assert.True(t, ok, "required missing") {
+		assert.Empty(t, d.Params)
+	}
+
+	// `description(text: string)` → STRING.
+	if d, ok := byName["test.description"]; assert.True(t, ok, "description missing") {
+		require.Len(t, d.Params, 1)
+		assert.Equal(t, "text", d.Params[0].Name)
+		assert.Equal(t, pwsv1.ParamType_STRING, d.Params[0].Type)
+	}
+
+	// `validate(rule: expression, code: string)` → EXPRESSION + STRING.
+	if d, ok := byName["test.validate"]; assert.True(t, ok, "validate missing") {
+		require.Len(t, d.Params, 2)
+		assert.Equal(t, "rule", d.Params[0].Name)
+		assert.Equal(t, pwsv1.ParamType_EXPRESSION, d.Params[0].Type)
+		assert.Equal(t, "code", d.Params[1].Name)
+		assert.Equal(t, pwsv1.ParamType_STRING, d.Params[1].Type)
+	}
+
+	// `example(value: any)` → ANY.
+	if d, ok := byName["test.example"]; assert.True(t, ok, "example missing") {
+		require.Len(t, d.Params, 1)
+		assert.Equal(t, pwsv1.ParamType_ANY, d.Params[0].Type)
+	}
+
+	// `contact(via: Email)` → ENUM_OR_MESSAGE with type_fqn populated.
+	if d, ok := byName["test.contact"]; assert.True(t, ok, "contact missing") {
+		require.Len(t, d.Params, 1)
+		assert.Equal(t, pwsv1.ParamType_ENUM_OR_MESSAGE, d.Params[0].Type)
+		assert.Equal(t, "test.Email", d.Params[0].TypeFqn)
+	}
+}
+
 // TestAnnotationEmissionCarrierCoverage verifies the extension lands
 // on the correct Options message for each carrier kind.
 func TestAnnotationEmissionCarrierCoverage(t *testing.T) {
