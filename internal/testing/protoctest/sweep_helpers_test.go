@@ -61,6 +61,18 @@ type testReporter interface {
 	Errorf(format string, args ...any)
 }
 
+// fixturesSkippedFromSweep names fixtures whose protoc-vs-protocompile
+// classification depends on the protobuf-go runtime build tag (today
+// only `protolegacy`, which gates message-set wire format support).
+// They are excluded from the sweep so the golden is stable across CI's
+// two test passes (`make test` runs with and without the tag).
+//
+// The fixture files themselves stay on disk for reference and manual
+// reproduction.
+var fixturesSkippedFromSweep = map[string]string{
+	"internal/testdata/protobuf/google/protobuf/unittest_custom_options.proto": "uses message_set_wire_format; outcome depends on the `protolegacy` build tag",
+}
+
 func collectFixtures(t *testing.T) []fixture {
 	t.Helper()
 
@@ -92,6 +104,9 @@ func collectFixtures(t *testing.T) []fixture {
 				continue
 			}
 			path := filepath.ToSlash(filepath.Join(r.dir, e.Name()))
+			if _, skip := fixturesSkippedFromSweep[path]; skip {
+				continue
+			}
 
 			file := e.Name()
 			for _, ip := range r.importPaths {

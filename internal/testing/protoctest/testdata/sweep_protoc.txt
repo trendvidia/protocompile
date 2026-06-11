@@ -12,10 +12,9 @@
 #   ERROR              - harness failed to evaluate the result
 
 ## Summary
-total: 27
+total: 26
 PROTOC_MATCH:       24
 PROTOC_DIFFER:      2
-NEW_FAIL_VS_PROTOC: 1
 
 ## Per-fixture
 internal/testdata/desc_test1.proto PROTOC_MATCH
@@ -41,7 +40,6 @@ internal/testdata/protobuf/google/protobuf/map_unittest.proto PROTOC_MATCH
 internal/testdata/protobuf/google/protobuf/test_messages_proto2.proto PROTOC_MATCH
 internal/testdata/protobuf/google/protobuf/test_messages_proto3.proto PROTOC_MATCH
 internal/testdata/protobuf/google/protobuf/unittest.proto PROTOC_DIFFER | 0-/1+ lines; first field: "enum_type"
-internal/testdata/protobuf/google/protobuf/unittest_custom_options.proto NEW_FAIL_VS_PROTOC | { field `proto2_unittest.AggregateMessageSetElement.message_set_extension` may not be used in an option: it uses 'message set wire format' legacy proto1 feature which is not supported 2 20 [{{<ptr> 10...
 internal/testdata/protobuf/google/protobuf/unittest_import.proto PROTOC_MATCH
 internal/testdata/protobuf/google/protobuf/unittest_import_public.proto PROTOC_MATCH
 internal/testdata/protobuf/google/protobuf/unittest_proto3.proto PROTOC_MATCH
