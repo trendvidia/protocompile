@@ -419,8 +419,22 @@ func (t *task) start(caller *Task, q *AnyQuery, sync bool, done func(*result)) (
 		return false
 	}
 
+	// Try to claim a goroutine-spawn permit. If the budget is exhausted,
+	// fall back to running the sub-task synchronously in the caller's
+	// goroutine — the work is the same; we just don't create a fresh
+	// goroutine that will immediately park on [Task.acquire] waiting for
+	// a sema slot. This keeps the live-goroutine count bounded under
+	// deep fan-outs (see [Executor.spawnBudget]).
+	select {
+	case caller.exec.spawnBudget <- struct{}{}:
+	default:
+		done(t.run(caller, q, false))
+		return false
+	}
+
 	// Complete the rest of the computation asynchronously.
 	go func() {
+		defer func() { <-caller.exec.spawnBudget }()
 		done(t.run(caller, q, true))
 	}()
 	return true
