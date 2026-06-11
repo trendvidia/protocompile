@@ -75,9 +75,9 @@ file:
         label: LABEL_OPTIONAL
         type: TYPE_STRING
         json_name: "goodField"
-      options.features.enforce_naming_style: STYLE2024
+      options.features: {}
     oneof_decl: [{ name: "BadChoice" }]
-    options.features.enforce_naming_style: STYLE_LEGACY
+    options.features: {}
   enum_type:
   - name: "MyEnum"
     value:
@@ -90,7 +90,7 @@ file:
     - { name: "unspecified", number: 0 }
     - { name: "valueOne", number: 1 }
     - { name: "_VALUE", number: 2 }
-    options.features.enforce_naming_style: STYLE_LEGACY
+    options.features: {}
   service:
   - name: "MyService"
     method:

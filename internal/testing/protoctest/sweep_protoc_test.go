@@ -77,15 +77,17 @@ var protocMustMatch = []string{
 	"internal/testdata/options/test_proto3.proto",
 	"internal/testdata/pkg/desc_test_pkg.proto",
 	// Vendored from protocolbuffers/protobuf — see Makefile
-	// `protobuf-fixtures` target. Three siblings (unittest.proto,
-	// map_proto3_unittest.proto, unittest_custom_options.proto) are
-	// known-divergent and intentionally NOT in this gate; they show
-	// up as PROTOC_DIFFER / NEW_FAIL_VS_PROTOC in the golden and
-	// are tracked as follow-up work.
+	// `protobuf-fixtures` target. Only `unittest_custom_options.proto`
+	// is currently NOT in this gate: protocompile rejects its
+	// `option message_set_wire_format = true;` line as an unsupported
+	// legacy proto1 feature, where protoc accepts. That divergence is
+	// tracked separately.
 	"internal/testdata/protobuf/google/protobuf/map_proto2_unittest.proto",
+	"internal/testdata/protobuf/google/protobuf/map_proto3_unittest.proto",
 	"internal/testdata/protobuf/google/protobuf/map_unittest.proto",
 	"internal/testdata/protobuf/google/protobuf/test_messages_proto2.proto",
 	"internal/testdata/protobuf/google/protobuf/test_messages_proto3.proto",
+	"internal/testdata/protobuf/google/protobuf/unittest.proto",
 	"internal/testdata/protobuf/google/protobuf/unittest_import.proto",
 	"internal/testdata/protobuf/google/protobuf/unittest_import_public.proto",
 	"internal/testdata/protobuf/google/protobuf/unittest_proto3.proto",

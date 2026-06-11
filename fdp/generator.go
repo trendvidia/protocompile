@@ -191,7 +191,9 @@ func (g *generator) file(file *ir.File, fdp *descriptorpb.FileDescriptorProto) {
 			}
 
 			fdp.Options = new(descriptorpb.FileOptions)
-			g.options(options, fdp.Options)
+			if !g.options(options, fdp.Options) {
+				fdp.Options = nil
+			}
 		})
 	}
 }
@@ -259,7 +261,9 @@ func (g *generator) message(ty ir.Type, mdp *descriptorpb.DescriptorProto) {
 					g.debug.span(extensions.DeclAST().Options())
 
 					er.Options = new(descriptorpb.ExtensionRangeOptions)
-					g.options(options, er.Options)
+					if !g.options(options, er.Options) {
+						er.Options = nil
+					}
 				})
 			}
 		})
@@ -321,7 +325,9 @@ func (g *generator) message(ty ir.Type, mdp *descriptorpb.DescriptorProto) {
 				g.debug.span(option)
 			}
 			mdp.Options = new(descriptorpb.MessageOptions)
-			g.options(options, mdp.Options)
+			if !g.options(options, mdp.Options) {
+				mdp.Options = nil
+			}
 		})
 	}
 
@@ -389,7 +395,9 @@ func (g *generator) field(f ir.Member, fdp *descriptorpb.FieldDescriptorProto) {
 		g.debug.in(tags.Field_Options)(func() {
 			g.debug.span(ast.Options)
 			fdp.Options = new(descriptorpb.FieldOptions)
-			g.options(options, fdp.Options)
+			if !g.options(options, fdp.Options) {
+				fdp.Options = nil
+			}
 		})
 	}
 
@@ -478,7 +486,9 @@ func (g *generator) oneof(o ir.Oneof, odp *descriptorpb.OneofDescriptorProto) {
 				g.debug.span(option)
 			}
 			odp.Options = new(descriptorpb.OneofOptions)
-			g.options(options, odp.Options)
+			if !g.options(options, odp.Options) {
+				odp.Options = nil
+			}
 		})
 	}
 }
@@ -531,7 +541,9 @@ func (g *generator) enum(ty ir.Type, edp *descriptorpb.EnumDescriptorProto) {
 				g.debug.span(option)
 			}
 			edp.Options = new(descriptorpb.EnumOptions)
-			g.options(options, edp.Options)
+			if !g.options(options, edp.Options) {
+				edp.Options = nil
+			}
 		})
 	}
 
@@ -552,7 +564,9 @@ func (g *generator) enumValue(f ir.Member, evdp *descriptorpb.EnumValueDescripto
 		g.debug.in(tags.EnumValue_Options)(func() {
 			g.debug.span(ast.Options)
 			evdp.Options = new(descriptorpb.EnumValueOptions)
-			g.options(options, evdp.Options)
+			if !g.options(options, evdp.Options) {
+				evdp.Options = nil
+			}
 		})
 	}
 }
@@ -576,7 +590,9 @@ func (g *generator) service(s ir.Service, sdp *descriptorpb.ServiceDescriptorPro
 				g.debug.span(option)
 			}
 			sdp.Options = new(descriptorpb.ServiceOptions)
-			g.options(options, sdp.Options)
+			if !g.options(options, sdp.Options) {
+				sdp.Options = nil
+			}
 		})
 	}
 }
@@ -627,15 +643,27 @@ func (g *generator) method(m ir.Method, mdp *descriptorpb.MethodDescriptorProto)
 				g.debug.span(option)
 			}
 			mdp.Options = new(descriptorpb.MethodOptions)
-			g.options(options, mdp.Options)
+			if !g.options(options, mdp.Options) {
+				mdp.Options = nil
+			}
 		})
 	}
 }
 
-func (g *generator) options(v ir.MessageValue, target proto.Message) {
-	target.ProtoReflect().SetUnknown(v.Marshal(nil, nil))
+// options serialises v into target's unknown-field bytes. Returns
+// false when v marshals to zero bytes — typically because every field
+// the user set has retention=RETENTION_SOURCE — in which case target
+// should not appear in the surrounding descriptor at all (protoc
+// omits empty options blocks entirely). Callers undo the target
+// allocation on a false return.
+func (g *generator) options(v ir.MessageValue, target proto.Message) bool {
+	bytes := v.Marshal(nil, nil)
+	if len(bytes) == 0 {
+		return false
+	}
+	target.ProtoReflect().SetUnknown(bytes)
 	if g.debug == nil {
-		return
+		return true
 	}
 
 	var rec func(ir.MessageValue)
@@ -710,6 +738,7 @@ func (g *generator) options(v ir.MessageValue, target proto.Message) {
 	}
 
 	rec(v)
+	return true
 }
 
 // optionKeywordAndSemicolon is a helper function that checks the non-skippable tokens

@@ -17,6 +17,6 @@ file:
   enum_type:
   - name: "my_enum"
     value: [{ name: "unspecified", number: 0 }, { name: "valueOne", number: 1 }]
-  options.features.enforce_naming_style: STYLE_LEGACY
+  options.features: {}
   syntax: "editions"
   edition: EDITION_2024

@@ -53,7 +53,7 @@ file:
       label: LABEL_OPTIONAL
       type: TYPE_STRING
       json_name: "BadField"
-      options.features.enforce_naming_style: STYLE2024
+      options.features: {}
     nested_type:
     - name: "bad_nested"
       field:
@@ -67,9 +67,9 @@ file:
         label: LABEL_OPTIONAL
         type: TYPE_STRING
         json_name: "AnotherField"
-        options.features.enforce_naming_style: STYLE_LEGACY
-      options.features.enforce_naming_style: STYLE2024
-    options.features.enforce_naming_style: STYLE_LEGACY
+        options.features: {}
+      options.features: {}
+    options.features: {}
   enum_type:
   - name: "my_enum"
     value:

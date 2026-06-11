@@ -48,7 +48,6 @@ file:
     - name: "BarForBar"
       input_type: ".buf.test.Bar"
       output_type: ".buf.test.Bar"
-      options: {}
   extension:
   - name: "c"
     number: 1000
