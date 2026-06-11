@@ -235,6 +235,37 @@ annotation contact(via: Email);
 	}
 }
 
+// TestAnnotationEmissionParamDefaults verifies that an annotation
+// declaration with default-value expressions lowers each into the
+// matching AnnotationArg oneof variant on AnnotationParam.default_value.
+func TestAnnotationEmissionParamDefaults(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+annotation tag(
+  name: string = "anonymous",
+  count: int32 = -1,
+  ratio: double = 0.25,
+  flag: bool = true
+);
+`
+
+	f := compileForFDPTest(t, src)
+	require.NotNil(t, f.Options)
+	decls, ok := proto.GetExtension(f.Options, pwsv1.E_AnnotationDecls).(*pwsv1.FileAnnotationDecls)
+	require.True(t, ok)
+	require.Len(t, decls.Declarations, 1)
+	params := decls.Declarations[0].Params
+	require.Len(t, params, 4)
+
+	assert.Equal(t, "anonymous", params[0].DefaultValue.GetStringValue())
+	assert.Equal(t, int64(-1), params[1].DefaultValue.GetIntValue())
+	assert.InDelta(t, 0.25, params[2].DefaultValue.GetDoubleValue(), 1e-9)
+	assert.True(t, params[3].DefaultValue.GetBoolValue())
+}
+
 // TestAnnotationEmissionCarrierCoverage verifies the extension lands
 // on the correct Options message for each carrier kind.
 func TestAnnotationEmissionCarrierCoverage(t *testing.T) {

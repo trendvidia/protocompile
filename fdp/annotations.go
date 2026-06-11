@@ -266,6 +266,9 @@ func buildAnnotationParamDecl(p ir.AnnotationParam) *pwsv1.AnnotationParam {
 			out.TypeFqn = string(ut.FullName())
 		}
 	}
+	if deflt := p.Default(); !deflt.IsZero() {
+		out.DefaultValue = buildArg(deflt, p)
+	}
 	return out
 }
 

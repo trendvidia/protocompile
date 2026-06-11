@@ -180,6 +180,7 @@ func lower(file *File, r *report.Report, importer Importer) {
 	// `expression` / `any` / user type), then type-check each use
 	// site's argument list against the resolved signature.
 	resolveAnnotationParamTypes(file, r)
+	validateAnnotationParamDefaults(file, r)
 	validateAnnotationUseArgs(file, r)
 
 	// Perform constant evaluation.
