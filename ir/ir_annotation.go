@@ -185,6 +185,22 @@ func (p AnnotationParam) Annotation() Annotation {
 	return id.Wrap(p.Context(), p.Raw().parent)
 }
 
+// Default returns the default-value expression syntactically
+// attached to this parameter (e.g. the `"hi"` in
+// `annotation foo(x: string = "hi")`). Returns a zero [ast.ExprAny]
+// when the parameter has no default — callers should check
+// `defaultExpr.IsZero()` before lowering.
+//
+// The expression has been shape-checked by the parser's narrow
+// annotation-argument legalize pass and type-checked by the
+// resolution pass — see [validateAnnotationParamDefaults].
+func (p AnnotationParam) Default() ast.ExprAny {
+	if p.IsZero() {
+		return ast.ExprAny{}
+	}
+	return p.AST().Default()
+}
+
 // TypeName returns the literal text of the parameter's declared
 // type, e.g. "string", "expression", or "myco.SomeMessage". Useful
 // for diagnostics — see [AnnotationParam.IsScalar],

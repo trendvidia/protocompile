@@ -41,6 +41,24 @@ func resolveAnnotationParamTypes(file *File, r *report.Report) {
 	}
 }
 
+// validateAnnotationParamDefaults type-checks each parameter's
+// default expression against the parameter's classified type. Same
+// shape rules as use-site arguments — see [validateAnnotationArg].
+//
+// Runs after [resolveAnnotationParamTypes] so the classification is
+// already populated.
+func validateAnnotationParamDefaults(file *File, r *report.Report) {
+	for ann := range seq.Values(file.Annotations()) {
+		for p := range seq.Values(ann.Params()) {
+			deflt := p.Default()
+			if deflt.IsZero() {
+				continue
+			}
+			validateAnnotationArg(r, ann, p, deflt)
+		}
+	}
+}
+
 // classifyAnnotationParamType reads `p`'s declared type AST, fills
 // in the classification fields on its [rawAnnotationParam], and
 // emits a diagnostic when the type doesn't resolve.

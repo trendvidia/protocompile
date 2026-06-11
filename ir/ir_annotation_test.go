@@ -438,6 +438,44 @@ message M {}
 	assert.True(t, found, "expected arity diagnostic")
 }
 
+// TestAnnotationParamDefaultTypeCheck verifies that default-value
+// expressions on annotation parameters are type-checked against the
+// parameter's declared type, the same way use-site arguments are.
+func TestAnnotationParamDefaultTypeCheck(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+// Well-typed defaults should compile cleanly.
+annotation ok(name: string = "anonymous", count: int32 = 0, flag: bool = false);
+
+// Bad defaults should be diagnosed.
+annotation bad(name: string = 42);
+`
+
+	_, rep := compileForAnnotationTest(t, src)
+
+	// `ok` produces no diagnostics.
+	for _, d := range rep.Diagnostics {
+		if d.Level() >= report.Error && strings.Contains(d.Message(), "test.ok") {
+			t.Errorf("unexpected diagnostic for `test.ok`: %s", d.Message())
+		}
+	}
+
+	// `bad` produces a mismatch diagnostic mentioning the offending param.
+	var saw bool
+	for _, d := range rep.Diagnostics {
+		if strings.Contains(d.Message(), "test.bad") &&
+			strings.Contains(d.Message(), "expects string") &&
+			strings.Contains(d.Message(), "number literal") {
+			saw = true
+			break
+		}
+	}
+	assert.True(t, saw, "expected default-value type mismatch diagnostic for test.bad")
+}
+
 // TestAnnotationArgsAccepted verifies the happy path: well-typed
 // arguments against an annotation with mixed param kinds produce no
 // diagnostics.
