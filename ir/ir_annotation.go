@@ -46,16 +46,35 @@ type Annotation id.Node[Annotation, *File, *rawAnnotation]
 // later phases together with use-site type-checking.
 type AnnotationParam id.Node[AnnotationParam, *File, *rawAnnotationParam]
 
+// AnnotationUse is a single `@name(args)` annotation use site — see
+// [ast.DeclAnnotationUse]. Use sites are attached to a carrier
+// declaration via that carrier's `Annotations()` accessor (e.g.
+// [Type.Annotations], [Member.Annotations], [Service.Annotations]).
+//
+// As of Phase B2, a use site carries its source AST link plus the
+// resolved [Annotation] (or a zero [Ref] when name resolution failed
+// — the diagnostic is emitted at resolve time). The argument list is
+// not yet materialised into IR values: that pairs with the
+// signature-aware type-check in Phase B3.
+type AnnotationUse id.Node[AnnotationUse, *File, *rawAnnotationUse]
+
 type rawAnnotation struct {
 	def       id.ID[ast.DeclAnnotation]
 	fqn, name intern.ID
 	params    []id.ID[AnnotationParam]
+
+	annotationUses []id.ID[AnnotationUse]
 }
 
 type rawAnnotationParam struct {
 	def    id.ID[ast.DeclAnnotationParam]
 	parent id.ID[Annotation]
 	name   intern.ID
+}
+
+type rawAnnotationUse struct {
+	def    id.ID[ast.DeclAnnotationUse]
+	target Ref[Symbol]
 }
 
 // AST returns the declaration for this annotation, if known.
@@ -111,6 +130,16 @@ func (a Annotation) Params() seq.Indexer[AnnotationParam] {
 	)
 }
 
+// Annotations returns the annotation use sites attached to this
+// declaration (trailing form: `annotation foo @bar @baz;`). See
+// [Type.Annotations] for the resolution model.
+func (a Annotation) Annotations() seq.Indexer[AnnotationUse] {
+	if a.IsZero() {
+		return annotationUses(nil, nil)
+	}
+	return annotationUses(a.Context(), a.Raw().annotationUses)
+}
+
 // AST returns the declaration for this annotation parameter, if known.
 func (p AnnotationParam) AST() ast.DeclAnnotationParam {
 	if p.IsZero() {
@@ -142,4 +171,48 @@ func (p AnnotationParam) Annotation() Annotation {
 		return Annotation{}
 	}
 	return id.Wrap(p.Context(), p.Raw().parent)
+}
+
+// AST returns the use-site syntax for this annotation use.
+func (u AnnotationUse) AST() ast.DeclAnnotationUse {
+	if u.IsZero() {
+		return ast.DeclAnnotationUse{}
+	}
+	return id.Wrap(u.Context().AST(), u.Raw().def)
+}
+
+// Target returns the [Annotation] this use site resolves to. Returns
+// a zero [Annotation] when name resolution failed (in which case the
+// resolve pass already emitted a diagnostic).
+func (u AnnotationUse) Target() Annotation {
+	if u.IsZero() {
+		return Annotation{}
+	}
+	sym := GetRef(u.Context(), u.Raw().target)
+	if sym.Kind() != SymbolKindAnnotation {
+		return Annotation{}
+	}
+	return sym.AsAnnotation()
+}
+
+// TargetRef returns the raw [Ref] for the resolved target symbol.
+// Useful for callers that want to detect resolution failures (zero
+// ref) without going through the [Annotation] accessor.
+func (u AnnotationUse) TargetRef() Ref[Symbol] {
+	if u.IsZero() {
+		return Ref[Symbol]{}
+	}
+	return u.Raw().target
+}
+
+// annotationUses converts a slice of [AnnotationUse] IDs on a carrier
+// into a [seq.Indexer] for export. It's a tiny helper because every
+// carrier type expresses its `.Annotations()` accessor the same way.
+func annotationUses(f *File, ids []id.ID[AnnotationUse]) seq.Indexer[AnnotationUse] {
+	return seq.NewFixedSlice(
+		ids,
+		func(_ int, p id.ID[AnnotationUse]) AnnotationUse {
+			return id.Wrap(f, p)
+		},
+	)
 }

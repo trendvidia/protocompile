@@ -58,6 +58,8 @@
   - {name: Extension, string: "message extension"}
   - {name: EnumValue, string: "enum value"}
   - {name: Method, string: "service method"}
+  - {name: Annotation, string: "annotation"}
+  - {name: AnnotationUse, string: "annotation use"}
 
   - {name: CompactOptions, string: "compact options"}
   - {name: MethodIns, string: "method parameter list"}

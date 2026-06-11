@@ -15,6 +15,7 @@
 package ir_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -99,5 +100,177 @@ annotation example(value: any);
 		require.False(t, sym.IsZero(), "missing symbol for %s", fqn)
 		assert.Equal(t, ir.SymbolKindAnnotation, sym.Kind(), "symbol kind for %s", fqn)
 		assert.Equal(t, anns[i], sym.AsAnnotation(), "AsAnnotation round-trip for %s", fqn)
+	}
+}
+
+// TestAnnotationUseResolution exercises B2: every `@name(args)` use
+// site on every IR carrier gets materialised as an [ir.AnnotationUse]
+// and resolved against the symbol table. Hits the four canonical
+// carrier kinds (message/enum/service/method/field), the trailing
+// form on `annotation` declarations themselves, qualified names, and
+// the unresolved-name diagnostic path.
+func TestAnnotationUseResolution(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+annotation deprecated;
+annotation authored(by: string);
+annotation reviewed;
+annotation since(when: string);
+annotation core;
+
+@deprecated
+message M {
+  @authored("alice")
+  string field_a = 1;
+}
+
+@authored("alice")
+@reviewed
+enum E {
+  E_UNSET = 0;
+  E_ONE = 1;
+}
+
+@since("2026-06-11")
+service S {
+  rpc Ping(M) returns (M);
+}
+
+annotation derived @core;
+`
+
+	opener := source.NewMap(map[string]*source.File{
+		"x.proto": source.NewFile("x.proto", src),
+	})
+	allOpeners := &source.Openers{opener, source.WKTs()}
+
+	exec := incremental.New()
+	sess := new(ir.Session)
+	results, _, err := incremental.Run(t.Context(), exec, queries.IR{
+		Opener:  allOpeners,
+		Session: sess,
+		Path:    "x.proto",
+	})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.NoError(t, results[0].Fatal)
+	file := results[0].Value
+	require.NotNil(t, file)
+
+	// Helper: collect resolved Annotation.FullName for a carrier's
+	// annotation use sites. Empty string for unresolved.
+	collectTargets := func(uses seq.Indexer[ir.AnnotationUse]) []string {
+		var out []string
+		for u := range seq.Values(uses) {
+			tgt := u.Target()
+			if tgt.IsZero() {
+				out = append(out, "")
+				continue
+			}
+			out = append(out, string(tgt.FullName()))
+		}
+		return out
+	}
+
+	// Walk every IR type and check its annotation set + nested members.
+	var seenMessageM, seenEnumE bool
+	for ty := range seq.Values(file.AllTypes()) {
+		switch ty.Name() {
+		case "M":
+			seenMessageM = true
+			assert.Equal(t, []string{"test.deprecated"}, collectTargets(ty.Annotations()),
+				"message M leading annotation")
+			for f := range seq.Values(ty.Members()) {
+				if f.Name() == "field_a" {
+					assert.Equal(t, []string{"test.authored"}, collectTargets(f.Annotations()),
+						"M.field_a trailing annotation")
+				}
+			}
+		case "E":
+			seenEnumE = true
+			assert.Equal(t, []string{"test.authored", "test.reviewed"}, collectTargets(ty.Annotations()),
+				"enum E leading annotations")
+		}
+	}
+	assert.True(t, seenMessageM, "expected to visit message M")
+	assert.True(t, seenEnumE, "expected to visit enum E")
+
+	var seenService bool
+	for svc := range seq.Values(file.Services()) {
+		if svc.Name() != "S" {
+			continue
+		}
+		seenService = true
+		assert.Equal(t, []string{"test.since"}, collectTargets(svc.Annotations()),
+			"service S leading annotation")
+	}
+	assert.True(t, seenService, "expected to visit service S")
+
+	// `annotation derived @core;` — trailing annotation on an
+	// annotation declaration, exercising the B1 carrier from B2.
+	var seenDerived bool
+	for ann := range seq.Values(file.Annotations()) {
+		if ann.Name() != "derived" {
+			continue
+		}
+		seenDerived = true
+		assert.Equal(t, []string{"test.core"}, collectTargets(ann.Annotations()),
+			"annotation derived trailing @core")
+	}
+	assert.True(t, seenDerived, "expected to visit annotation derived")
+}
+
+// TestAnnotationUseUnresolved verifies that an unknown annotation
+// name produces a diagnostic and a zero [AnnotationUse.Target].
+// The AnnotationUse itself is still recorded so later passes don't
+// silently drop entries.
+func TestAnnotationUseUnresolved(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+@undeclared
+message M {}
+`
+
+	opener := source.NewMap(map[string]*source.File{
+		"x.proto": source.NewFile("x.proto", src),
+	})
+	allOpeners := &source.Openers{opener, source.WKTs()}
+
+	exec := incremental.New()
+	sess := new(ir.Session)
+	results, rep, err := incremental.Run(t.Context(), exec, queries.IR{
+		Opener:  allOpeners,
+		Session: sess,
+		Path:    "x.proto",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, rep)
+
+	// The compile still produces an IR; only the use-site target is zero.
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].Value)
+
+	var sawDiag bool
+	for _, d := range rep.Diagnostics {
+		if strings.Contains(d.Message(), "undeclared") {
+			sawDiag = true
+			break
+		}
+	}
+	assert.True(t, sawDiag, "expected diagnostic mentioning `undeclared`")
+
+	for ty := range seq.Values(results[0].Value.AllTypes()) {
+		if ty.Name() != "M" {
+			continue
+		}
+		uses := ty.Annotations()
+		require.Equal(t, 1, uses.Len(), "use site still recorded")
+		assert.True(t, uses.At(0).Target().IsZero(), "unresolved target should be zero")
 	}
 }

@@ -31,18 +31,20 @@ type rawService struct {
 	def       id.ID[ast.DeclDef]
 	fqn, name intern.ID
 
-	methods  []id.ID[Method]
-	options  id.ID[Value]
-	features id.ID[FeatureSet]
+	methods        []id.ID[Method]
+	annotationUses []id.ID[AnnotationUse]
+	options        id.ID[Value]
+	features       id.ID[FeatureSet]
 }
 
 type rawMethod struct {
-	def           id.ID[ast.DeclDef]
-	fqn, name     intern.ID
-	service       id.ID[Service]
-	input, output Ref[Type]
-	options       id.ID[Value]
-	features      id.ID[FeatureSet]
+	def            id.ID[ast.DeclDef]
+	fqn, name      intern.ID
+	service        id.ID[Service]
+	input, output  Ref[Type]
+	options        id.ID[Value]
+	annotationUses []id.ID[AnnotationUse]
+	features       id.ID[FeatureSet]
 
 	inputStream, outputStream bool
 }
@@ -91,6 +93,15 @@ func (s Service) Options() MessageValue {
 		return MessageValue{}
 	}
 	return id.Wrap(s.Context(), s.Raw().options).AsMessage()
+}
+
+// Annotations returns the annotation use sites attached to this
+// service. See [Type.Annotations] for the resolution model.
+func (s Service) Annotations() seq.Indexer[AnnotationUse] {
+	if s.IsZero() {
+		return annotationUses(nil, nil)
+	}
+	return annotationUses(s.Context(), s.Raw().annotationUses)
 }
 
 // FeatureSet returns the Editions features associated with this service.
@@ -174,6 +185,15 @@ func (m Method) Options() MessageValue {
 		return MessageValue{}
 	}
 	return id.Wrap(m.Context(), m.Raw().options).AsMessage()
+}
+
+// Annotations returns the annotation use sites attached to this
+// method. See [Type.Annotations] for the resolution model.
+func (m Method) Annotations() seq.Indexer[AnnotationUse] {
+	if m.IsZero() {
+		return annotationUses(nil, nil)
+	}
+	return annotationUses(m.Context(), m.Raw().annotationUses)
 }
 
 // FeatureSet returns the Editions features associated with this method.

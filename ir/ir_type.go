@@ -80,6 +80,8 @@ type rawType struct {
 	syntheticTypeOf id.ID[Member]
 	features        id.ID[FeatureSet]
 
+	annotationUses []id.ID[AnnotationUse]
+
 	isEnum, isMessageSet bool
 	allowsAlias          bool
 	missingRanges        bool // See lower_numbers.go.
@@ -603,6 +605,19 @@ func (t Type) Options() MessageValue {
 		return MessageValue{}
 	}
 	return id.Wrap(t.Context(), t.Raw().options).AsMessage()
+}
+
+// Annotations returns the annotation use sites attached to this type
+// (a `@name(args)` form leading the `message`/`enum` declaration).
+//
+// Materialised by the Phase B2 resolve pass. Each entry's
+// [AnnotationUse.Target] is the resolved [Annotation], or zero when
+// name resolution failed (a diagnostic was emitted at resolve time).
+func (t Type) Annotations() seq.Indexer[AnnotationUse] {
+	if t.IsZero() {
+		return annotationUses(nil, nil)
+	}
+	return annotationUses(t.Context(), t.Raw().annotationUses)
 }
 
 // FeatureSet returns the Editions features associated with this type.
