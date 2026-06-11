@@ -24,6 +24,7 @@ import (
 	"github.com/trendvidia/protocompile/incremental"
 	"github.com/trendvidia/protocompile/incremental/queries"
 	"github.com/trendvidia/protocompile/ir"
+	"github.com/trendvidia/protocompile/report"
 	"github.com/trendvidia/protocompile/seq"
 	"github.com/trendvidia/protocompile/source"
 )
@@ -272,5 +273,190 @@ message M {}
 		uses := ty.Annotations()
 		require.Equal(t, 1, uses.Len(), "use site still recorded")
 		assert.True(t, uses.At(0).Target().IsZero(), "unresolved target should be zero")
+	}
+}
+
+// compileForAnnotationTest is a small helper that drives the IR
+// compile through `queries.IR` and returns the resulting file plus
+// the diagnostic report.
+func compileForAnnotationTest(t *testing.T, src string) (*ir.File, *report.Report) {
+	t.Helper()
+	opener := source.NewMap(map[string]*source.File{
+		"x.proto": source.NewFile("x.proto", src),
+	})
+	allOpeners := &source.Openers{opener, source.WKTs()}
+
+	exec := incremental.New()
+	sess := new(ir.Session)
+	results, rep, err := incremental.Run(t.Context(), exec, queries.IR{
+		Opener:  allOpeners,
+		Session: sess,
+		Path:    "x.proto",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, rep)
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].Value)
+	return results[0].Value, rep
+}
+
+// TestAnnotationParamTypeClassification verifies B3's parameter
+// type resolution: each `name: type` in an annotation parameter list
+// gets classified as scalar / `expression` / `any` / user type, and
+// the corresponding accessor returns the right thing.
+func TestAnnotationParamTypeClassification(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+message Email {
+  string addr = 1;
+}
+
+annotation validate(rule: expression, code: string = "", note: any);
+annotation deprecated_since(year: int32);
+annotation contact(via: Email);
+`
+
+	file, rep := compileForAnnotationTest(t, src)
+	// No diagnostics for valid types.
+	for _, d := range rep.Diagnostics {
+		if d.Level() >= report.Error {
+			t.Errorf("unexpected diagnostic: %s", d.Message())
+		}
+	}
+
+	byName := map[string]ir.Annotation{}
+	for a := range seq.Values(file.Annotations()) {
+		byName[a.Name()] = a
+	}
+
+	// validate(rule: expression, code: string = "", note: any)
+	v := byName["validate"]
+	require.False(t, v.IsZero(), "missing annotation `validate`")
+	require.Equal(t, 3, v.Params().Len())
+	p0 := v.Params().At(0)
+	assert.True(t, p0.IsExpression(), "rule should be expression")
+	assert.False(t, p0.IsScalar())
+	assert.False(t, p0.IsAny())
+	assert.Equal(t, "expression", p0.TypeName())
+
+	p1 := v.Params().At(1)
+	assert.True(t, p1.IsScalar(), "code should be scalar")
+	assert.Equal(t, "string", p1.TypeName())
+
+	p2 := v.Params().At(2)
+	assert.True(t, p2.IsAny(), "note should be any")
+	assert.Equal(t, "any", p2.TypeName())
+
+	// deprecated_since(year: int32)
+	d := byName["deprecated_since"]
+	require.False(t, d.IsZero())
+	p := d.Params().At(0)
+	assert.True(t, p.IsScalar())
+	assert.Equal(t, "int32", p.TypeName())
+
+	// contact(via: Email) — user type
+	c := byName["contact"]
+	require.False(t, c.IsZero())
+	pv := c.Params().At(0)
+	assert.False(t, pv.IsScalar())
+	assert.False(t, pv.IsExpression())
+	assert.False(t, pv.IsAny())
+	userTy := pv.UserType()
+	require.False(t, userTy.IsZero(), "user type should resolve")
+	assert.Equal(t, "test.Email", string(userTy.FullName()))
+}
+
+// TestAnnotationArgTypeMismatch checks the per-arg type-check
+// diagnostics: each predeclared scalar's expected literal kind is
+// enforced.
+func TestAnnotationArgTypeMismatch(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+annotation needs_string(s: string);
+annotation needs_int(n: int32);
+annotation needs_bool(b: bool);
+
+@needs_string(42)
+message MismatchA {}
+
+@needs_int("hello")
+message MismatchB {}
+
+@needs_bool(123)
+message MismatchC {}
+`
+
+	_, rep := compileForAnnotationTest(t, src)
+
+	// Tally one mismatch error per fixture site.
+	wantMessages := []string{
+		"argument \"s\" for `test.needs_string` expects string, got number literal",
+		"argument \"n\" for `test.needs_int` expects int32, got string literal",
+		"argument \"b\" for `test.needs_bool` expects bool, got number literal",
+	}
+	for _, want := range wantMessages {
+		var found bool
+		for _, d := range rep.Diagnostics {
+			if strings.Contains(d.Message(), want) {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "expected diagnostic: %s", want)
+	}
+}
+
+// TestAnnotationArgTooMany verifies the arity check: passing more
+// args than the parameter list declares is an error.
+func TestAnnotationArgTooMany(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+annotation tag(name: string);
+
+@tag("alpha", "beta")
+message M {}
+`
+
+	_, rep := compileForAnnotationTest(t, src)
+	var found bool
+	for _, d := range rep.Diagnostics {
+		if strings.Contains(d.Message(), "too many arguments for `test.tag`") &&
+			strings.Contains(d.Message(), "got 2") {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected arity diagnostic")
+}
+
+// TestAnnotationArgsAccepted verifies the happy path: well-typed
+// arguments against an annotation with mixed param kinds produce no
+// diagnostics.
+func TestAnnotationArgsAccepted(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+annotation ok(s: string, n: int32, b: bool, free: any);
+
+@ok("hello", -42, true, anything.you.want)
+message M {}
+`
+
+	_, rep := compileForAnnotationTest(t, src)
+	for _, d := range rep.Diagnostics {
+		if d.Level() >= report.Error {
+			t.Errorf("unexpected diagnostic: %s", d.Message())
+		}
 	}
 }

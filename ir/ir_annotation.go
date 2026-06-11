@@ -16,6 +16,7 @@ package ir
 
 import (
 	"github.com/trendvidia/protocompile/ast"
+	"github.com/trendvidia/protocompile/ast/predeclared"
 	"github.com/trendvidia/protocompile/id"
 	"github.com/trendvidia/protocompile/internal/intern"
 	"github.com/trendvidia/protocompile/seq"
@@ -67,9 +68,20 @@ type rawAnnotation struct {
 }
 
 type rawAnnotationParam struct {
-	def    id.ID[ast.DeclAnnotationParam]
-	parent id.ID[Annotation]
-	name   intern.ID
+	def      id.ID[ast.DeclAnnotationParam]
+	parent   id.ID[Annotation]
+	name     intern.ID
+	typeName intern.ID // The interned textual type name, e.g. "string", "expression", or "myco.Foo". Used for diagnostics; always populated when the param has a type annotation.
+
+	// Exactly one of the following classifies the parameter's type;
+	// resolved by [resolveAnnotationParamTypes]. The zero state
+	// (`scalar == predeclared.Unknown && !isExpression && !isAny &&
+	// userType.IsZero()`) means the type didn't resolve to anything
+	// recognised — the resolution pass already emitted a diagnostic.
+	scalar       predeclared.Name
+	isExpression bool
+	isAny        bool
+	userType     Ref[Symbol]
 }
 
 type rawAnnotationUse struct {
@@ -171,6 +183,68 @@ func (p AnnotationParam) Annotation() Annotation {
 		return Annotation{}
 	}
 	return id.Wrap(p.Context(), p.Raw().parent)
+}
+
+// TypeName returns the literal text of the parameter's declared
+// type, e.g. "string", "expression", or "myco.SomeMessage". Useful
+// for diagnostics — see [AnnotationParam.IsScalar],
+// [AnnotationParam.IsExpression], [AnnotationParam.IsAny], and
+// [AnnotationParam.UserType] for the resolved classification.
+func (p AnnotationParam) TypeName() string {
+	if p.IsZero() {
+		return ""
+	}
+	if p.Raw().typeName == 0 {
+		return ""
+	}
+	return p.Context().session.intern.Value(p.Raw().typeName)
+}
+
+// Scalar returns the predeclared scalar type for this parameter, or
+// [predeclared.Unknown] when the parameter's type is not a scalar.
+// Pair with [AnnotationParam.IsScalar] to disambiguate "type
+// resolved to a non-scalar" from "predeclared.Unknown is the type".
+func (p AnnotationParam) Scalar() predeclared.Name {
+	if p.IsZero() {
+		return predeclared.Unknown
+	}
+	return p.Raw().scalar
+}
+
+// IsScalar reports whether the parameter's declared type resolved
+// to a predeclared scalar (string, int32, etc.).
+func (p AnnotationParam) IsScalar() bool {
+	return !p.IsZero() && p.Raw().scalar != predeclared.Unknown
+}
+
+// IsExpression reports whether the parameter's declared type is the
+// special PSE pseudo-type `expression` (an opaque text payload
+// validated by the configured engine at run time, not by
+// protocompile).
+func (p AnnotationParam) IsExpression() bool {
+	return !p.IsZero() && p.Raw().isExpression
+}
+
+// IsAny reports whether the parameter's declared type is the special
+// PSE pseudo-type `any` (accepts any literal-shaped argument).
+func (p AnnotationParam) IsAny() bool {
+	return !p.IsZero() && p.Raw().isAny
+}
+
+// UserType returns the resolved [Type] when the parameter's
+// declared type is a user-defined message or enum. Returns a zero
+// [Type] for predeclared scalars, the `expression`/`any` pseudo-
+// types, and unresolved references.
+func (p AnnotationParam) UserType() Type {
+	if p.IsZero() {
+		return Type{}
+	}
+	sym := GetRef(p.Context(), p.Raw().userType)
+	switch sym.Kind() {
+	case SymbolKindMessage, SymbolKindEnum:
+		return sym.AsType()
+	}
+	return Type{}
 }
 
 // AST returns the use-site syntax for this annotation use.

@@ -176,6 +176,12 @@ func lower(file *File, r *report.Report, importer Importer) {
 	// built and merged, but doesn't depend on options or features.
 	resolveAnnotationUses(file, r)
 
+	// Phase B3: classify annotation parameter types (scalar /
+	// `expression` / `any` / user type), then type-check each use
+	// site's argument list against the resolved signature.
+	resolveAnnotationParamTypes(file, r)
+	validateAnnotationUseArgs(file, r)
+
 	// Perform constant evaluation.
 	evaluateFieldNumbers(file, r)
 
