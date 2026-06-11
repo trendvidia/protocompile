@@ -30,6 +30,7 @@ import (
 	"github.com/trendvidia/protocompile/internal/ext/cmpx"
 	"github.com/trendvidia/protocompile/internal/ext/iterx"
 	"github.com/trendvidia/protocompile/internal/ext/slicesx"
+	pwsv1 "github.com/trendvidia/protocompile/internal/gen/protowire/schema/v1"
 	"github.com/trendvidia/protocompile/internal/tags"
 	"github.com/trendvidia/protocompile/ir"
 	"github.com/trendvidia/protocompile/ir/presence"
@@ -319,16 +320,27 @@ func (g *generator) message(ty ir.Type, mdp *descriptorpb.DescriptorProto) {
 		}
 	}
 
-	if options := ty.Options(); !options.IsEmpty() {
-		g.debug.in(tags.Message_Options)(func() {
-			for option := range ast.Body.Options() {
-				g.debug.span(option)
-			}
-			mdp.Options = new(descriptorpb.MessageOptions)
-			if !g.options(options, mdp.Options) {
-				mdp.Options = nil
-			}
-		})
+	optionsValue := ty.Options()
+	annUses := ty.Annotations()
+	if !optionsValue.IsEmpty() || annUses.Len() > 0 {
+		mdp.Options = new(descriptorpb.MessageOptions)
+		var hadAny bool
+		if !optionsValue.IsEmpty() {
+			g.debug.in(tags.Message_Options)(func() {
+				for option := range ast.Body.Options() {
+					g.debug.span(option)
+				}
+				if g.options(optionsValue, mdp.Options) {
+					hadAny = true
+				}
+			})
+		}
+		if emitAnnotations(annUses, mdp.Options, pwsv1.E_MessageAnnotations) {
+			hadAny = true
+		}
+		if !hadAny {
+			mdp.Options = nil
+		}
 	}
 
 	mdp.Visibility = visibility(ty)
@@ -391,14 +403,25 @@ func (g *generator) field(f ir.Member, fdp *descriptorpb.FieldDescriptorProto) {
 		fdp.OneofIndex = addr(int32(oneof.Index()))
 	}
 
-	if options := f.Options(); !options.IsEmpty() {
-		g.debug.in(tags.Field_Options)(func() {
-			g.debug.span(ast.Options)
-			fdp.Options = new(descriptorpb.FieldOptions)
-			if !g.options(options, fdp.Options) {
-				fdp.Options = nil
-			}
-		})
+	optionsValue := f.Options()
+	annUses := f.Annotations()
+	if !optionsValue.IsEmpty() || annUses.Len() > 0 {
+		fdp.Options = new(descriptorpb.FieldOptions)
+		var hadAny bool
+		if !optionsValue.IsEmpty() {
+			g.debug.in(tags.Field_Options)(func() {
+				g.debug.span(ast.Options)
+				if g.options(optionsValue, fdp.Options) {
+					hadAny = true
+				}
+			})
+		}
+		if emitAnnotations(annUses, fdp.Options, pwsv1.E_FieldAnnotations) {
+			hadAny = true
+		}
+		if !hadAny {
+			fdp.Options = nil
+		}
 	}
 
 	// If this field is part of a map entry type, we need to grab all the explicitly set
@@ -480,16 +503,27 @@ func (g *generator) oneof(o ir.Oneof, odp *descriptorpb.OneofDescriptorProto) {
 	odp.Name = addr(o.Name())
 	g.debug.span(ast.Name, tags.Oneof_Name)
 
-	if options := o.Options(); !options.IsEmpty() {
-		g.debug.in(tags.Oneof_Options)(func() {
-			for option := range ast.Body.Options() {
-				g.debug.span(option)
-			}
-			odp.Options = new(descriptorpb.OneofOptions)
-			if !g.options(options, odp.Options) {
-				odp.Options = nil
-			}
-		})
+	optionsValue := o.Options()
+	annUses := o.Annotations()
+	if !optionsValue.IsEmpty() || annUses.Len() > 0 {
+		odp.Options = new(descriptorpb.OneofOptions)
+		var hadAny bool
+		if !optionsValue.IsEmpty() {
+			g.debug.in(tags.Oneof_Options)(func() {
+				for option := range ast.Body.Options() {
+					g.debug.span(option)
+				}
+				if g.options(optionsValue, odp.Options) {
+					hadAny = true
+				}
+			})
+		}
+		if emitAnnotations(annUses, odp.Options, pwsv1.E_OneofAnnotations) {
+			hadAny = true
+		}
+		if !hadAny {
+			odp.Options = nil
+		}
 	}
 }
 
@@ -535,16 +569,27 @@ func (g *generator) enum(ty ir.Type, edp *descriptorpb.EnumDescriptorProto) {
 		edp.ReservedName = append(edp.ReservedName, name.Name())
 	}
 
-	if options := ty.Options(); !options.IsEmpty() {
-		g.debug.in(tags.Enum_Options)(func() {
-			for option := range ast.Body.Options() {
-				g.debug.span(option)
-			}
-			edp.Options = new(descriptorpb.EnumOptions)
-			if !g.options(options, edp.Options) {
-				edp.Options = nil
-			}
-		})
+	optionsValue := ty.Options()
+	annUses := ty.Annotations()
+	if !optionsValue.IsEmpty() || annUses.Len() > 0 {
+		edp.Options = new(descriptorpb.EnumOptions)
+		var hadAny bool
+		if !optionsValue.IsEmpty() {
+			g.debug.in(tags.Enum_Options)(func() {
+				for option := range ast.Body.Options() {
+					g.debug.span(option)
+				}
+				if g.options(optionsValue, edp.Options) {
+					hadAny = true
+				}
+			})
+		}
+		if emitAnnotations(annUses, edp.Options, pwsv1.E_EnumAnnotations) {
+			hadAny = true
+		}
+		if !hadAny {
+			edp.Options = nil
+		}
 	}
 
 	edp.Visibility = visibility(ty)
@@ -560,14 +605,25 @@ func (g *generator) enumValue(f ir.Member, evdp *descriptorpb.EnumValueDescripto
 	evdp.Number = addr(f.Number())
 	g.debug.span(ast.Tag, tags.EnumValue_Number)
 
-	if options := f.Options(); !options.IsEmpty() {
-		g.debug.in(tags.EnumValue_Options)(func() {
-			g.debug.span(ast.Options)
-			evdp.Options = new(descriptorpb.EnumValueOptions)
-			if !g.options(options, evdp.Options) {
-				evdp.Options = nil
-			}
-		})
+	optionsValue := f.Options()
+	annUses := f.Annotations()
+	if !optionsValue.IsEmpty() || annUses.Len() > 0 {
+		evdp.Options = new(descriptorpb.EnumValueOptions)
+		var hadAny bool
+		if !optionsValue.IsEmpty() {
+			g.debug.in(tags.EnumValue_Options)(func() {
+				g.debug.span(ast.Options)
+				if g.options(optionsValue, evdp.Options) {
+					hadAny = true
+				}
+			})
+		}
+		if emitAnnotations(annUses, evdp.Options, pwsv1.E_EnumValueAnnotations) {
+			hadAny = true
+		}
+		if !hadAny {
+			evdp.Options = nil
+		}
 	}
 }
 
@@ -584,16 +640,27 @@ func (g *generator) service(s ir.Service, sdp *descriptorpb.ServiceDescriptorPro
 		})
 	}
 
-	if options := s.Options(); !options.IsEmpty() {
-		g.debug.in(tags.Service_Options)(func() {
-			for option := range ast.Body.Options() {
-				g.debug.span(option)
-			}
-			sdp.Options = new(descriptorpb.ServiceOptions)
-			if !g.options(options, sdp.Options) {
-				sdp.Options = nil
-			}
-		})
+	optionsValue := s.Options()
+	annUses := s.Annotations()
+	if !optionsValue.IsEmpty() || annUses.Len() > 0 {
+		sdp.Options = new(descriptorpb.ServiceOptions)
+		var hadAny bool
+		if !optionsValue.IsEmpty() {
+			g.debug.in(tags.Service_Options)(func() {
+				for option := range ast.Body.Options() {
+					g.debug.span(option)
+				}
+				if g.options(optionsValue, sdp.Options) {
+					hadAny = true
+				}
+			})
+		}
+		if emitAnnotations(annUses, sdp.Options, pwsv1.E_ServiceAnnotations) {
+			hadAny = true
+		}
+		if !hadAny {
+			sdp.Options = nil
+		}
 	}
 }
 
@@ -637,16 +704,27 @@ func (g *generator) method(m ir.Method, mdp *descriptorpb.MethodDescriptorProto)
 		&mdp.OutputType, &mdp.ServerStreaming)
 
 	// protoc populates options as long as the body is non-zero, even if options are empty.
-	if options := m.Options(); !ast.Body.IsZero() {
-		g.debug.in(tags.Method_Options)(func() {
-			for option := range ast.Body.Options() {
-				g.debug.span(option)
-			}
-			mdp.Options = new(descriptorpb.MethodOptions)
-			if !g.options(options, mdp.Options) {
-				mdp.Options = nil
-			}
-		})
+	optionsValue := m.Options()
+	annUses := m.Annotations()
+	if !ast.Body.IsZero() || annUses.Len() > 0 {
+		mdp.Options = new(descriptorpb.MethodOptions)
+		var hadAny bool
+		if !ast.Body.IsZero() {
+			g.debug.in(tags.Method_Options)(func() {
+				for option := range ast.Body.Options() {
+					g.debug.span(option)
+				}
+				if g.options(optionsValue, mdp.Options) {
+					hadAny = true
+				}
+			})
+		}
+		if emitAnnotations(annUses, mdp.Options, pwsv1.E_MethodAnnotations) {
+			hadAny = true
+		}
+		if !hadAny {
+			mdp.Options = nil
+		}
 	}
 }
 
