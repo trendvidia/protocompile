@@ -185,17 +185,27 @@ func (g *generator) file(file *ir.File, fdp *descriptorpb.FileDescriptorProto) {
 		}
 	}
 
-	if options := file.Options(); !options.IsEmpty() {
-		g.debug.in(tags.File_Options)(func() {
-			for option := range file.AST().Options() {
-				g.debug.span(option)
-			}
-
-			fdp.Options = new(descriptorpb.FileOptions)
-			if !g.options(options, fdp.Options) {
-				fdp.Options = nil
-			}
-		})
+	optionsValue := file.Options()
+	hasFileDecls := file.Annotations().Len() > 0
+	if !optionsValue.IsEmpty() || hasFileDecls {
+		fdp.Options = new(descriptorpb.FileOptions)
+		var hadAny bool
+		if !optionsValue.IsEmpty() {
+			g.debug.in(tags.File_Options)(func() {
+				for option := range file.AST().Options() {
+					g.debug.span(option)
+				}
+				if g.options(optionsValue, fdp.Options) {
+					hadAny = true
+				}
+			})
+		}
+		if emitFileAnnotationDecls(file, fdp.Options) {
+			hadAny = true
+		}
+		if !hadAny {
+			fdp.Options = nil
+		}
 	}
 }
 

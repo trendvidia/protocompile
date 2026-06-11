@@ -17,6 +17,7 @@ package fdp
 import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/runtime/protoimpl"
+	"google.golang.org/protobuf/types/descriptorpb"
 
 	"github.com/trendvidia/protocompile/ast"
 	"github.com/trendvidia/protocompile/ast/predeclared"
@@ -201,4 +202,93 @@ func buildLiteralArg(lit ast.ExprLiteral, param ir.AnnotationParam) *pwsv1.Annot
 // `double` — i.e., should be lowered into AnnotationArg.double_value.
 func isFloatScalar(n predeclared.Name) bool {
 	return n == predeclared.Float || n == predeclared.Double
+}
+
+// emitFileAnnotationDecls populates the [pwsv1.FileAnnotationDecls]
+// extension on the file's Options with one [pwsv1.AnnotationDecl]
+// per `annotation` declaration originating in the file.
+//
+// Returns true when at least one declaration was emitted; callers
+// use that to decide whether the FileOptions wrapper needs to be
+// retained on the descriptor.
+func emitFileAnnotationDecls(file *ir.File, target *descriptorpb.FileOptions) bool {
+	anns := file.Annotations()
+	if anns.Len() == 0 {
+		return false
+	}
+
+	out := &pwsv1.FileAnnotationDecls{}
+	for ann := range seq.Values(anns) {
+		out.Declarations = append(out.Declarations, buildAnnotationDecl(ann))
+	}
+	if len(out.Declarations) == 0 {
+		return false
+	}
+	proto.SetExtension(target, pwsv1.E_AnnotationDecls, out)
+	return true
+}
+
+// buildAnnotationDecl lowers one [ir.Annotation] into the
+// [pwsv1.AnnotationDecl] descriptor form.
+func buildAnnotationDecl(ann ir.Annotation) *pwsv1.AnnotationDecl {
+	out := &pwsv1.AnnotationDecl{
+		Name: string(ann.FullName()),
+	}
+	for p := range seq.Values(ann.Params()) {
+		out.Params = append(out.Params, buildAnnotationParamDecl(p))
+	}
+	return out
+}
+
+// buildAnnotationParamDecl lowers one [ir.AnnotationParam] into the
+// [pwsv1.AnnotationParam] descriptor form. The classification fields
+// (B3) drive the [pwsv1.ParamType] selection; for user types, the
+// type's fully-qualified name is recorded in `type_fqn`. Default-
+// value lowering is deferred (paired with the broader default-
+// expression lowering follow-up).
+func buildAnnotationParamDecl(p ir.AnnotationParam) *pwsv1.AnnotationParam {
+	out := &pwsv1.AnnotationParam{Name: p.Name()}
+	switch {
+	case p.IsExpression():
+		out.Type = pwsv1.ParamType_EXPRESSION
+	case p.IsAny():
+		out.Type = pwsv1.ParamType_ANY
+	case p.IsScalar():
+		out.Type = scalarParamType(p.Scalar())
+	default:
+		// User-defined type or unresolved. UserType().IsZero()
+		// distinguishes those: a resolved Type goes in type_fqn;
+		// unresolved leaves the param at PARAM_TYPE_UNSPECIFIED
+		// (a B3 diagnostic was already emitted).
+		ut := p.UserType()
+		if !ut.IsZero() {
+			out.Type = pwsv1.ParamType_ENUM_OR_MESSAGE
+			out.TypeFqn = string(ut.FullName())
+		}
+	}
+	return out
+}
+
+// scalarParamType maps a predeclared scalar [predeclared.Name] to
+// the matching [pwsv1.ParamType] value. Returns
+// [pwsv1.ParamType_PARAM_TYPE_UNSPECIFIED] for non-scalars (which
+// shouldn't reach this function — call sites gate on IsScalar()).
+func scalarParamType(n predeclared.Name) pwsv1.ParamType {
+	switch n {
+	case predeclared.String:
+		return pwsv1.ParamType_STRING
+	case predeclared.Int32, predeclared.SInt32, predeclared.Fixed32, predeclared.SFixed32, predeclared.UInt32:
+		return pwsv1.ParamType_INT32
+	case predeclared.Int64, predeclared.SInt64, predeclared.Fixed64, predeclared.SFixed64, predeclared.UInt64:
+		return pwsv1.ParamType_INT64
+	case predeclared.Float:
+		return pwsv1.ParamType_FLOAT
+	case predeclared.Double:
+		return pwsv1.ParamType_DOUBLE
+	case predeclared.Bool:
+		return pwsv1.ParamType_BOOL
+	case predeclared.Bytes:
+		return pwsv1.ParamType_BYTES
+	}
+	return pwsv1.ParamType_PARAM_TYPE_UNSPECIFIED
 }
