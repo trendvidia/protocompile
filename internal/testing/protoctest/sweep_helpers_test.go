@@ -18,7 +18,7 @@
 // TestSweepVsProtoc (in sweep_protoc_test.go) still uses these
 // fixture-collection helpers.
 
-package dualcompiler_test
+package protoctest_test
 
 import (
 	"context"
@@ -33,7 +33,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/trendvidia/protocompile/internal/testing/dualcompiler"
+	"github.com/trendvidia/protocompile/internal/testing/protoctest"
 )
 
 var pointerRegex = regexp.MustCompile(`0x[0-9a-f]+`)
@@ -124,7 +124,7 @@ func repoRoot(t *testing.T) string {
 	return wd
 }
 
-func compileOne(ctx context.Context, c dualcompiler.CompilerInterface, file string) (dualcompiler.CompiledFile, error) {
+func compileOne(ctx context.Context, c protoctest.Compiler, file string) (protoctest.CompiledFile, error) {
 	result, err := c.Compile(ctx, file)
 	if err != nil {
 		return nil, err
