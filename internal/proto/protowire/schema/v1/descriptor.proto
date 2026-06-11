@@ -1,0 +1,239 @@
+// Copyright 2020-2026 Buf Technologies, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Protowire Schema Extensions — descriptor-level lowering targets.
+//
+// Vendored from `trendvidia/protowire` (`proto/schema/v1/descriptor.proto`)
+// for protocompile's B4 lowering pass. Extension numbers in the 50100-50104
+// range in upstream protowire collide with SBE's `schema_id` (50100) and
+// `version` (50101) on FileOptions; this vendored copy uses the 50400-50404
+// range instead. The numbers will be unified upstream in a follow-up
+// protowire PR; once that lands, this vendor will be regenerated to match.
+//
+// User-facing surface (the `type`, `function`, `annotation`, `@annot(...)`
+// constructs themselves) lives in protowire's `annotations.proto` and is
+// not vendored here — protocompile compiles it via the standard parser.
+
+syntax = "proto3";
+
+package protowire.schema.v1;
+
+import "google/protobuf/any.proto";
+import "google/protobuf/descriptor.proto";
+
+// ── Annotation carrier ────────────────────────────────────────────────────
+
+// AnnotationList carries the schema-extension annotations attached to a
+// single declaration. Wired in as an extension on every Options message at
+// field number 50400 (see `extend` blocks at the bottom of this file).
+message AnnotationList {
+  repeated Annotation entries = 1;
+}
+
+// Annotation is one `@name(args)` use site, lowered into descriptor form.
+message Annotation {
+  // Fully-qualified annotation name, e.g. "protowire.schema.v1.validate".
+  string name = 1;
+
+  // Arguments, in source order. Named args may appear after positional ones.
+  repeated AnnotationArg args = 2;
+
+  // Source position of the `@` token. Populated by the lowering pass.
+  SourceLocation location = 3;
+}
+
+// AnnotationArg is a single argument. `name` is empty for positional args.
+message AnnotationArg {
+  string name = 1;
+
+  oneof value {
+    string string_value = 10;
+    int64 int_value = 11;
+    double double_value = 12;
+    bool bool_value = 13;
+    bytes bytes_value = 14;
+    Literal literal = 15; // enum name, message literal, list literal
+    Expression expression = 20; // for annotation params typed `expression`
+  }
+}
+
+// Literal carries non-scalar argument values: enum names, message literals,
+// list literals. Detailed shape is tracked separately (RFC-001 open
+// question §13 #6).
+message Literal {
+  oneof kind {
+    string enum_name = 1; // "OrderStatus.UNKNOWN"
+    google.protobuf.Any message = 2; // typed message literal
+    ListLiteral list = 3; // [..., ..., ...]
+  }
+}
+
+message ListLiteral {
+  repeated AnnotationArg elements = 1;
+}
+
+// Expression carries a verbatim engine-language fragment together with the
+// function-call references extracted by the protocompile lowering pass for
+// signature verification and source-mapping.
+message Expression {
+  // Raw engine source, byte-for-byte as the user wrote it (modulo whitespace
+  // normalization). The target engine parses this at descriptor-load time.
+  string source = 1;
+
+  // Function-call references found within this expression. Each entry
+  // identifies an `external function` call site by fully-qualified name and
+  // arity. Used by the engine's init-time verification and by source-map
+  // construction for error attribution.
+  repeated FunctionRef calls = 2;
+
+  // Position of the expression's opening delimiter in the source file.
+  SourceLocation location = 3;
+}
+
+message FunctionRef {
+  string fqn = 1;
+  int32 arity = 2;
+}
+
+// ── File-scope declaration carriers ───────────────────────────────────────
+
+// FileFunctions enumerates the `function` declarations originating in this
+// file. Imported function declarations are NOT replicated here — they live
+// in the FileFunctions of their declaring file and are resolved across
+// imports the same way as messages and enums.
+message FileFunctions {
+  repeated FunctionDecl declarations = 1;
+}
+
+message FunctionDecl {
+  string name = 1;
+  repeated FunctionParam params = 2;
+  map<string, AnnotationArg> options = 3;
+  SourceLocation location = 4;
+}
+
+message FunctionParam {
+  string name = 1;
+  string type = 2;
+}
+
+// FileAnnotationDecls enumerates the `annotation` declarations originating
+// in this file.
+message FileAnnotationDecls {
+  repeated AnnotationDecl declarations = 1;
+}
+
+message AnnotationDecl {
+  string name = 1;
+  repeated AnnotationParam params = 2;
+  SourceLocation location = 3;
+}
+
+message AnnotationParam {
+  string name = 1;
+  ParamType type = 2;
+  string type_fqn = 3;
+  AnnotationArg default_value = 4;
+}
+
+enum ParamType {
+  PARAM_TYPE_UNSPECIFIED = 0;
+  EXPRESSION = 1;
+  STRING = 2;
+  INT32 = 3;
+  INT64 = 4;
+  FLOAT = 5;
+  DOUBLE = 6;
+  BOOL = 7;
+  BYTES = 8;
+  ANY = 9;
+  ENUM_OR_MESSAGE = 10;
+}
+
+// FileTypeDecls enumerates the `type` declarations originating in this
+// file.
+message FileTypeDecls {
+  repeated TypeDecl declarations = 1;
+}
+
+message TypeDecl {
+  string name = 1;
+  string base_type_fqn = 2;
+  AnnotationList annotations = 3;
+  SourceLocation location = 4;
+}
+
+// ── Source map ────────────────────────────────────────────────────────────
+
+message SourceMap {
+  string file = 1;
+  repeated SourceEntry entries = 2;
+}
+
+message SourceEntry {
+  EntryKind kind = 1;
+  string descriptor_path = 2;
+  SourceLocation source_location = 3;
+  repeated TypeChainLink type_chain = 4;
+}
+
+enum EntryKind {
+  ENTRY_KIND_UNSPECIFIED = 0;
+  TYPE_REFINEMENT = 1;
+  FIELD_VALIDATE = 2;
+  MESSAGE_VALIDATE = 3;
+  FUNCTION_CALL = 4;
+  ANNOTATION_USE = 5;
+}
+
+message TypeChainLink {
+  string type_fqn = 1;
+  SourceLocation declaration_location = 2;
+}
+
+message SourceLocation {
+  string file = 1;
+  int32 line = 2;
+  int32 column = 3;
+}
+
+// ── Options-message extensions ────────────────────────────────────────────
+//
+// Extension numbers live in protowire's reserved 50000-59999 family range
+// (see protowire/STABILITY.md). The schema-extensions sub-range vendored
+// here is 50400-50499; 50400-50404 are allocated by this revision.
+// Upstream protowire uses 50100-50104 and will migrate in a follow-up PR
+// to deconflict with SBE.
+
+// Extension fields share the wire-format number 50400 on every
+// Options message they extend (numbers are per-extended-message in
+// protobuf, so this is legal), but each extension field needs a
+// unique FQN inside the schema-extension package's file scope.
+// Convention: prefix with the options-message kind.
+extend google.protobuf.FileOptions {
+  AnnotationList file_annotations = 50400;
+
+  FileFunctions functions = 50401;
+  FileAnnotationDecls annotation_decls = 50402;
+  FileTypeDecls type_decls = 50403;
+  SourceMap source_map = 50404;
+}
+
+extend google.protobuf.MessageOptions { AnnotationList message_annotations = 50400; }
+extend google.protobuf.FieldOptions { AnnotationList field_annotations = 50400; }
+extend google.protobuf.EnumOptions { AnnotationList enum_annotations = 50400; }
+extend google.protobuf.EnumValueOptions { AnnotationList enum_value_annotations = 50400; }
+extend google.protobuf.ServiceOptions { AnnotationList service_annotations = 50400; }
+extend google.protobuf.MethodOptions { AnnotationList method_annotations = 50400; }
+extend google.protobuf.OneofOptions { AnnotationList oneof_annotations = 50400; }
