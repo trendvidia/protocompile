@@ -310,6 +310,52 @@ func buildFunctionDecl(fn ir.Function) *pwsv1.FunctionDecl {
 	return out
 }
 
+// emitFileTypeDecls populates the [pwsv1.FileTypeDecls] extension
+// on the file's Options with one [pwsv1.TypeDecl] per `type`
+// alias declaration originating in the file. Returns true when at
+// least one declaration was emitted.
+func emitFileTypeDecls(file *ir.File, target *descriptorpb.FileOptions) bool {
+	aliases := file.TypeAliases()
+	if aliases.Len() == 0 {
+		return false
+	}
+	out := &pwsv1.FileTypeDecls{}
+	for a := range seq.Values(aliases) {
+		out.Declarations = append(out.Declarations, buildTypeDecl(a))
+	}
+	if len(out.Declarations) == 0 {
+		return false
+	}
+	proto.SetExtension(target, pwsv1.E_TypeDecls, out)
+	return true
+}
+
+// buildTypeDecl lowers one [ir.TypeAlias] into the [pwsv1.TypeDecl]
+// descriptor form. The alias's annotation list (the
+// `type Email = string @validate(...)` trailing-annotation form) is
+// preserved verbatim so downstream tools can attach the validation
+// rules at every use site without re-walking the IR.
+func buildTypeDecl(a ir.TypeAlias) *pwsv1.TypeDecl {
+	out := &pwsv1.TypeDecl{
+		Name:        string(a.FullName()),
+		BaseTypeFqn: a.BaseTypeName(),
+	}
+	uses := a.Annotations()
+	if uses.Len() == 0 {
+		return out
+	}
+	list := &pwsv1.AnnotationList{}
+	for u := range seq.Values(uses) {
+		if entry := buildAnnotation(u); entry != nil {
+			list.Entries = append(list.Entries, entry)
+		}
+	}
+	if len(list.Entries) > 0 {
+		out.Annotations = list
+	}
+	return out
+}
+
 // scalarParamType maps a predeclared scalar [predeclared.Name] to
 // the matching [pwsv1.ParamType] value. Returns
 // [pwsv1.ParamType_PARAM_TYPE_UNSPECIFIED] for non-scalars (which

@@ -96,6 +96,24 @@ func resolveAnnotationUses(file *File, r *report.Report) {
 			},
 		)
 	}
+
+	for fn := range seq.Values(file.Functions()) {
+		resolveAnnotationUsesOn(
+			file, r, fn.AST().Annotations(), file.Package(),
+			func(ids []id.ID[AnnotationUse]) {
+				fn.Raw().annotationUses = ids
+			},
+		)
+	}
+
+	for ta := range seq.Values(file.TypeAliases()) {
+		resolveAnnotationUsesOn(
+			file, r, ta.AST().Annotations(), file.Package(),
+			func(ids []id.ID[AnnotationUse]) {
+				ta.Raw().annotationUses = ids
+			},
+		)
+	}
 }
 
 // resolveAnnotationUsesOn handles one carrier: walks its

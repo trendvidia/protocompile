@@ -34,3 +34,4 @@
   - name: SymbolKindMethod
   - name: SymbolKindAnnotation
   - name: SymbolKindFunction
+  - name: SymbolKindTypeAlias

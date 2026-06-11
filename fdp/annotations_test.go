@@ -296,6 +296,47 @@ function matches(value: string, pattern: string);
 	assert.Equal(t, "string", fns.Declarations[1].Params[1].Type)
 }
 
+// TestAnnotationEmissionFileTypeDecls verifies that `type` alias
+// declarations land in the FileTypeDecls extension on FileOptions,
+// preserving the base-type text and any trailing annotations.
+func TestAnnotationEmissionFileTypeDecls(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+annotation since(when: string);
+
+type Email = string;
+type Phone = string @since("2026-06-01");
+`
+
+	f := compileForFDPTest(t, src)
+	require.NotNil(t, f.Options)
+	decls, ok := proto.GetExtension(f.Options, pwsv1.E_TypeDecls).(*pwsv1.FileTypeDecls)
+	require.True(t, ok)
+	require.Len(t, decls.Declarations, 2)
+
+	byName := map[string]*pwsv1.TypeDecl{}
+	for _, d := range decls.Declarations {
+		byName[d.Name] = d
+	}
+
+	if d, ok := byName["test.Email"]; assert.True(t, ok) {
+		assert.Equal(t, "string", d.BaseTypeFqn)
+		assert.Nil(t, d.Annotations, "Email has no trailing annotations")
+	}
+	if d, ok := byName["test.Phone"]; assert.True(t, ok) {
+		assert.Equal(t, "string", d.BaseTypeFqn)
+		require.NotNil(t, d.Annotations)
+		require.Len(t, d.Annotations.Entries, 1)
+		entry := d.Annotations.Entries[0]
+		assert.Equal(t, "test.since", entry.Name)
+		require.Len(t, entry.Args, 1)
+		assert.Equal(t, "2026-06-01", entry.Args[0].GetStringValue())
+	}
+}
+
 // TestAnnotationEmissionCarrierCoverage verifies the extension lands
 // on the correct Options message for each carrier kind.
 func TestAnnotationEmissionCarrierCoverage(t *testing.T) {

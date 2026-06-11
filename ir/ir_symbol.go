@@ -127,6 +127,14 @@ func (s Symbol) AsFunction() Function {
 	return id.Wrap(s.Context(), id.ID[Function](s.Raw().data))
 }
 
+// AsTypeAlias returns the type alias this symbol refers to, if it is one.
+func (s Symbol) AsTypeAlias() TypeAlias {
+	if s.Kind() != SymbolKindTypeAlias {
+		return TypeAlias{}
+	}
+	return id.Wrap(s.Context(), id.ID[TypeAlias](s.Raw().data))
+}
+
 // FeatureSet returns the features associated with this symbol.
 func (s Symbol) FeatureSet() FeatureSet {
 	switch s.Kind() {
@@ -219,6 +227,8 @@ func (s Symbol) Definition() source.Span {
 		return s.AsAnnotation().AST().Name().Span()
 	case SymbolKindFunction:
 		return s.AsFunction().AST().Name().Span()
+	case SymbolKindTypeAlias:
+		return s.AsTypeAlias().AST().Name().Span()
 	}
 
 	return source.Span{}

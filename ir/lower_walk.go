@@ -164,6 +164,9 @@ func (w *walker) recurse(decl ast.DeclAny, parent any) {
 
 	case ast.DeclKindFunction:
 		w.newFunction(decl.AsFunction(), parent)
+
+	case ast.DeclKindType:
+		w.newTypeAlias(decl.AsType(), parent)
 	}
 }
 
@@ -457,6 +460,43 @@ func (w *walker) newFunction(decl ast.DeclFunction, parent any) Function {
 
 	w.File.functions = append(w.File.functions, fn.ID())
 	return fn
+}
+
+// newTypeAlias materialises a [TypeAlias] from a `type` declaration's
+// AST. PSE v1 aliases are always top-level (package-scoped);
+// a non-nil walker parent indicates a nested context the parser has
+// not validated and we bail.
+func (w *walker) newTypeAlias(decl ast.DeclType, parent any) TypeAlias {
+	if parent != nil {
+		return TypeAlias{}
+	}
+	if decl.IsZero() {
+		return TypeAlias{}
+	}
+
+	name := decl.Name().Text()
+	if name == "" {
+		return TypeAlias{}
+	}
+	fqn := w.pkg.Append(name)
+
+	raw := rawTypeAlias{
+		def:  decl.ID(),
+		name: w.session.intern.Intern(name),
+		fqn:  w.session.intern.Intern(string(fqn)),
+	}
+	// The base-type expression may be any [ast.ExprAny] shape; PSE v1
+	// accepts a path (`string`, `myco.Email`) and the parser already
+	// rejects non-path bases. We capture the textual form for the
+	// FDP carrier and leave deeper classification to the broader
+	// field-type resolution stack.
+	if v := decl.Value(); !v.IsZero() {
+		raw.baseTypeName = w.session.intern.Intern(v.Span().Text())
+	}
+
+	alias := id.Wrap(w.File, id.ID[TypeAlias](w.arenas.typeAliases.NewCompressed(raw)))
+	w.File.typeAliases = append(w.File.typeAliases, alias.ID())
+	return alias
 }
 
 func (w *walker) fullname(parentTy Type, name string) string {
