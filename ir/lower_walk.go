@@ -158,6 +158,9 @@ func (w *walker) recurse(decl ast.DeclAny, parent any) {
 		case ast.DefKindOption:
 			// Options are lowered elsewhere.
 		}
+
+	case ast.DeclKindAnnotation:
+		w.newAnnotation(decl.AsAnnotation(), parent)
 	}
 }
 
@@ -359,6 +362,48 @@ func (w *walker) newMethod(def ast.DeclDef, parent any) Method {
 
 	service.Raw().methods = append(service.Raw().methods, method.ID())
 	return method
+}
+
+// newAnnotation materialises an [Annotation] from a `annotation`
+// declaration's AST. Annotations are always top-level (package-scoped)
+// in PSE v1 — nested annotations are not part of the grammar — so a
+// non-nil parent indicates a nesting context the parser has not
+// validated and we bail.
+func (w *walker) newAnnotation(decl ast.DeclAnnotation, parent any) Annotation {
+	if parent != nil {
+		return Annotation{}
+	}
+	if decl.IsZero() {
+		return Annotation{}
+	}
+
+	name := decl.Name().Text()
+	if name == "" {
+		return Annotation{}
+	}
+	fqn := w.pkg.Append(name)
+
+	ann := id.Wrap(w.File, id.ID[Annotation](w.arenas.annotations.NewCompressed(rawAnnotation{
+		def:  decl.ID(),
+		name: w.session.intern.Intern(name),
+		fqn:  w.session.intern.Intern(string(fqn)),
+	})))
+
+	for p := range seq.Values(decl.Params()) {
+		pname := p.Name().Text()
+		if pname == "" {
+			continue
+		}
+		paramID := id.ID[AnnotationParam](w.arenas.annotationParams.NewCompressed(rawAnnotationParam{
+			def:    p.ID(),
+			parent: ann.ID(),
+			name:   w.session.intern.Intern(pname),
+		}))
+		ann.Raw().params = append(ann.Raw().params, paramID)
+	}
+
+	w.File.annotations = append(w.File.annotations, ann.ID())
+	return ann
 }
 
 func (w *walker) fullname(parentTy Type, name string) string {

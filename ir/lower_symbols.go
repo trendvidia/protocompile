@@ -80,6 +80,9 @@ func buildLocalSymbols(file *File) {
 			newMethodSymbol(m)
 		}
 	}
+	for a := range seq.Values(file.Annotations()) {
+		newAnnotationSymbol(a)
+	}
 
 	file.exported.sort(file)
 }
@@ -148,6 +151,18 @@ func newMethodSymbol(m Method) {
 		kind: SymbolKindMethod,
 		fqn:  m.InternedFullName(),
 		data: arena.Untyped(c.arenas.methods.Compress(m.Raw())),
+	})
+	c.exported = append(c.exported, symbol{
+		ref: Ref[Symbol]{id: id.ID[Symbol](sym)},
+	})
+}
+
+func newAnnotationSymbol(a Annotation) {
+	c := a.Context()
+	sym := c.arenas.symbols.NewCompressed(rawSymbol{
+		kind: SymbolKindAnnotation,
+		fqn:  a.InternedFullName(),
+		data: arena.Untyped(c.arenas.annotations.Compress(a.Raw())),
 	})
 	c.exported = append(c.exported, symbol{
 		ref: Ref[Symbol]{id: id.ID[Symbol](sym)},

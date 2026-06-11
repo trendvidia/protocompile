@@ -32,3 +32,4 @@
   - name: SymbolKindOneof
   - name: SymbolKindService
   - name: SymbolKindMethod
+  - name: SymbolKindAnnotation

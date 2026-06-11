@@ -56,9 +56,10 @@ type File struct {
 	extends            []id.ID[Extend]
 	topLevelExtendsEnd int // Index of last top-level extension in extends.
 
-	options  id.ID[Value]
-	services []id.ID[Service]
-	features id.ID[FeatureSet]
+	options     id.ID[Value]
+	services    []id.ID[Service]
+	annotations []id.ID[Annotation]
+	features    id.ID[FeatureSet]
 
 	// Table of all symbols transitively imported by this file. This is all
 	// local symbols plus the imported tables of all direct imports. Importing
@@ -97,6 +98,9 @@ type File struct {
 
 		services arena.Arena[rawService]
 		methods  arena.Arena[rawMethod]
+
+		annotations      arena.Arena[rawAnnotation]
+		annotationParams arena.Arena[rawAnnotationParam]
 
 		values   arena.Arena[rawValue]
 		messages arena.Arena[rawMessageValue]
@@ -332,6 +336,20 @@ func (f *File) Services() seq.Indexer[Service] {
 	)
 }
 
+// Annotations returns all annotation declarations introduced in this file.
+func (f *File) Annotations() seq.Indexer[Annotation] {
+	var annotations []id.ID[Annotation]
+	if f != nil {
+		annotations = f.annotations
+	}
+	return seq.NewFixedSlice(
+		annotations,
+		func(_ int, p id.ID[Annotation]) Annotation {
+			return id.Wrap(f, p)
+		},
+	)
+}
+
 // Options returns the top level options applied to this file.
 func (f *File) Options() MessageValue {
 	var options id.ID[Value]
@@ -436,6 +454,11 @@ func (f *File) FromID(id uint64, want any) any {
 		return f.arenas.services.Deref(arena.Pointer[rawService](id))
 	case **rawMethod:
 		return f.arenas.methods.Deref(arena.Pointer[rawMethod](id))
+
+	case **rawAnnotation:
+		return f.arenas.annotations.Deref(arena.Pointer[rawAnnotation](id))
+	case **rawAnnotationParam:
+		return f.arenas.annotationParams.Deref(arena.Pointer[rawAnnotationParam](id))
 
 	case **rawValue:
 		return f.arenas.values.Deref(arena.Pointer[rawValue](id))

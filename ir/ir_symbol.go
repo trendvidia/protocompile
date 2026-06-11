@@ -111,6 +111,14 @@ func (s Symbol) AsMethod() Method {
 	return id.Wrap(s.Context(), id.ID[Method](s.Raw().data))
 }
 
+// AsAnnotation returns the annotation this symbol refers to, if it is one.
+func (s Symbol) AsAnnotation() Annotation {
+	if s.Kind() != SymbolKindAnnotation {
+		return Annotation{}
+	}
+	return id.Wrap(s.Context(), id.ID[Annotation](s.Raw().data))
+}
+
 // FeatureSet returns the features associated with this symbol.
 func (s Symbol) FeatureSet() FeatureSet {
 	switch s.Kind() {
@@ -199,6 +207,8 @@ func (s Symbol) Definition() source.Span {
 		return s.AsService().AST().Name().Span()
 	case SymbolKindMethod:
 		return s.AsMethod().AST().Name().Span()
+	case SymbolKindAnnotation:
+		return s.AsAnnotation().AST().Name().Span()
 	}
 
 	return source.Span{}

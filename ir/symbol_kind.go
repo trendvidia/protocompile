@@ -37,6 +37,7 @@ const (
 	SymbolKindOneof
 	SymbolKindService
 	SymbolKindMethod
+	SymbolKindAnnotation
 )
 
 // String implements [fmt.Stringer].
@@ -56,30 +57,32 @@ func (v SymbolKind) GoString() string {
 }
 
 var _table_SymbolKind_String = [...]string{
-	SymbolKindInvalid:   "SymbolKindInvalid",
-	SymbolKindPackage:   "SymbolKindPackage",
-	SymbolKindScalar:    "SymbolKindScalar",
-	SymbolKindMessage:   "SymbolKindMessage",
-	SymbolKindEnum:      "SymbolKindEnum",
-	SymbolKindField:     "SymbolKindField",
-	SymbolKindEnumValue: "SymbolKindEnumValue",
-	SymbolKindExtension: "SymbolKindExtension",
-	SymbolKindOneof:     "SymbolKindOneof",
-	SymbolKindService:   "SymbolKindService",
-	SymbolKindMethod:    "SymbolKindMethod",
+	SymbolKindInvalid:    "SymbolKindInvalid",
+	SymbolKindPackage:    "SymbolKindPackage",
+	SymbolKindScalar:     "SymbolKindScalar",
+	SymbolKindMessage:    "SymbolKindMessage",
+	SymbolKindEnum:       "SymbolKindEnum",
+	SymbolKindField:      "SymbolKindField",
+	SymbolKindEnumValue:  "SymbolKindEnumValue",
+	SymbolKindExtension:  "SymbolKindExtension",
+	SymbolKindOneof:      "SymbolKindOneof",
+	SymbolKindService:    "SymbolKindService",
+	SymbolKindMethod:     "SymbolKindMethod",
+	SymbolKindAnnotation: "SymbolKindAnnotation",
 }
 
 var _table_SymbolKind_GoString = [...]string{
-	SymbolKindInvalid:   "ir.SymbolKindInvalid",
-	SymbolKindPackage:   "ir.SymbolKindPackage",
-	SymbolKindScalar:    "ir.SymbolKindScalar",
-	SymbolKindMessage:   "ir.SymbolKindMessage",
-	SymbolKindEnum:      "ir.SymbolKindEnum",
-	SymbolKindField:     "ir.SymbolKindField",
-	SymbolKindEnumValue: "ir.SymbolKindEnumValue",
-	SymbolKindExtension: "ir.SymbolKindExtension",
-	SymbolKindOneof:     "ir.SymbolKindOneof",
-	SymbolKindService:   "ir.SymbolKindService",
-	SymbolKindMethod:    "ir.SymbolKindMethod",
+	SymbolKindInvalid:    "ir.SymbolKindInvalid",
+	SymbolKindPackage:    "ir.SymbolKindPackage",
+	SymbolKindScalar:     "ir.SymbolKindScalar",
+	SymbolKindMessage:    "ir.SymbolKindMessage",
+	SymbolKindEnum:       "ir.SymbolKindEnum",
+	SymbolKindField:      "ir.SymbolKindField",
+	SymbolKindEnumValue:  "ir.SymbolKindEnumValue",
+	SymbolKindExtension:  "ir.SymbolKindExtension",
+	SymbolKindOneof:      "ir.SymbolKindOneof",
+	SymbolKindService:    "ir.SymbolKindService",
+	SymbolKindMethod:     "ir.SymbolKindMethod",
+	SymbolKindAnnotation: "ir.SymbolKindAnnotation",
 }
 var _ iter.Seq[int] // Mark iter as used.
