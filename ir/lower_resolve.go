@@ -149,13 +149,23 @@ func resolveFieldType(field Member, r *report.Report) {
 		scope: field.Scope(),
 		name:  FullName(path.Canonicalized()),
 
-		skipIfNot: SymbolKind.IsType,
-		accept:    SymbolKind.IsType,
+		skipIfNot: isTypeOrAlias,
+		accept:    isTypeOrAlias,
 		want:      taxa.Type,
 
 		allowScalars:  true,
 		suggestImport: true,
 	}.resolve()
+
+	// PSE v1 (RFC-001 §5): type aliases are language sugar. A field
+	// of alias type lowers to a field of the underlying message /
+	// enum / scalar. Walk the alias chain here so the rest of this
+	// function sees the resolved base type. The matching annotation
+	// propagation runs later, after annotation use sites are
+	// resolved — see [propagateTypeAliasAnnotations].
+	if sym.Kind() == SymbolKindTypeAlias {
+		sym, _ = unwrapTypeAlias(field, sym.AsTypeAlias(), path, r)
+	}
 
 	if sym.Kind().IsType() {
 		ty := sym.AsType()
@@ -190,6 +200,163 @@ func resolveFieldType(field Member, r *report.Report) {
 			}
 		}
 	}
+}
+
+// isTypeOrAlias accepts the symbol kinds that may appear at a
+// field-type position once PSE type aliases are taken into account:
+// the underlying message / enum / scalar kinds plus type aliases
+// themselves (which the field-type resolver then unwraps via
+// [unwrapTypeAlias]).
+func isTypeOrAlias(k SymbolKind) bool {
+	return k.IsType() || k == SymbolKindTypeAlias
+}
+
+// unwrapTypeAlias walks the type-alias chain rooted at `alias` to
+// its underlying message / enum / scalar Type symbol. Returns the
+// resolved non-alias [Symbol] (zero on cycle) plus the chain's
+// accumulated annotation use IDs.
+//
+// Per RFC-001 §5, type aliases are language sugar: a field of alias
+// type lowers to a field of the underlying type, with the alias's
+// trailing annotations expanded onto the field's annotation list.
+//
+// Annotation propagation is currently scoped to same-file alias
+// chains: the use IDs live in the alias's file arena, so carrying
+// them across files would require allocating new uses in the
+// destination arena and remapping [Ref][Symbol] file indices. Cross-
+// file alias type substitution still works for the base type
+// (handled by the [symbolRef] lookup below); only annotation
+// propagation is deferred.
+//
+// On cycle, emits a diagnostic via `r` and returns a zero Symbol.
+// `r` may be nil to suppress diagnostics — the annotation-propagation
+// pass relies on this when it re-walks a chain whose diagnostics were
+// already emitted during field-type resolution.
+func unwrapTypeAlias(field Member, alias TypeAlias, refSpan source.Spanner, r *report.Report) (Symbol, []id.ID[AnnotationUse]) {
+	var (
+		seen        = map[FullName]bool{}
+		accumulated []id.ID[AnnotationUse]
+		current     = alias
+	)
+	for {
+		fqn := current.FullName()
+		if seen[fqn] {
+			if r != nil {
+				r.Errorf("type alias `%s` is cyclic", fqn).Apply(
+					report.Snippetf(refSpan, "referenced here"),
+					report.Snippetf(current.AST().Name(), "alias defined here"),
+				)
+			}
+			return Symbol{}, nil
+		}
+		seen[fqn] = true
+
+		if current.Context() == field.Context() {
+			for u := range seq.Values(current.Annotations()) {
+				accumulated = append(accumulated, u.ID())
+			}
+		}
+
+		baseSym := symbolRef{
+			File:   current.Context(),
+			Report: r,
+
+			span:  current.AST().Value(),
+			scope: current.FullName().Parent(),
+			name:  FullName(current.BaseTypeName()),
+
+			accept: isTypeOrAlias,
+			want:   taxa.Type,
+
+			allowScalars:  true,
+			suggestImport: true,
+		}.resolve()
+
+		if baseSym.Kind() == SymbolKindTypeAlias {
+			current = baseSym.AsTypeAlias()
+			continue
+		}
+
+		return baseSym, accumulated
+	}
+}
+
+// fieldTypePath extracts the path of a field's declared type, if any.
+// Returns a zero path for non-path / prefixed-non-path / generic
+// types. This mirrors the extraction logic at the head of
+// [resolveFieldType] so the annotation-propagation pass can find the
+// alias chain head without re-running the full field-type pipeline.
+func fieldTypePath(ty ast.TypeAny) ast.Path {
+	switch ty.Kind() {
+	case ast.TypeKindPath:
+		return ty.AsPath().Path
+	case ast.TypeKindPrefixed:
+		if stripped := ty.RemovePrefixes(); stripped.Kind() == ast.TypeKindPath {
+			return stripped.AsPath().Path
+		}
+	}
+	return ast.Path{}
+}
+
+// propagateTypeAliasAnnotations runs after [resolveAnnotationUses]
+// and expands a type-alias chain's trailing annotations onto each
+// field whose declared type referenced the alias. Per RFC-001 §5,
+// `type Email = string @validate(...)` followed by
+// `Email email = 1;` is equivalent to
+// `string email = 1 @validate(...);`, so the alias chain's
+// annotation list appears on the field's annotation list ahead of
+// any field-site annotations.
+//
+// Cycle and missing-base diagnostics were already emitted during
+// [resolveFieldType]; this pass re-walks the chain silently
+// (`r == nil`) to collect the now-resolved annotation use IDs.
+func propagateTypeAliasAnnotations(file *File) {
+	for ty := range seq.Values(file.AllTypes()) {
+		if !ty.IsMessage() {
+			continue
+		}
+		for field := range seq.Values(ty.Members()) {
+			propagateAliasAnnotationsOn(file, field)
+		}
+	}
+	for ext := range seq.Values(file.AllExtensions()) {
+		propagateAliasAnnotationsOn(file, ext)
+	}
+}
+
+func propagateAliasAnnotationsOn(file *File, field Member) {
+	path := fieldTypePath(field.TypeAST())
+	if path.IsZero() {
+		return
+	}
+
+	sym := symbolRef{
+		File: file,
+
+		span:  path,
+		scope: field.Scope(),
+		name:  FullName(path.Canonicalized()),
+
+		skipIfNot: isTypeOrAlias,
+		accept:    isTypeOrAlias,
+		want:      taxa.Type,
+
+		allowScalars: true,
+	}.resolve()
+
+	if sym.Kind() != SymbolKindTypeAlias {
+		return
+	}
+
+	_, aliasUses := unwrapTypeAlias(field, sym.AsTypeAlias(), path, nil)
+	if len(aliasUses) == 0 {
+		return
+	}
+	existing := field.Raw().annotationUses
+	merged := make([]id.ID[AnnotationUse], 0, len(aliasUses)+len(existing))
+	merged = append(merged, aliasUses...)
+	merged = append(merged, existing...)
+	field.Raw().annotationUses = merged
 }
 
 func resolveExtendeeType(extend Extend, r *report.Report) {

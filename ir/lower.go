@@ -176,6 +176,13 @@ func lower(file *File, r *report.Report, importer Importer) {
 	// built and merged, but doesn't depend on options or features.
 	resolveAnnotationUses(file, r)
 
+	// Expand trailing-form annotations on type aliases onto each
+	// field whose declared type referenced the alias. Per RFC-001 §5
+	// aliases are language sugar; type substitution already happened
+	// in [resolveFieldType], but annotation propagation must wait
+	// until the alias's own annotation uses have been materialised.
+	propagateTypeAliasAnnotations(file)
+
 	// Phase B3: classify annotation parameter types (scalar /
 	// `expression` / `any` / user type), then type-check each use
 	// site's argument list against the resolved signature.
