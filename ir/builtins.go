@@ -57,6 +57,7 @@ type builtins struct {
 	CType, JSType     Member
 	Lazy              Member
 	UnverifiedLazy    Member `builtin:"optional"`
+	Retention         Member `builtin:"optional"`
 	AllowAlias        Member
 	MessageSet        Member
 	JSONName          Member
@@ -136,6 +137,7 @@ type builtinIDs struct {
 	JSType            intern.ID `intern:"google.protobuf.FieldOptions.jstype"`
 	Lazy              intern.ID `intern:"google.protobuf.FieldOptions.lazy"`
 	UnverifiedLazy    intern.ID `intern:"google.protobuf.FieldOptions.unverified_lazy"`
+	Retention         intern.ID `intern:"google.protobuf.FieldOptions.retention"`
 	AllowAlias        intern.ID `intern:"google.protobuf.EnumOptions.allow_alias"`
 	JSONName          intern.ID `intern:"google.protobuf.FieldDescriptorProto.json_name"`
 

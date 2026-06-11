@@ -30,6 +30,7 @@ import (
 	"github.com/trendvidia/protocompile/internal/ext/mapsx"
 	"github.com/trendvidia/protocompile/internal/ext/slicesx"
 	"github.com/trendvidia/protocompile/internal/intern"
+	"github.com/trendvidia/protocompile/internal/tags"
 	"github.com/trendvidia/protocompile/report"
 	"github.com/trendvidia/protocompile/seq"
 	"github.com/trendvidia/protocompile/source"
@@ -435,6 +436,16 @@ func (v Value) Marshal(buf []byte, r *report.Report) []byte {
 func (v Value) marshal(buf []byte, r *report.Report, ranges *[][2]int) ([]byte, int) {
 	if r != nil {
 		defer r.AnnotateICE(report.Snippetf(v.ValueAST(), "while marshalling this value"))
+	}
+
+	// Mirror protoc's default behaviour: drop fields whose own
+	// FieldOptions.retention is RETENTION_SOURCE from emitted descriptors.
+	// Examples: ExtensionRangeOptions.declaration,
+	// FeatureSet.enforce_naming_style. Without this filter the FDP
+	// contains source-retention fields protoc strips, breaking
+	// descriptor-set equivalence.
+	if retention, _ := v.Field().Options().Field(v.Field().Context().builtins().Retention).AsInt(); retention == tags.FieldOptions_OptionRetention_Source {
+		return buf, 0
 	}
 
 	scalar := v.Field().Element().Predeclared()

@@ -21,7 +21,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/reflect/protoreflect"
-	"google.golang.org/protobuf/types/descriptorpb"
 
 	"github.com/trendvidia/protocompile"
 )
@@ -72,18 +71,20 @@ func TestWithStandardImports(t *testing.T) {
 		require.NotNil(t, fds[0])
 
 		if name == "google/protobuf/descriptor.proto" {
-			// verify the extension declarations are present
+			// Sanity-check that FeatureSet was actually compiled. The
+			// extension-range *declarations* on FeatureSet are
+			// retention=RETENTION_SOURCE in descriptor.proto, so they
+			// are stripped from the compiled descriptor — protoc
+			// behaves the same way. Consumers that need to inspect
+			// declarations should read them off the source-form
+			// `descriptorpb.File_google_protobuf_descriptor_proto`
+			// metadata in protobuf-go, not off a freshly-compiled FDP.
 			d := fds[0].FindDescriptorByName("google.protobuf.FeatureSet")
 			require.NotNil(t, d)
 			md, ok := d.(protoreflect.MessageDescriptor)
 			require.True(t, ok)
-			var extRangeCount int
-			for i := range md.ExtensionRanges().Len() {
-				opts, ok := md.ExtensionRangeOptions(i).(*descriptorpb.ExtensionRangeOptions)
-				require.True(t, ok)
-				extRangeCount += len(opts.GetDeclaration())
-			}
-			require.Positive(t, extRangeCount, "no declarations found for FeatureSet for %q", name)
+			require.Positive(t, md.ExtensionRanges().Len(),
+				"FeatureSet should have at least one extension range")
 		}
 	}
 }

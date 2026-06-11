@@ -48,7 +48,7 @@ file:
       type: TYPE_MESSAGE
       type_name: ".test.strict.N.L"
       json_name: "nl"
-  options.features.default_symbol_visibility: STRICT
+  options.features: {}
   syntax: "editions"
   edition: EDITION_2024
 - name: "top_level.proto"
@@ -100,7 +100,7 @@ file:
       type: TYPE_MESSAGE
       type_name: ".test.top_level.N.L"
       json_name: "nl"
-  options.features.default_symbol_visibility: EXPORT_TOP_LEVEL
+  options.features: {}
   syntax: "editions"
   edition: EDITION_2024
 - name: "local.proto"
@@ -152,7 +152,7 @@ file:
       type: TYPE_MESSAGE
       type_name: ".test.local.N.L"
       json_name: "nl"
-  options.features.default_symbol_visibility: LOCAL_ALL
+  options.features: {}
   syntax: "editions"
   edition: EDITION_2024
 - name: "export.proto"
@@ -204,7 +204,7 @@ file:
       type: TYPE_MESSAGE
       type_name: ".test.export.N.L"
       json_name: "nl"
-  options.features.default_symbol_visibility: EXPORT_ALL
+  options.features: {}
   syntax: "editions"
   edition: EDITION_2024
 - name: "main.proto"
