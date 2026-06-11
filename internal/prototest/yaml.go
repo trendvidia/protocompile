@@ -26,7 +26,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	"github.com/trendvidia/protocompile/experimental/dom"
+	"github.com/trendvidia/protocompile/dom"
 	"github.com/trendvidia/protocompile/internal/cases"
 	"github.com/trendvidia/protocompile/internal/ext/cmpx"
 	"github.com/trendvidia/protocompile/internal/ext/iterx"

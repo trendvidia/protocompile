@@ -80,7 +80,7 @@ test: $(PROTOC) ## Run unit tests
 
 .PHONY: benchmarks
 benchmarks: $(PROTOC) ## Run benchmarks
-	$(GO) test -bench=. -benchmem -v ./experimental/benchmark
+	$(GO) test -bench=. -benchmem -v ./benchmark
 	cd internal/benchmarks && $(GO) test -bench=. -benchmem -v ./...
 
 .PHONY: build

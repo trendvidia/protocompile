@@ -19,7 +19,7 @@ import (
 	"io/fs"
 
 	"github.com/trendvidia/protocompile"
-	"github.com/trendvidia/protocompile/experimental/source"
+	"github.com/trendvidia/protocompile/source"
 )
 
 // resolverOpener adapts a protocompile.Resolver to the source.Opener interface

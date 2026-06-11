@@ -25,12 +25,12 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/dynamicpb"
 
-	"github.com/trendvidia/protocompile/experimental/fdp"
-	"github.com/trendvidia/protocompile/experimental/incremental"
-	"github.com/trendvidia/protocompile/experimental/incremental/queries"
-	"github.com/trendvidia/protocompile/experimental/ir"
-	"github.com/trendvidia/protocompile/experimental/report"
-	"github.com/trendvidia/protocompile/experimental/source"
+	"github.com/trendvidia/protocompile/fdp"
+	"github.com/trendvidia/protocompile/incremental"
+	"github.com/trendvidia/protocompile/incremental/queries"
+	"github.com/trendvidia/protocompile/ir"
+	"github.com/trendvidia/protocompile/report"
+	"github.com/trendvidia/protocompile/source"
 )
 
 // newCompilerAdapter wraps the experimental incremental compiler.
