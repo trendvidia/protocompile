@@ -15,11 +15,13 @@
 // Protowire Schema Extensions — descriptor-level lowering targets.
 //
 // Vendored from `trendvidia/protowire` (`proto/schema/v1/descriptor.proto`)
-// for protocompile's B4 lowering pass. Extension numbers in the 50100-50104
-// range in upstream protowire collide with SBE's `schema_id` (50100) and
-// `version` (50101) on FileOptions; this vendored copy uses the 50400-50404
-// range instead. The numbers will be unified upstream in a follow-up
-// protowire PR; once that lands, this vendor will be regenerated to match.
+// for protocompile's B4 lowering pass. The vendored copy and the upstream
+// share an identical wire format and field-name layout in the
+// schema-extensions sub-range (50400-50499); this vendor is the load-time
+// dependency that lets protocompile's `fdp/generator.go` emit the
+// `pwsv1.AnnotationList`, `pwsv1.FileAnnotationDecls`, and
+// `pwsv1.FileFunctions` carriers without importing protowire's whole
+// proto tree.
 //
 // User-facing surface (the `type`, `function`, `annotation`, `@annot(...)`
 // constructs themselves) lives in protowire's `annotations.proto` and is
@@ -212,9 +214,8 @@ message SourceLocation {
 //
 // Extension numbers live in protowire's reserved 50000-59999 family range
 // (see protowire/STABILITY.md). The schema-extensions sub-range vendored
-// here is 50400-50499; 50400-50404 are allocated by this revision.
-// Upstream protowire uses 50100-50104 and will migrate in a follow-up PR
-// to deconflict with SBE.
+// here is 50400-50499; 50400-50404 are allocated by this revision and
+// match upstream protowire byte-for-byte.
 
 // Extension fields share the wire-format number 50400 on every
 // Options message they extend (numbers are per-extended-message in
