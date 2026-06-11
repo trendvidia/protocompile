@@ -270,10 +270,67 @@ func validateAnnotationArg(r *report.Report, target Annotation, param Annotation
 		validateScalarArg(r, target, param, arg)
 		return
 	}
-	// User-type params: argument type-check requires options-style
-	// resolution (path → enum value, message literal handling) which
-	// the narrow legalize pass intentionally rejects today. Leave
-	// these unchecked until the options-style path is wired in.
+	if ut := param.UserType(); !ut.IsZero() && ut.IsEnum() {
+		validateEnumArg(r, target, param, arg, ut)
+		return
+	}
+	// Message-typed user-type params remain unchecked: the parser's
+	// narrow legalize pass rejects message literals at use sites, so
+	// the only argument shapes that can reach us are identifier
+	// paths and literals — neither of which is meaningful as a value
+	// of a message-typed parameter. Widening the legalize pass and
+	// adding message-literal lowering is its own follow-up.
+}
+
+// validateEnumArg checks that `arg` is an identifier path resolving
+// to an enum value of `enumTy`. Anything else — a literal, a
+// prefixed expression, or a path that resolves to a different
+// symbol or the wrong enum — produces a diagnostic.
+func validateEnumArg(r *report.Report, target Annotation, param AnnotationParam, arg ast.ExprAny, enumTy Type) {
+	mismatch := func(actual string) {
+		r.Errorf("argument %q for `%s` expects a value of enum `%s`, got %s",
+			param.Name(), target.FullName(), enumTy.FullName(), actual,
+		).Apply(
+			report.Snippet(arg),
+			report.Snippetf(param.AST(), "parameter declared here"),
+		)
+	}
+
+	if arg.Kind() != ast.ExprKindPath {
+		switch arg.Kind() {
+		case ast.ExprKindLiteral:
+			mismatch("a literal")
+		case ast.ExprKindPrefixed:
+			mismatch("a prefixed expression")
+		default:
+			mismatch("this expression shape")
+		}
+		return
+	}
+
+	path := arg.AsPath().Path
+	file := param.Context()
+	sym := symbolRef{
+		File:   file,
+		Report: r,
+		scope:  target.FullName().Parent(),
+		name:   FullName(path.Canonicalized()),
+		span:   path,
+		accept: func(k SymbolKind) bool { return k == SymbolKindEnumValue },
+		want:   taxa.EnumValue,
+	}.resolve()
+
+	if sym.IsZero() || sym.Kind() != SymbolKindEnumValue {
+		return // resolve already emitted a diagnostic
+	}
+	if parent := sym.AsMember().Parent(); parent != enumTy {
+		r.Errorf("argument %q for `%s` expects a value of enum `%s`, got a value of enum `%s`",
+			param.Name(), target.FullName(), enumTy.FullName(), parent.FullName(),
+		).Apply(
+			report.Snippet(arg),
+			report.Snippetf(param.AST(), "parameter declared here"),
+		)
+	}
 }
 
 // validateScalarArg checks one argument against a predeclared scalar

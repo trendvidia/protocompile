@@ -438,6 +438,123 @@ message M {}
 	assert.True(t, found, "expected arity diagnostic")
 }
 
+// TestAnnotationEnumArgAccepted verifies that an enum-typed user-
+// type parameter accepts an identifier-path argument that resolves
+// to an enum value of the matching enum, with no diagnostics.
+func TestAnnotationEnumArgAccepted(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+enum Visibility {
+  VIS_UNSET = 0;
+  PUBLIC = 1;
+  PRIVATE = 2;
+}
+
+annotation scope(via: Visibility);
+
+@scope(PUBLIC)
+message M {}
+`
+
+	_, rep := compileForAnnotationTest(t, src)
+	for _, d := range rep.Diagnostics {
+		if d.Level() >= report.Error {
+			t.Errorf("unexpected diagnostic: %s", d.Message())
+		}
+	}
+}
+
+// TestAnnotationEnumArgWrongEnum verifies that supplying a value of
+// a *different* enum produces a diagnostic that names both enums.
+func TestAnnotationEnumArgWrongEnum(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+enum Visibility { VIS_UNSET = 0; PUBLIC = 1; }
+enum Color      { COL_UNSET = 0; RED    = 1; }
+
+annotation scope(via: Visibility);
+
+@scope(RED)
+message M {}
+`
+
+	_, rep := compileForAnnotationTest(t, src)
+	var saw bool
+	for _, d := range rep.Diagnostics {
+		if strings.Contains(d.Message(), "test.scope") &&
+			strings.Contains(d.Message(), "test.Visibility") &&
+			strings.Contains(d.Message(), "test.Color") {
+			saw = true
+			break
+		}
+	}
+	assert.True(t, saw, "expected wrong-enum diagnostic mentioning both Visibility and Color")
+}
+
+// TestAnnotationEnumArgUndefined verifies that supplying an
+// undefined identifier produces the standard "cannot find" symbol-
+// resolution diagnostic.
+func TestAnnotationEnumArgUndefined(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+enum Visibility { VIS_UNSET = 0; PUBLIC = 1; }
+
+annotation scope(via: Visibility);
+
+@scope(NOT_A_VALUE)
+message M {}
+`
+
+	_, rep := compileForAnnotationTest(t, src)
+	var saw bool
+	for _, d := range rep.Diagnostics {
+		if strings.Contains(d.Message(), "cannot find `NOT_A_VALUE`") {
+			saw = true
+			break
+		}
+	}
+	assert.True(t, saw, "expected unresolved-symbol diagnostic")
+}
+
+// TestAnnotationEnumArgLiteral verifies that supplying a literal
+// (number or string) to an enum-typed parameter produces a
+// diagnostic that names the expected enum type.
+func TestAnnotationEnumArgLiteral(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+enum Visibility { VIS_UNSET = 0; PUBLIC = 1; }
+
+annotation scope(via: Visibility);
+
+@scope(42)
+message M {}
+`
+
+	_, rep := compileForAnnotationTest(t, src)
+	var saw bool
+	for _, d := range rep.Diagnostics {
+		if strings.Contains(d.Message(), "test.scope") &&
+			strings.Contains(d.Message(), "test.Visibility") &&
+			strings.Contains(d.Message(), "literal") {
+			saw = true
+			break
+		}
+	}
+	assert.True(t, saw, "expected literal-vs-enum diagnostic")
+}
+
 // TestAnnotationParamDefaultTypeCheck verifies that default-value
 // expressions on annotation parameters are type-checked against the
 // parameter's declared type, the same way use-site arguments are.
