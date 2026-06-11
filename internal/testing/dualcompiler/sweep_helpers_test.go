@@ -74,6 +74,11 @@ func collectFixtures(t *testing.T) []fixture {
 		{dir: "internal/testdata/options", importPaths: []string{"internal/testdata", "internal/testdata/options"}},
 		{dir: "internal/testdata/nopkg", importPaths: []string{"internal/testdata", "internal/testdata/nopkg"}},
 		{dir: "internal/testdata/pkg", importPaths: []string{"internal/testdata", "internal/testdata/pkg"}},
+		// Fixtures vendored from protocolbuffers/protobuf's own
+		// parser test corpus. Cross-imports use `google/protobuf/X.proto`
+		// paths, so the import root is the vendor-tree top
+		// (`internal/testdata/protobuf`), not the leaf directory.
+		{dir: "internal/testdata/protobuf/google/protobuf", importPaths: []string{"internal/testdata/protobuf"}},
 	}
 
 	var out []fixture
