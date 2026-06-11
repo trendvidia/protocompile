@@ -272,6 +272,44 @@ func buildAnnotationParamDecl(p ir.AnnotationParam) *pwsv1.AnnotationParam {
 	return out
 }
 
+// emitFileFunctions populates the [pwsv1.FileFunctions] extension
+// on the file's Options with one [pwsv1.FunctionDecl] per
+// `function` declaration originating in the file. Returns true when
+// at least one declaration was emitted.
+func emitFileFunctions(file *ir.File, target *descriptorpb.FileOptions) bool {
+	fns := file.Functions()
+	if fns.Len() == 0 {
+		return false
+	}
+	out := &pwsv1.FileFunctions{}
+	for fn := range seq.Values(fns) {
+		out.Declarations = append(out.Declarations, buildFunctionDecl(fn))
+	}
+	if len(out.Declarations) == 0 {
+		return false
+	}
+	proto.SetExtension(target, pwsv1.E_Functions, out)
+	return true
+}
+
+// buildFunctionDecl lowers one [ir.Function] into the
+// [pwsv1.FunctionDecl] descriptor form. Per the PSE design, the
+// engine performs run-time type-checking against the function's
+// signature; the descriptor surface just records names and textual
+// type references.
+func buildFunctionDecl(fn ir.Function) *pwsv1.FunctionDecl {
+	out := &pwsv1.FunctionDecl{
+		Name: string(fn.FullName()),
+	}
+	for p := range seq.Values(fn.Params()) {
+		out.Params = append(out.Params, &pwsv1.FunctionParam{
+			Name: p.Name(),
+			Type: p.TypeName(),
+		})
+	}
+	return out
+}
+
 // scalarParamType maps a predeclared scalar [predeclared.Name] to
 // the matching [pwsv1.ParamType] value. Returns
 // [pwsv1.ParamType_PARAM_TYPE_UNSPECIFIED] for non-scalars (which

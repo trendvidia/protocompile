@@ -38,6 +38,7 @@ const (
 	SymbolKindService
 	SymbolKindMethod
 	SymbolKindAnnotation
+	SymbolKindFunction
 )
 
 // String implements [fmt.Stringer].
@@ -69,6 +70,7 @@ var _table_SymbolKind_String = [...]string{
 	SymbolKindService:    "SymbolKindService",
 	SymbolKindMethod:     "SymbolKindMethod",
 	SymbolKindAnnotation: "SymbolKindAnnotation",
+	SymbolKindFunction:   "SymbolKindFunction",
 }
 
 var _table_SymbolKind_GoString = [...]string{
@@ -84,5 +86,6 @@ var _table_SymbolKind_GoString = [...]string{
 	SymbolKindService:    "ir.SymbolKindService",
 	SymbolKindMethod:     "ir.SymbolKindMethod",
 	SymbolKindAnnotation: "ir.SymbolKindAnnotation",
+	SymbolKindFunction:   "ir.SymbolKindFunction",
 }
 var _ iter.Seq[int] // Mark iter as used.

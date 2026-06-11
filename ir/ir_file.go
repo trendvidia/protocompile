@@ -59,6 +59,7 @@ type File struct {
 	options     id.ID[Value]
 	services    []id.ID[Service]
 	annotations []id.ID[Annotation]
+	functions   []id.ID[Function]
 	features    id.ID[FeatureSet]
 
 	// Table of all symbols transitively imported by this file. This is all
@@ -102,6 +103,8 @@ type File struct {
 		annotations      arena.Arena[rawAnnotation]
 		annotationParams arena.Arena[rawAnnotationParam]
 		annotationUses   arena.Arena[rawAnnotationUse]
+		functions        arena.Arena[rawFunction]
+		functionParams   arena.Arena[rawFunctionParam]
 
 		values   arena.Arena[rawValue]
 		messages arena.Arena[rawMessageValue]
@@ -351,6 +354,20 @@ func (f *File) Annotations() seq.Indexer[Annotation] {
 	)
 }
 
+// Functions returns all function declarations introduced in this file.
+func (f *File) Functions() seq.Indexer[Function] {
+	var functions []id.ID[Function]
+	if f != nil {
+		functions = f.functions
+	}
+	return seq.NewFixedSlice(
+		functions,
+		func(_ int, p id.ID[Function]) Function {
+			return id.Wrap(f, p)
+		},
+	)
+}
+
 // Options returns the top level options applied to this file.
 func (f *File) Options() MessageValue {
 	var options id.ID[Value]
@@ -462,6 +479,10 @@ func (f *File) FromID(id uint64, want any) any {
 		return f.arenas.annotationParams.Deref(arena.Pointer[rawAnnotationParam](id))
 	case **rawAnnotationUse:
 		return f.arenas.annotationUses.Deref(arena.Pointer[rawAnnotationUse](id))
+	case **rawFunction:
+		return f.arenas.functions.Deref(arena.Pointer[rawFunction](id))
+	case **rawFunctionParam:
+		return f.arenas.functionParams.Deref(arena.Pointer[rawFunctionParam](id))
 
 	case **rawValue:
 		return f.arenas.values.Deref(arena.Pointer[rawValue](id))

@@ -161,6 +161,9 @@ func (w *walker) recurse(decl ast.DeclAny, parent any) {
 
 	case ast.DeclKindAnnotation:
 		w.newAnnotation(decl.AsAnnotation(), parent)
+
+	case ast.DeclKindFunction:
+		w.newFunction(decl.AsFunction(), parent)
 	}
 }
 
@@ -404,6 +407,56 @@ func (w *walker) newAnnotation(decl ast.DeclAnnotation, parent any) Annotation {
 
 	w.File.annotations = append(w.File.annotations, ann.ID())
 	return ann
+}
+
+// newFunction materialises a [Function] from a `function`
+// declaration's AST. PSE v1 functions are always top-level
+// (package-scoped); a non-nil walker parent indicates a nested
+// context the parser has not validated and we bail.
+func (w *walker) newFunction(decl ast.DeclFunction, parent any) Function {
+	if parent != nil {
+		return Function{}
+	}
+	if decl.IsZero() {
+		return Function{}
+	}
+
+	name := decl.Name().Text()
+	if name == "" {
+		return Function{}
+	}
+	fqn := w.pkg.Append(name)
+
+	fn := id.Wrap(w.File, id.ID[Function](w.arenas.functions.NewCompressed(rawFunction{
+		def:  decl.ID(),
+		name: w.session.intern.Intern(name),
+		fqn:  w.session.intern.Intern(string(fqn)),
+	})))
+
+	for p := range seq.Values(decl.Params()) {
+		pname := p.Name().Text()
+		if pname == "" {
+			continue
+		}
+		raw := rawFunctionParam{
+			def:    p.ID(),
+			parent: fn.ID(),
+			name:   w.session.intern.Intern(pname),
+		}
+		// Record the textual type for descriptor surfacing. PSE v1
+		// engine-language type checks happen at runtime, so we don't
+		// classify the type further here (unlike annotation params,
+		// which the IR consumes for argument type-checks).
+		if ty := p.Type(); !ty.IsZero() && ty.Kind() == ast.TypeKindPath {
+			text := ty.AsPath().Path.Canonicalized()
+			raw.typeName = w.session.intern.Intern(text)
+		}
+		paramID := id.ID[FunctionParam](w.arenas.functionParams.NewCompressed(raw))
+		fn.Raw().params = append(fn.Raw().params, paramID)
+	}
+
+	w.File.functions = append(w.File.functions, fn.ID())
+	return fn
 }
 
 func (w *walker) fullname(parentTy Type, name string) string {
