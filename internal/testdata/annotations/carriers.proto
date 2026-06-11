@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package test.annotations.carriers;
+
+// Exercises @-annotation placement on every annotation-bearing
+// carrier kind the IR supports today: message, field, oneof, enum,
+// enum value, service, method, and (trailing) annotation
+// declarations themselves.
+
+annotation k;
+
+@k
+message M {
+  @k
+  string field_a = 1;
+
+  @k
+  oneof choice {
+    string field_b = 2;
+  }
+}
+
+@k
+enum E {
+  E_UNSET = 0;
+  @k
+  E_ONE = 1;
+}
+
+@k
+service S {
+  @k
+  rpc Ping(M) returns (M);
+}
+
+annotation derived @k;

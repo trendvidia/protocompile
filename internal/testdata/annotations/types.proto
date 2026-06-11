@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package test.annotations.types;
+
+// Exercises every parameter type the IR classifier handles:
+// scalars (string, int32, double, bool, bytes), the `expression`
+// pseudo-type, the `any` pseudo-type, and a user-defined message
+// type. Each form is exercised at both the declaration site
+// (B3 classification → FileAnnotationDecls.params[].type) and a
+// matching use site (B3 argument type-check → AnnotationList
+// entries on the carrier).
+
+message Email {
+  string addr = 1;
+}
+
+annotation each_kind(
+  s: string = "anonymous",
+  n: int32 = -1,
+  ratio: double = 0.25,
+  flag: bool = true,
+  data: bytes = "",
+  rule: expression = "this != null",
+  free: any = anything.you.want,
+  user_type: Email
+);

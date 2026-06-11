@@ -91,6 +91,13 @@ func collectFixtures(t *testing.T) []fixture {
 		// paths, so the import root is the vendor-tree top
 		// (`internal/testdata/protobuf`), not the leaf directory.
 		{dir: "internal/testdata/protobuf/google/protobuf", importPaths: []string{"internal/testdata/protobuf"}},
+		// Fixtures exercising PSE schema-extension grammar
+		// (`annotation` declarations + `@name(args)` use sites).
+		// protoc rejects this grammar entirely, so the canonical
+		// outcome for every fixture under here is PROTOC_FAIL.
+		// Anything else (BOTH_FAIL, PROTOC_MATCH, PROTOC_DIFFER)
+		// is a regression and will fail the golden-diff check.
+		{dir: "internal/testdata/annotations", importPaths: []string{"internal/testdata/annotations"}},
 	}
 
 	var out []fixture
