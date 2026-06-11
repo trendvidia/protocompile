@@ -33,3 +33,4 @@
   - name: SymbolKindService
   - name: SymbolKindMethod
   - name: SymbolKindAnnotation
+  - name: SymbolKindFunction

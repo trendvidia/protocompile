@@ -83,6 +83,9 @@ func buildLocalSymbols(file *File) {
 	for a := range seq.Values(file.Annotations()) {
 		newAnnotationSymbol(a)
 	}
+	for fn := range seq.Values(file.Functions()) {
+		newFunctionSymbol(fn)
+	}
 
 	file.exported.sort(file)
 }
@@ -163,6 +166,18 @@ func newAnnotationSymbol(a Annotation) {
 		kind: SymbolKindAnnotation,
 		fqn:  a.InternedFullName(),
 		data: arena.Untyped(c.arenas.annotations.Compress(a.Raw())),
+	})
+	c.exported = append(c.exported, symbol{
+		ref: Ref[Symbol]{id: id.ID[Symbol](sym)},
+	})
+}
+
+func newFunctionSymbol(f Function) {
+	c := f.Context()
+	sym := c.arenas.symbols.NewCompressed(rawSymbol{
+		kind: SymbolKindFunction,
+		fqn:  f.InternedFullName(),
+		data: arena.Untyped(c.arenas.functions.Compress(f.Raw())),
 	})
 	c.exported = append(c.exported, symbol{
 		ref: Ref[Symbol]{id: id.ID[Symbol](sym)},

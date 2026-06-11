@@ -266,6 +266,36 @@ annotation tag(
 	assert.True(t, params[3].DefaultValue.GetBoolValue())
 }
 
+// TestAnnotationEmissionFileFunctions verifies the FileFunctions
+// extension on FileOptions captures every `function` declaration
+// in the file, preserving parameter names and textual types.
+func TestAnnotationEmissionFileFunctions(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+function is_e164();
+function matches(value: string, pattern: string);
+`
+
+	f := compileForFDPTest(t, src)
+	require.NotNil(t, f.Options)
+	fns, ok := proto.GetExtension(f.Options, pwsv1.E_Functions).(*pwsv1.FileFunctions)
+	require.True(t, ok)
+	require.Len(t, fns.Declarations, 2)
+
+	assert.Equal(t, "test.is_e164", fns.Declarations[0].Name)
+	assert.Empty(t, fns.Declarations[0].Params)
+
+	assert.Equal(t, "test.matches", fns.Declarations[1].Name)
+	require.Len(t, fns.Declarations[1].Params, 2)
+	assert.Equal(t, "value", fns.Declarations[1].Params[0].Name)
+	assert.Equal(t, "string", fns.Declarations[1].Params[0].Type)
+	assert.Equal(t, "pattern", fns.Declarations[1].Params[1].Name)
+	assert.Equal(t, "string", fns.Declarations[1].Params[1].Type)
+}
+
 // TestAnnotationEmissionCarrierCoverage verifies the extension lands
 // on the correct Options message for each carrier kind.
 func TestAnnotationEmissionCarrierCoverage(t *testing.T) {
