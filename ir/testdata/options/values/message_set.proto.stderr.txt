@@ -19,6 +19,11 @@ error: field `test.Foo.message_set_field` may not be used in an option: it uses
    |
  8 | message MessageSet {
    | ------------------ `test.MessageSet` declared as message set here
+   |
+   = help: rebuild the consumer with `-tags protolegacy` (or link a
+           `google.golang.org/protobuf` fork that re-enables MessageSet) to
+           allow message-set wire format; protocompile detects that at runtime
+           and accepts this option automatically
 
 error: field `test.Foo.message_set_field` may not be used in an option: it uses
        'message set wire format' legacy proto1 feature which is not supported
@@ -30,5 +35,10 @@ error: field `test.Foo.message_set_field` may not be used in an option: it uses
    |
  8 | message MessageSet {
    | ------------------ `test.MessageSet` declared as message set here
+   |
+   = help: rebuild the consumer with `-tags protolegacy` (or link a
+           `google.golang.org/protobuf` fork that re-enables MessageSet) to
+           allow message-set wire format; protocompile detects that at runtime
+           and accepts this option automatically
 
 encountered 2 errors and 1 warning

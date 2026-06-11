@@ -48,6 +48,10 @@ func checkMessageSetFieldUsage(field Member, span source.Spanner, r *report.Repo
 		report.Snippet(span),
 		report.PageBreak,
 		report.Snippetf(extendee.AST().Stem(), "`%s` declared as message set here", extendee.FullName()),
+		report.Helpf("rebuild the consumer with `-tags protolegacy` (or link a "+
+			"`google.golang.org/protobuf` fork that re-enables MessageSet) to "+
+			"allow message-set wire format; protocompile detects that at runtime "+
+			"and accepts this option automatically"),
 	)
 }
 
