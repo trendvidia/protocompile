@@ -23,6 +23,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 
+	"github.com/trendvidia/protocompile/fdp"
 	"github.com/trendvidia/protocompile/incremental"
 	"github.com/trendvidia/protocompile/incremental/queries"
 	pwsv1 "github.com/trendvidia/protocompile/internal/gen/protowire/schema/v1"
@@ -146,6 +147,131 @@ message User {
 	assert.Equal(t, "test.doc", list.Entries[1].Name)
 	require.Len(t, list.Entries[1].Args, 1)
 	assert.Equal(t, "primary contact", list.Entries[1].Args[0].GetStringValue())
+}
+
+// TestTypeAliasFieldCrossFilePropagation verifies that an alias
+// defined in one file and used by a field in another correctly
+// propagates the alias's trailing annotations onto the field's
+// annotation list. The alias's [AnnotationUse] stays in its own
+// file's arena; the field's [Member.Annotations] yields it under
+// that file's context via a cross-file [Ref].
+func TestTypeAliasFieldCrossFilePropagation(t *testing.T) {
+	t.Parallel()
+
+	const typesSrc = `syntax = "proto3";
+package types;
+
+annotation validate(rule: string);
+
+type Email = string @validate("matches(this, '^[^@]+@[^@]+$')");
+`
+	const userSrc = `syntax = "proto3";
+package app;
+
+import "types.proto";
+
+message User {
+  types.Email email = 1;
+}
+`
+	opener := source.NewMap(map[string]*source.File{
+		"types.proto": source.NewFile("types.proto", typesSrc),
+		"user.proto":  source.NewFile("user.proto", userSrc),
+	})
+	allOpeners := &source.Openers{opener, source.WKTs()}
+
+	exec := incremental.New()
+	sess := new(ir.Session)
+	results, _, err := incremental.Run(t.Context(), exec, queries.IR{
+		Opener:  allOpeners,
+		Session: sess,
+		Path:    "user.proto",
+	})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].Value)
+
+	out, err := fdp.DescriptorProto(results[0].Value)
+	require.NoError(t, err)
+
+	require.Len(t, out.GetMessageType(), 1)
+	require.Len(t, out.GetMessageType()[0].GetField(), 1)
+	field := out.GetMessageType()[0].GetField()[0]
+	assert.Equal(t, descriptorpb.FieldDescriptorProto_TYPE_STRING, field.GetType(),
+		"alias should substitute to its scalar base across files")
+	require.NotNil(t, field.Options,
+		"cross-file alias annotation should produce field Options")
+
+	list, ok := proto.GetExtension(field.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+	require.True(t, ok)
+	require.NotNil(t, list)
+	require.Len(t, list.Entries, 1,
+		"the alias's @validate should be propagated to the cross-file field")
+	entry := list.Entries[0]
+	assert.Equal(t, "types.validate", entry.Name,
+		"the propagated entry should keep the annotation's defining-file FQN")
+	require.Len(t, entry.Args, 1)
+	assert.Equal(t, "matches(this, '^[^@]+@[^@]+$')", entry.Args[0].GetStringValue())
+}
+
+// TestTypeAliasFieldCrossFileChain verifies a mixed chain where one
+// link lives in another file and another link is local. Both
+// annotations propagate in chain order (head first), independent of
+// which file each link lives in.
+func TestTypeAliasFieldCrossFileChain(t *testing.T) {
+	t.Parallel()
+
+	const typesSrc = `syntax = "proto3";
+package types;
+
+annotation b;
+
+type B = string @b;
+`
+	const userSrc = `syntax = "proto3";
+package app;
+
+import "types.proto";
+
+annotation a;
+
+type A = types.B @a;
+
+message M {
+  A x = 1;
+}
+`
+	opener := source.NewMap(map[string]*source.File{
+		"types.proto": source.NewFile("types.proto", typesSrc),
+		"user.proto":  source.NewFile("user.proto", userSrc),
+	})
+	allOpeners := &source.Openers{opener, source.WKTs()}
+
+	exec := incremental.New()
+	sess := new(ir.Session)
+	results, _, err := incremental.Run(t.Context(), exec, queries.IR{
+		Opener:  allOpeners,
+		Session: sess,
+		Path:    "user.proto",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, results[0].Value)
+
+	out, err := fdp.DescriptorProto(results[0].Value)
+	require.NoError(t, err)
+	require.Len(t, out.GetMessageType(), 1)
+	field := out.GetMessageType()[0].GetField()[0]
+	assert.Equal(t, descriptorpb.FieldDescriptorProto_TYPE_STRING, field.GetType())
+	require.NotNil(t, field.Options)
+	list, ok := proto.GetExtension(field.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+	require.True(t, ok)
+	require.Len(t, list.Entries, 2,
+		"both local @a and cross-file @b should be propagated")
+	// Chain head (A) first, then B.
+	assert.Equal(t, "app.a", list.Entries[0].Name,
+		"chain head (A) annotation should appear first")
+	assert.Equal(t, "types.b", list.Entries[1].Name,
+		"chain tail (B) annotation should appear after head's")
 }
 
 // TestTypeAliasFieldCycleDiagnostic verifies a cyclic alias chain
