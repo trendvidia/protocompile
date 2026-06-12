@@ -62,11 +62,18 @@ type rawMember struct {
 	features           id.ID[FeatureSet]
 	options            id.ID[Value]
 	annotationUses     []id.ID[AnnotationUse]
-	oneof              int32
-	optionTargets      uint32
-	jsonName           intern.ID
-	isGroup            bool
-	numberOk           bool
+	// aliasChainUses holds annotation use sites accumulated from the
+	// type-alias chain that this field's declared type resolved
+	// through (see [propagateTypeAliasAnnotations]). Stored in chain
+	// order, head first; an entry whose [Ref.file] is non-zero
+	// references a use in another file, so [Member.Annotations]
+	// yields it under that use's defining file context.
+	aliasChainUses []Ref[AnnotationUse]
+	oneof          int32
+	optionTargets  uint32
+	jsonName       intern.ID
+	isGroup        bool
+	numberOk       bool
 }
 
 // IsMessageField returns whether this is a non-extension message field.
@@ -387,11 +394,29 @@ func (m Member) Options() MessageValue {
 // Annotations returns the annotation use sites attached to this
 // member (trailing `@name(args)` annotations on a field or enum
 // value). See [Type.Annotations] for the resolution model.
+//
+// When the field's declared type referenced a type-alias chain
+// (PSE v1), the chain's trailing annotations appear ahead of any
+// field-site annotations — the alias acts as a macro expansion
+// per RFC-001 §5. See [propagateTypeAliasAnnotations]. A chain
+// link living in another file is yielded under that file's
+// context, so callers reading [AnnotationUse.AST] and
+// [AnnotationUse.Target] still get coherent results.
 func (m Member) Annotations() seq.Indexer[AnnotationUse] {
 	if m.IsZero() {
 		return annotationUses(nil, nil)
 	}
-	return annotationUses(m.Context(), m.Raw().annotationUses)
+	raw := m.Raw()
+	if len(raw.aliasChainUses) == 0 {
+		return annotationUses(m.Context(), raw.annotationUses)
+	}
+	base := m.Context()
+	return seq.NewFunc(len(raw.aliasChainUses)+len(raw.annotationUses), func(i int) AnnotationUse {
+		if i < len(raw.aliasChainUses) {
+			return GetRef(base, raw.aliasChainUses[i])
+		}
+		return id.Wrap(base, raw.annotationUses[i-len(raw.aliasChainUses)])
+	})
 }
 
 // PseudoOptions returns this member's pseudo options.

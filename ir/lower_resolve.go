@@ -232,11 +232,17 @@ func isTypeOrAlias(k SymbolKind) bool {
 // `r` may be nil to suppress diagnostics — the annotation-propagation
 // pass relies on this when it re-walks a chain whose diagnostics were
 // already emitted during field-type resolution.
-func unwrapTypeAlias(field Member, alias TypeAlias, refSpan source.Spanner, r *report.Report) (Symbol, []id.ID[AnnotationUse]) {
+//
+// The returned [Ref] slice holds every alias link's annotation use
+// sites in chain order, head first. Each use's [Ref.file] is set
+// relative to `field.Context()`, so the result can be stored directly
+// on a [rawMember].
+func unwrapTypeAlias(field Member, alias TypeAlias, refSpan source.Spanner, r *report.Report) (Symbol, []Ref[AnnotationUse]) {
 	var (
 		seen        = map[FullName]bool{}
-		accumulated []id.ID[AnnotationUse]
+		accumulated []Ref[AnnotationUse]
 		current     = alias
+		fieldFile   = field.Context()
 	)
 	for {
 		fqn := current.FullName()
@@ -251,14 +257,22 @@ func unwrapTypeAlias(field Member, alias TypeAlias, refSpan source.Spanner, r *r
 		}
 		seen[fqn] = true
 
-		if current.Context() == field.Context() {
-			for u := range seq.Values(current.Annotations()) {
-				accumulated = append(accumulated, u.ID())
+		aliasFile := current.Context()
+		if uses := current.Raw().annotationUses; len(uses) > 0 {
+			fileIdx := refFileFor(fieldFile, aliasFile)
+			if aliasFile != fieldFile {
+				fieldFile.imports.MarkUsed(aliasFile)
+			}
+			for _, useID := range uses {
+				accumulated = append(accumulated, Ref[AnnotationUse]{
+					file: fileIdx,
+					id:   useID,
+				})
 			}
 		}
 
 		baseSym := symbolRef{
-			File:   current.Context(),
+			File:   aliasFile,
 			Report: r,
 
 			span:  current.AST().Value(),
@@ -307,6 +321,12 @@ func fieldTypePath(ty ast.TypeAny) ast.Path {
 // annotation list appears on the field's annotation list ahead of
 // any field-site annotations.
 //
+// Chains spanning multiple files are supported: alias-side uses
+// are stored on the field as cross-file [Ref]s into their defining
+// file's arena, and [Member.Annotations] yields them under that
+// file's context so [AnnotationUse.AST] and [AnnotationUse.Target]
+// stay coherent.
+//
 // Cycle and missing-base diagnostics were already emitted during
 // [resolveFieldType]; this pass re-walks the chain silently
 // (`r == nil`) to collect the now-resolved annotation use IDs.
@@ -352,11 +372,7 @@ func propagateAliasAnnotationsOn(file *File, field Member) {
 	if len(aliasUses) == 0 {
 		return
 	}
-	existing := field.Raw().annotationUses
-	merged := make([]id.ID[AnnotationUse], 0, len(aliasUses)+len(existing))
-	merged = append(merged, aliasUses...)
-	merged = append(merged, existing...)
-	field.Raw().annotationUses = merged
+	field.Raw().aliasChainUses = aliasUses
 }
 
 func resolveExtendeeType(extend Extend, r *report.Report) {
