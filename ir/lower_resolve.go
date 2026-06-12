@@ -164,7 +164,7 @@ func resolveFieldType(field Member, r *report.Report) {
 	// propagation runs later, after annotation use sites are
 	// resolved — see [propagateTypeAliasAnnotations].
 	if sym.Kind() == SymbolKindTypeAlias {
-		sym, _ = unwrapTypeAlias(field, sym.AsTypeAlias(), path, r)
+		sym, _, _ = unwrapTypeAlias(field, sym.AsTypeAlias(), path, r)
 	}
 
 	if sym.Kind().IsType() {
@@ -233,17 +233,26 @@ func isTypeOrAlias(k SymbolKind) bool {
 // pass relies on this when it re-walks a chain whose diagnostics were
 // already emitted during field-type resolution.
 //
-// The returned [Ref] slice holds every alias link's annotation use
-// sites in chain order, head first. Each use's [Ref.file] is set
-// relative to `field.Context()`, so the result can be stored directly
-// on a [rawMember].
-func unwrapTypeAlias(field Member, alias TypeAlias, refSpan source.Spanner, r *report.Report) (Symbol, []Ref[AnnotationUse]) {
+// The returned slices hold, in chain order (head first), each
+// alias link's annotation use sites and the link's own [TypeAlias]
+// reference. Each [Ref.file] is set relative to `field.Context()`,
+// so the results can be stored directly on a [rawMember].
+func unwrapTypeAlias(field Member, alias TypeAlias, refSpan source.Spanner, r *report.Report) (Symbol, []Ref[AnnotationUse], []Ref[TypeAlias]) {
 	var (
-		seen        = map[FullName]bool{}
-		accumulated []Ref[AnnotationUse]
-		current     = alias
-		fieldFile   = field.Context()
+		seen          = map[FullName]bool{}
+		uses          []Ref[AnnotationUse]
+		chain         []Ref[TypeAlias]
+		current       = alias
+		fieldFile     = field.Context()
+		markedImports = map[*File]bool{}
 	)
+	markUsedOnce := func(f *File) {
+		if f == fieldFile || markedImports[f] {
+			return
+		}
+		fieldFile.imports.MarkUsed(f)
+		markedImports[f] = true
+	}
 	for {
 		fqn := current.FullName()
 		if seen[fqn] {
@@ -253,22 +262,18 @@ func unwrapTypeAlias(field Member, alias TypeAlias, refSpan source.Spanner, r *r
 					report.Snippetf(current.AST().Name(), "alias defined here"),
 				)
 			}
-			return Symbol{}, nil
+			return Symbol{}, nil, nil
 		}
 		seen[fqn] = true
 
 		aliasFile := current.Context()
-		if uses := current.Raw().annotationUses; len(uses) > 0 {
-			fileIdx := refFileFor(fieldFile, aliasFile)
-			if aliasFile != fieldFile {
-				fieldFile.imports.MarkUsed(aliasFile)
-			}
-			for _, useID := range uses {
-				accumulated = append(accumulated, Ref[AnnotationUse]{
-					file: fileIdx,
-					id:   useID,
-				})
-			}
+		fileIdx := refFileFor(fieldFile, aliasFile)
+		markUsedOnce(aliasFile)
+
+		chain = append(chain, Ref[TypeAlias]{file: fileIdx, id: current.ID()})
+
+		for _, useID := range current.Raw().annotationUses {
+			uses = append(uses, Ref[AnnotationUse]{file: fileIdx, id: useID})
 		}
 
 		baseSym := symbolRef{
@@ -291,7 +296,7 @@ func unwrapTypeAlias(field Member, alias TypeAlias, refSpan source.Spanner, r *r
 			continue
 		}
 
-		return baseSym, accumulated
+		return baseSym, uses, chain
 	}
 }
 
@@ -368,10 +373,11 @@ func propagateAliasAnnotationsOn(file *File, field Member) {
 		return
 	}
 
-	_, aliasUses := unwrapTypeAlias(field, sym.AsTypeAlias(), path, nil)
-	if len(aliasUses) == 0 {
+	_, aliasUses, aliasChain := unwrapTypeAlias(field, sym.AsTypeAlias(), path, nil)
+	if len(aliasChain) == 0 {
 		return
 	}
+	field.Raw().aliasChain = aliasChain
 	field.Raw().aliasChainUses = aliasUses
 }
 

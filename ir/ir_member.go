@@ -69,11 +69,18 @@ type rawMember struct {
 	// references a use in another file, so [Member.Annotations]
 	// yields it under that use's defining file context.
 	aliasChainUses []Ref[AnnotationUse]
-	oneof          int32
-	optionTargets  uint32
-	jsonName       intern.ID
-	isGroup        bool
-	numberOk       bool
+	// aliasChain holds the type-alias chain itself that this field's
+	// declared type resolved through, in chain order (head first).
+	// Empty for fields whose declared type was a concrete message /
+	// enum / scalar. Populated by [propagateTypeAliasAnnotations]
+	// alongside `aliasChainUses` and consumed by FDP's SourceMap
+	// emission to lower TYPE_REFINEMENT entries.
+	aliasChain    []Ref[TypeAlias]
+	oneof         int32
+	optionTargets uint32
+	jsonName      intern.ID
+	isGroup       bool
+	numberOk      bool
 }
 
 // IsMessageField returns whether this is a non-extension message field.
@@ -389,6 +396,29 @@ func (m Member) Options() MessageValue {
 	}
 
 	return id.Wrap(m.Context(), m.Raw().options).AsMessage()
+}
+
+// TypeAliasChain returns the type-alias chain this member's
+// declared type resolved through, in chain order — head (the name
+// the field was declared with) first, then any further aliases the
+// head expanded to before reaching a concrete message / enum /
+// scalar. Returns an empty indexer for members whose declared type
+// was not an alias.
+//
+// Yielded [TypeAlias] values stay in their defining file's context,
+// so [TypeAlias.AST] and [TypeAlias.FullName] resolve correctly
+// even when the chain spans multiple files.
+//
+// Populated by [propagateTypeAliasAnnotations].
+func (m Member) TypeAliasChain() seq.Indexer[TypeAlias] {
+	if m.IsZero() || len(m.Raw().aliasChain) == 0 {
+		return seq.NewFunc(0, func(int) TypeAlias { return TypeAlias{} })
+	}
+	chain := m.Raw().aliasChain
+	base := m.Context()
+	return seq.NewFunc(len(chain), func(i int) TypeAlias {
+		return GetRef(base, chain[i])
+	})
 }
 
 // Annotations returns the annotation use sites attached to this
