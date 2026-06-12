@@ -71,6 +71,9 @@ func emitSourceMap(file *ir.File, target *descriptorpb.FileOptions) bool {
 			for u := range seq.Values(field.Annotations()) {
 				add(field.FullName(), u)
 			}
+			if entry := buildTypeRefinementEntry(field); entry != nil {
+				out.Entries = append(out.Entries, entry)
+			}
 		}
 		for o := range seq.Values(ty.Oneofs()) {
 			for u := range seq.Values(o.Annotations()) {
@@ -82,6 +85,9 @@ func emitSourceMap(file *ir.File, target *descriptorpb.FileOptions) bool {
 	for ext := range seq.Values(file.AllExtensions()) {
 		for u := range seq.Values(ext.Annotations()) {
 			add(ext.FullName(), u)
+		}
+		if entry := buildTypeRefinementEntry(ext); entry != nil {
+			out.Entries = append(out.Entries, entry)
 		}
 	}
 
@@ -139,6 +145,46 @@ func buildAnnotationUseEntry(carrierFQN string, use ir.AnnotationUse) *pwsv1.Sou
 		DescriptorPath: carrierFQN,
 		SourceLocation: sourceLocation(span, loc),
 	}
+}
+
+// buildTypeRefinementEntry lowers the type-alias chain a field's
+// declared type resolved through into a [pwsv1.EntryKind_TYPE_REFINEMENT]
+// SourceEntry.
+//
+// Returns nil when the field's declared type was concrete (no alias
+// chain) or no usable source spans are available. The
+// `source_location` is the position where the user wrote the alias
+// name at the field site (in the consuming file); each link's
+// `declaration_location` is the position of that alias's
+// declaration (in the alias's defining file — possibly cross-file
+// for an imported alias).
+func buildTypeRefinementEntry(field ir.Member) *pwsv1.SourceEntry {
+	chain := field.TypeAliasChain()
+	if chain.Len() == 0 {
+		return nil
+	}
+
+	entry := &pwsv1.SourceEntry{
+		Kind:           pwsv1.EntryKind_TYPE_REFINEMENT,
+		DescriptorPath: string(field.FullName()),
+	}
+	if typeAST := field.TypeAST(); !typeAST.IsZero() {
+		span := typeAST.Span()
+		if !span.IsZero() {
+			entry.SourceLocation = sourceLocation(span, span.StartLoc())
+		}
+	}
+	for a := range seq.Values(chain) {
+		link := &pwsv1.TypeChainLink{TypeFqn: string(a.FullName())}
+		if decl := a.AST(); !decl.IsZero() {
+			span := decl.Span()
+			if !span.IsZero() {
+				link.DeclarationLocation = sourceLocation(span, span.StartLoc())
+			}
+		}
+		entry.TypeChain = append(entry.TypeChain, link)
+	}
+	return entry
 }
 
 // sourceLocation packs a [source.Span] and its start [source.Location]
