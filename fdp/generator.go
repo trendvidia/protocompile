@@ -185,35 +185,38 @@ func (g *generator) file(file *ir.File, fdp *descriptorpb.FileDescriptorProto) {
 		}
 	}
 
-	optionsValue := file.Options()
-	hasFileDecls := file.Annotations().Len() > 0 ||
-		file.Functions().Len() > 0 ||
-		file.TypeAliases().Len() > 0
-	if !optionsValue.IsEmpty() || hasFileDecls {
-		fdp.Options = new(descriptorpb.FileOptions)
-		var hadAny bool
-		if !optionsValue.IsEmpty() {
-			g.debug.in(tags.File_Options)(func() {
-				for option := range file.AST().Options() {
-					g.debug.span(option)
-				}
-				if g.options(optionsValue, fdp.Options) {
-					hadAny = true
-				}
-			})
-		}
-		if emitFileAnnotationDecls(file, fdp.Options) {
-			hadAny = true
-		}
-		if emitFileFunctions(file, fdp.Options) {
-			hadAny = true
-		}
-		if emitFileTypeDecls(file, fdp.Options) {
-			hadAny = true
-		}
-		if !hadAny {
-			fdp.Options = nil
-		}
+	// Always attempt FileOptions emission. Each emitter is responsible
+	// for deciding whether to attach its extension; we clear back to
+	// nil at the end if nothing landed. This keeps file-scope
+	// emitters like [emitSourceMap] reachable for files whose only
+	// PSE content is annotation use sites on otherwise-bare carriers
+	// (no file options, no file-level PSE decls).
+	fdp.Options = new(descriptorpb.FileOptions)
+	var hadAny bool
+	if optionsValue := file.Options(); !optionsValue.IsEmpty() {
+		g.debug.in(tags.File_Options)(func() {
+			for option := range file.AST().Options() {
+				g.debug.span(option)
+			}
+			if g.options(optionsValue, fdp.Options) {
+				hadAny = true
+			}
+		})
+	}
+	if emitFileAnnotationDecls(file, fdp.Options) {
+		hadAny = true
+	}
+	if emitFileFunctions(file, fdp.Options) {
+		hadAny = true
+	}
+	if emitFileTypeDecls(file, fdp.Options) {
+		hadAny = true
+	}
+	if emitSourceMap(file, fdp.Options) {
+		hadAny = true
+	}
+	if !hadAny {
+		fdp.Options = nil
 	}
 }
 
