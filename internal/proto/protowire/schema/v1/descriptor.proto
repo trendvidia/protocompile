@@ -15,9 +15,11 @@
 // Protowire Schema Extensions — descriptor-level lowering targets.
 //
 // Vendored from `trendvidia/protowire` (`proto/schema/v1/descriptor.proto`)
-// for protocompile's B4 lowering pass. The vendored copy and the upstream
-// share an identical wire format and field-name layout in the
-// schema-extensions sub-range (50400-50499); this vendor is the load-time
+// at commit 106b72d04e117e6c5c44959a1953f44794c8bd99 — the revision where
+// protowire canonicalized this sub-range. For protocompile's B4 lowering
+// pass. The vendored copy and the upstream are byte-identical (modulo
+// comments) in the schema-extensions sub-range (50400-50499); this vendor
+// is the load-time
 // dependency that lets protocompile's `fdp/generator.go` emit the
 // `pwsv1.AnnotationList`, `pwsv1.FileAnnotationDecls`, and
 // `pwsv1.FileFunctions` carriers without importing protowire's whole
