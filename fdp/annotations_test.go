@@ -655,3 +655,97 @@ message B {}
 		assert.Equal(t, append([]byte("\n\x03"), want...), anyMsg.GetValue())
 	}
 }
+
+// TestAnnotationEmissionLocations verifies Annotation.location (the
+// @ token's position) and Expression.location (the capture's opening
+// position) are populated, and that alias-propagated uses point back
+// to the alias's defining file.
+func TestAnnotationEmissionLocations(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+annotation validate(rule: expression, code: string = "");
+
+message M {
+  string s = 1
+    @validate(this.size() > 0, code = "s.empty");
+}
+`
+
+	f := compileForFDPTest(t, src)
+	field := f.GetMessageType()[0].GetField()[0]
+	list, ok := proto.GetExtension(field.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+	require.True(t, ok)
+	require.Len(t, list.Entries, 1)
+	entry := list.Entries[0]
+
+	// The @ token sits on line 8, column 5.
+	require.NotNil(t, entry.Location)
+	assert.Equal(t, "x.proto", entry.Location.GetFile())
+	assert.Equal(t, int32(8), entry.Location.GetLine())
+	assert.Equal(t, int32(5), entry.Location.GetColumn())
+
+	// The expression capture opens right after `@validate(`.
+	expr := entry.Args[0].GetExpression()
+	require.NotNil(t, expr)
+	require.NotNil(t, expr.Location)
+	assert.Equal(t, "x.proto", expr.Location.GetFile())
+	assert.Equal(t, int32(8), expr.Location.GetLine())
+	assert.Equal(t, int32(15), expr.Location.GetColumn())
+}
+
+// TestAnnotationEmissionLocationCrossFile verifies an
+// alias-propagated use's location points into the alias's defining
+// file, not the consuming one.
+func TestAnnotationEmissionLocationCrossFile(t *testing.T) {
+	t.Parallel()
+
+	const typesSrc = `syntax = "proto3";
+package types;
+
+annotation validate(rule: expression);
+
+type Email = string @validate(this.size() > 0);
+`
+	const userSrc = `syntax = "proto3";
+package app;
+
+import "types.proto";
+
+message User {
+  types.Email email = 1;
+}
+`
+	opener := source.NewMap(map[string]*source.File{
+		"types.proto": source.NewFile("types.proto", typesSrc),
+		"user.proto":  source.NewFile("user.proto", userSrc),
+	})
+	allOpeners := &source.Openers{opener, source.WKTs()}
+
+	exec := incremental.New()
+	sess := new(ir.Session)
+	results, _, err := incremental.Run(t.Context(), exec, queries.IR{
+		Opener:  allOpeners,
+		Session: sess,
+		Path:    "user.proto",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, results[0].Value)
+
+	out, err := fdp.DescriptorProto(results[0].Value)
+	require.NoError(t, err)
+
+	field := out.GetMessageType()[0].GetField()[0]
+	list, ok := proto.GetExtension(field.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+	require.True(t, ok)
+	require.Len(t, list.Entries, 1)
+	entry := list.Entries[0]
+
+	require.NotNil(t, entry.Location)
+	assert.Equal(t, "types.proto", entry.Location.GetFile(),
+		"propagated use's @ token lives in the alias's defining file")
+	require.NotNil(t, entry.Args[0].GetExpression().Location)
+	assert.Equal(t, "types.proto", entry.Args[0].GetExpression().Location.GetFile())
+}
