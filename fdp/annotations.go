@@ -27,6 +27,7 @@ import (
 	pwsv1 "github.com/trendvidia/protocompile/internal/gen/protowire/schema/v1"
 	"github.com/trendvidia/protocompile/ir"
 	"github.com/trendvidia/protocompile/seq"
+	"github.com/trendvidia/protocompile/source"
 	"github.com/trendvidia/protocompile/token"
 	"github.com/trendvidia/protocompile/token/keyword"
 )
@@ -66,7 +67,8 @@ func buildAnnotation(u ir.AnnotationUse) *pwsv1.Annotation {
 	}
 
 	ann := &pwsv1.Annotation{
-		Name: string(target.FullName()),
+		Name:     string(target.FullName()),
+		Location: locationOf(u.AST().At()),
 	}
 
 	for _, b := range u.ArgBindings() {
@@ -101,7 +103,8 @@ func buildArg(u ir.AnnotationUse, b ir.AnnotationArgBinding) *pwsv1.AnnotationAr
 	// sites extracted per §8.1.
 	if b.Param.IsExpression() {
 		expr := &pwsv1.Expression{
-			Source: strings.TrimSpace(b.Arg.ValueSpan().Text()),
+			Source:   strings.TrimSpace(b.Arg.ValueSpan().Text()),
+			Location: locationOf(b.Arg.ValueStart()),
 		}
 		for _, call := range u.ExtractCalls(b.Arg) {
 			expr.Calls = append(expr.Calls, &pwsv1.FunctionRef{
@@ -382,12 +385,34 @@ func buildDefaultArg(deflt ast.ExprAny, param ir.AnnotationParam) *pwsv1.Annotat
 		return &pwsv1.AnnotationArg{
 			Value: &pwsv1.AnnotationArg_Expression{
 				Expression: &pwsv1.Expression{
-					Source: strings.TrimSpace(deflt.Span().Text()),
+					Source:   strings.TrimSpace(deflt.Span().Text()),
+					Location: spanLocation(deflt.Span()),
 				},
 			},
 		}
 	}
 	return buildArgValue(ir.AnnotationUse{}, deflt, param)
+}
+
+// locationOf packs a token's start position into a
+// [pwsv1.SourceLocation]. Returns nil for a zero token (e.g. a
+// synthesized use with no source form), leaving the field unset.
+func locationOf(tok token.Token) *pwsv1.SourceLocation {
+	if tok.IsZero() {
+		return nil
+	}
+	return spanLocation(tok.Span())
+}
+
+// spanLocation packs a span's start position into a
+// [pwsv1.SourceLocation]. The span's own file wins: for an
+// alias-propagated use, the location points into the alias's
+// defining file, not the consuming one.
+func spanLocation(span source.Span) *pwsv1.SourceLocation {
+	if span.IsZero() {
+		return nil
+	}
+	return sourceLocation(span, span.StartLoc())
 }
 
 // emitFileFunctions populates the [pwsv1.FileFunctions] extension
