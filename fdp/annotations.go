@@ -20,6 +20,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/runtime/protoimpl"
 	"google.golang.org/protobuf/types/descriptorpb"
+	"google.golang.org/protobuf/types/known/anypb"
 
 	"github.com/trendvidia/protocompile/ast"
 	"github.com/trendvidia/protocompile/ast/predeclared"
@@ -112,6 +113,25 @@ func buildArg(u ir.AnnotationUse, b ir.AnnotationArgBinding) *pwsv1.AnnotationAr
 		return out
 	}
 
+	// Message literals were evaluated against their resolved type by
+	// the B3 pass; the carrier form is a google.protobuf.Any
+	// serialized at lowering (RFC-001 §8.1).
+	if b.Arg.Value().Kind() == ast.ExprKindDict {
+		msg := u.MessageLiteralArg(b.Arg)
+		if msg.IsZero() {
+			return nil // Evaluation failed; already diagnosed.
+		}
+		out.Value = &pwsv1.AnnotationArg_Literal{
+			Literal: &pwsv1.Literal{
+				Kind: &pwsv1.Literal_Message{Message: &anypb.Any{
+					TypeUrl: "type.googleapis.com/" + string(msg.Type().FullName()),
+					Value:   msg.Marshal(nil, nil),
+				}},
+			},
+		}
+		return out
+	}
+
 	value := buildArgValue(u, b.Arg.Value(), b.Param)
 	if value == nil {
 		return nil
@@ -173,8 +193,10 @@ func buildArgValue(u ir.AnnotationUse, value ast.ExprAny, param ir.AnnotationPar
 		return &pwsv1.AnnotationArg{Value: buildListLiteral(u, value.AsArray(), param)}
 	}
 
-	// Message literals (ExprKindDict) are rejected by B3 until Any
-	// serialization lands; nothing else can reach here.
+	// Message literals (ExprKindDict) are handled at the argument
+	// level in [buildArg] (they need the argument's explicit type
+	// path); as list elements they are rejected by B3. Nothing else
+	// can reach here.
 	return nil
 }
 

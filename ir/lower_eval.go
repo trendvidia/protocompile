@@ -79,6 +79,13 @@ type evalArgs struct {
 	isConcreteAny  bool
 	isArrayElement bool
 
+	// The standalone message-literal value being evaluated into, when
+	// evaluation is not anchored to a field — annotation arguments
+	// evaluate a dict directly against a message type. When set, it
+	// overrides [evalArgs.Type] and is the target [evalMessage]
+	// populates; field descents clear it.
+	literalMsg MessageValue
+
 	// A span for whatever caused the above field to be selected.
 	annotation source.Spanner
 
@@ -102,6 +109,9 @@ func (ea evalArgs) Type() Type {
 	if ea.isConcreteAny {
 		msg := ea.target.Elements().At(0).AsMessage()
 		return msg.Type()
+	}
+	if !ea.literalMsg.IsZero() {
+		return ea.literalMsg.Type()
 	}
 	return ea.field.Element()
 }
@@ -574,6 +584,8 @@ func (e *evaluator) evalMessage(args evalArgs, expr ast.ExprDict) Value {
 	switch {
 	case args.isConcreteAny:
 		message = args.target.Elements().At(0).AsMessage()
+	case !args.literalMsg.IsZero():
+		message = args.literalMsg
 	case args.target.IsZero():
 		message = newMessage(e.File, args.rawField)
 		args.target = message.AsValue()
@@ -729,6 +741,7 @@ func (e *evaluator) evalMessage(args evalArgs, expr ast.ExprDict) Value {
 		copied := args
 		copied.textFormat = true
 		copied.isConcreteAny = false
+		copied.literalMsg = MessageValue{}
 		copied.expr = expr.Value()
 		copied.annotation = field.TypeAST()
 		copied.field = field

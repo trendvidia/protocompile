@@ -372,23 +372,8 @@ func validateAnyArg(r *report.Report, u AnnotationUse, target Annotation, param 
 			)
 			return
 		}
-		validateMessageLiteral(r, u, arg.MessageType(), arg.Value().AsDict(), Type{})
-		diagnoseMessageLiteralUnsupported(r, arg)
+		validateMessageLiteral(r, u, arg, Type{})
 	}
-}
-
-// diagnoseMessageLiteralUnsupported emits the temporary cap on
-// message-literal arguments: the source grammar and validation are in
-// place, but lowering into the carrier's google.protobuf.Any (which
-// serializes the literal at compile time) is not — it needs a
-// standalone entry point into the option-value evaluator. Tracked
-// with the S2 literal-shape work (protowire#102 / protocompile#67).
-func diagnoseMessageLiteralUnsupported(r *report.Report, arg ast.AnnotationUseArg) {
-	r.Errorf("message-literal arguments are not yet supported").Apply(
-		report.Snippet(arg.ValueSpan()),
-		report.Notef("the literal parses and type-checks, but lowering it into the "+
-			"descriptor carrier is not yet implemented"),
-	)
 }
 
 // validateMessageArg checks an argument bound to a message-typed
@@ -406,20 +391,37 @@ func validateMessageArg(r *report.Report, u AnnotationUse, target Annotation, pa
 		)
 		return
 	}
-	validateMessageLiteral(r, u, arg.MessageType(), value.AsDict(), msgTy)
-	diagnoseMessageLiteralUnsupported(r, arg)
+	if msgTy.IsAny() {
+		// A `google.protobuf.Any`-typed parameter follows the same
+		// rule as the `any` pseudo-type: the literal's type cannot
+		// come from the declaration, so the explicit name is required
+		// (RFC-001 §5.1 rule 1).
+		if arg.MessageType().IsZero() {
+			r.Errorf("message-literal argument %q for `%s` requires an explicit type name",
+				param.Name(), target.FullName(),
+			).Apply(
+				report.Snippet(arg.ValueSpan()),
+				report.Snippetf(param.AST(), "parameter declared here"),
+				report.Notef("the parameter is `google.protobuf.Any`-typed, so the literal's "+
+					"message type cannot come from the declaration; write `SomeType{...}`"),
+			)
+			return
+		}
+		msgTy = Type{}
+	}
+	validateMessageLiteral(r, u, arg, msgTy)
 }
 
-// validateMessageLiteral checks a message literal's explicit type
-// name (when present) and its field initializers against the
-// resolved message type.
-//
-// want is the type the surrounding context declares; zero when the
-// context is `any`-typed (in which case typeName is required and
-// carries the type).
-func validateMessageLiteral(r *report.Report, u AnnotationUse, typeName ast.Path, dict ast.ExprDict, want Type) {
+// validateMessageLiteral resolves a message literal's explicit type
+// name (when present), checks it against the type the surrounding
+// context declares (`want`; zero when the context is `any`-typed, in
+// which case the caller has enforced that the name is present), and
+// evaluates the field initializers against the resolved type via the
+// shared option-value evaluator, recording the result for descriptor
+// production.
+func validateMessageLiteral(r *report.Report, u AnnotationUse, arg ast.AnnotationUseArg, want Type) {
 	msgTy := want
-	if !typeName.IsZero() {
+	if typeName := arg.MessageType(); !typeName.IsZero() {
 		sym := symbolRef{
 			File:   u.Context(),
 			Report: r,
@@ -445,44 +447,7 @@ func validateMessageLiteral(r *report.Report, u AnnotationUse, typeName ast.Path
 		return
 	}
 
-	// Field-initializer checks: each field must name a member of the
-	// message, at most once. Per-field value type-checking (and the
-	// repeated-field/map rules) lands with message-literal lowering.
-	seen := make(map[string]ast.ExprAny)
-	for field := range seq.Values(dict.Elements()) {
-		key := field.Key()
-		if key.Kind() != ast.ExprKindPath {
-			continue // The parser's classifier only builds ident keys.
-		}
-		name, ok := isSingleIdent(key.AsPath().Path)
-		if !ok {
-			continue
-		}
-		if prev, dup := seen[name]; dup {
-			r.Errorf("field `%s` initialized more than once in message literal", name).Apply(
-				report.Snippet(key),
-				report.Snippetf(prev, "first initialized here"),
-			)
-			continue
-		}
-		seen[name] = key
-
-		var found bool
-		for member := range seq.Values(msgTy.Members()) {
-			if member.Name() == name {
-				found = true
-				break
-			}
-		}
-		if !found {
-			r.Errorf("message `%s` has no field named `%s`",
-				msgTy.FullName(), name,
-			).Apply(
-				report.Snippet(key),
-				report.Snippetf(msgTy.AST(), "message declared here"),
-			)
-		}
-	}
+	u.evaluateMessageLiteralArg(r, msgTy, arg)
 }
 
 // validateListLiteralArg checks a list-literal argument: elements

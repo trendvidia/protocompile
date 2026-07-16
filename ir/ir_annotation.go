@@ -20,6 +20,7 @@ import (
 	"github.com/trendvidia/protocompile/id"
 	"github.com/trendvidia/protocompile/internal/intern"
 	"github.com/trendvidia/protocompile/seq"
+	"github.com/trendvidia/protocompile/token"
 )
 
 // Annotation is an `annotation` declaration introduced by the
@@ -92,6 +93,15 @@ type rawAnnotationUse struct {
 	// references and function-call sites in engine expressions —
 	// resolve relative to this scope.
 	scope intern.ID
+	// Message-literal argument values evaluated by the B3 pass, keyed
+	// by the argument's capture-start token. Descriptor production
+	// reads these back via [AnnotationUse.MessageLiteralArg].
+	msgLits []evaluatedMessageLit
+}
+
+type evaluatedMessageLit struct {
+	arg token.ID
+	msg id.ID[MessageValue]
 }
 
 // AST returns the declaration for this annotation, if known.
