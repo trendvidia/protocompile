@@ -119,8 +119,14 @@ func (p *defParser) parse() ast.DeclDef {
 		}
 	}
 
-	// If we didn't see any braces, this def needs to be ended by a semicolon.
+	// If we didn't see any braces, this def needs to be ended by a
+	// semicolon. Trailing `@name(args)` annotation use sites sit
+	// between the last follower and the semicolon (RFC-001 §5.1
+	// hybrid placement: trailing on fields and enum values).
+	var trailing []ast.DeclAnnotationUse
 	if !skipSemi {
+		trailing = collectTrailingAnnotations(p.parser, p.c, taxa.Def)
+
 		semi, err := parseSemi(p.parser, p.c, taxa.Def)
 		p.args.Semicolon = semi
 		if err != nil {
@@ -143,6 +149,7 @@ func (p *defParser) parse() ast.DeclDef {
 	}
 
 	def := p.NewDeclDef(p.args)
+	attachAnnotations(def.Annotations(), trailing)
 
 	if !p.inputs.IsZero() {
 		parseTypeList(p.parser, p.inputs, def.WithSignature().Inputs(), taxa.MethodIns)

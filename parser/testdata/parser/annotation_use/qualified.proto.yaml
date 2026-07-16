@@ -14,11 +14,9 @@ decls:
     - name.components:
       - ident: "myco"
       - { ident: "validate", separator: SEPARATOR_DOT }
-      args:
-      - path.components: [{ ident: "matches" }]
-      - path.components: [{ extension.components: [{ ident: "this" }, {}, {}] }]
+      args: [{ capture: "matches(this, \"^[^@]+@[^@]+$\")" }]
     - name.components:
       - ident: "org"
       - { ident: "acme", separator: SEPARATOR_DOT }
       - { ident: "audit", separator: SEPARATOR_DOT }
-      args: [{ literal.string_value: "public" }]
+      args: [{ value.literal.string_value: "public", capture: "\"public\"" }]

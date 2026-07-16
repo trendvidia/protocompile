@@ -388,13 +388,9 @@ func (c *protoEncoder) decl(decl ast.DeclAny) *compilerpb.Decl {
 
 	case ast.DeclKindAnnotationUse:
 		decl := decl.AsAnnotationUse()
-		var args []*compilerpb.Expr
-		for arg := range seq.Values(decl.Args()) {
-			args = append(args, c.expr(arg))
-		}
 		return &compilerpb.Decl{Decl: &compilerpb.Decl_AnnotationUse_{AnnotationUse: &compilerpb.Decl_AnnotationUse{
 			Name:       c.path(decl.Name()),
-			Args:       args,
+			Args:       c.annotationUseArgs(decl.Args()),
 			Span:       c.span(decl),
 			AtSpan:     c.span(decl.At()),
 			ParensSpan: c.span(decl.Parens()),
@@ -442,17 +438,43 @@ func (c *protoEncoder) annotations(anns interface {
 	out := make([]*compilerpb.Decl_AnnotationUse, anns.Len())
 	for i := range out {
 		ann := anns.At(i)
-		var args []*compilerpb.Expr
-		for arg := range seq.Values(ann.Args()) {
-			args = append(args, c.expr(arg))
-		}
 		out[i] = &compilerpb.Decl_AnnotationUse{
 			Name:       c.path(ann.Name()),
-			Args:       args,
+			Args:       c.annotationUseArgs(ann.Args()),
 			Span:       c.span(ann),
 			AtSpan:     c.span(ann.At()),
 			ParensSpan: c.span(ann.Parens()),
 		}
+	}
+	return out
+}
+
+// annotationUseArgs encodes the capture-then-classify argument list of
+// an annotation use site. Returns nil for an empty list.
+func (c *protoEncoder) annotationUseArgs(args ast.Commas[ast.AnnotationUseArg]) []*compilerpb.Decl_AnnotationUse_Arg {
+	if args.Len() == 0 {
+		return nil
+	}
+	out := make([]*compilerpb.Decl_AnnotationUse_Arg, args.Len())
+	for i := range out {
+		arg := args.At(i)
+		pb := &compilerpb.Decl_AnnotationUse_Arg{
+			Capture:    arg.ValueSpan().Text(),
+			Span:       c.span(arg),
+			ValueSpan:  c.span(arg.ValueSpan()),
+			NameSpan:   c.span(arg.Name()),
+			EqualsSpan: c.span(arg.Equals()),
+		}
+		if arg.IsNamed() {
+			pb.Name = arg.Name().Text()
+		}
+		if !arg.Value().IsZero() {
+			pb.Value = c.expr(arg.Value())
+		}
+		if !arg.MessageType().IsZero() {
+			pb.TypeName = c.path(arg.MessageType())
+		}
+		out[i] = pb
 	}
 	return out
 }

@@ -15,6 +15,8 @@
 package fdp
 
 import (
+	"strings"
+
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/runtime/protoimpl"
 	"google.golang.org/protobuf/types/descriptorpb"
@@ -66,14 +68,8 @@ func buildAnnotation(u ir.AnnotationUse) *pwsv1.Annotation {
 		Name: string(target.FullName()),
 	}
 
-	params := target.Params()
-	args := u.AST().Args()
-	for i := range args.Len() {
-		var param ir.AnnotationParam
-		if i < params.Len() {
-			param = params.At(i)
-		}
-		arg := buildArg(args.At(i), param)
+	for _, b := range u.ArgBindings() {
+		arg := buildArg(u, b)
 		if arg != nil {
 			ann.Args = append(ann.Args, arg)
 		}
@@ -81,70 +77,79 @@ func buildAnnotation(u ir.AnnotationUse) *pwsv1.Annotation {
 	return ann
 }
 
-// buildArg lowers one argument expression into a
-// [pwsv1.AnnotationArg]. The parameter (when known) drives type-
-// specific lowering — e.g. routing string literals into bytes_value
-// when the param is `bytes`, or wrapping the verbatim source into
-// an [Expression] when the param is the `expression` pseudo-type.
+// buildArg lowers one bound argument into a [pwsv1.AnnotationArg].
+// The parameter drives type-specific lowering — e.g. routing string
+// literals into bytes_value when the param is `bytes`, or keeping
+// the verbatim capture (plus extracted calls) when the param is the
+// `expression` pseudo-type.
 //
-// Returns nil for argument shapes the legalize pass should already
-// have rejected (array/dict/range/field).
-func buildArg(arg ast.ExprAny, param ir.AnnotationParam) *pwsv1.AnnotationArg {
-	if arg.IsZero() {
+// Returns nil for shapes the B3 classification pass already rejected
+// (opaque captures on non-expression params, message literals).
+func buildArg(u ir.AnnotationUse, b ir.AnnotationArgBinding) *pwsv1.AnnotationArg {
+	if b.Arg.IsZero() {
 		return nil
 	}
 
-	// `expression` and `any` params capture the verbatim source of
-	// the argument (for expression params, that's exactly what the
-	// engine will parse). Function-call extraction is deferred to a
-	// follow-up; the source string alone is sufficient for the
-	// engine to operate.
-	if param.IsExpression() {
-		return &pwsv1.AnnotationArg{
-			Value: &pwsv1.AnnotationArg_Expression{
-				Expression: &pwsv1.Expression{
-					Source: arg.Span().Text(),
-				},
-			},
-		}
+	out := &pwsv1.AnnotationArg{}
+	if b.Arg.IsNamed() {
+		out.Name = b.Arg.Name().Text()
 	}
 
-	switch arg.Kind() {
+	// `expression` params keep the §5.1 capture verbatim (whitespace-
+	// trimmed, quotes never stripped) together with the function-call
+	// sites extracted per §8.1.
+	if b.Param.IsExpression() {
+		expr := &pwsv1.Expression{
+			Source: strings.TrimSpace(b.Arg.ValueSpan().Text()),
+		}
+		for _, call := range u.ExtractCalls(b.Arg) {
+			expr.Calls = append(expr.Calls, &pwsv1.FunctionRef{
+				Fqn:   string(call.Target.FullName()),
+				Arity: int32(call.Arity),
+			})
+		}
+		out.Value = &pwsv1.AnnotationArg_Expression{Expression: expr}
+		return out
+	}
+
+	value := buildArgValue(u, b.Arg.Value(), b.Param)
+	if value == nil {
+		return nil
+	}
+	value.Name = out.Name
+	return value
+}
+
+// buildArgValue lowers a classified argument value expression into a
+// [pwsv1.AnnotationArg] with only the value oneof populated. Returns
+// nil for shapes B3 rejected.
+func buildArgValue(u ir.AnnotationUse, value ast.ExprAny, param ir.AnnotationParam) *pwsv1.AnnotationArg {
+	switch value.Kind() {
 	case ast.ExprKindLiteral:
-		return buildLiteralArg(arg.AsLiteral(), param)
+		return buildLiteralArg(value.AsLiteral(), param)
 
 	case ast.ExprKindPath:
-		// Identifier path: model as Literal.enum_value. Covers both
-		// enum-value references (`@scope(PUBLIC)`) and the boolean
-		// keywords `true` / `false` when the param is bool.
-		path := arg.AsPath().Path
-		text := path.Canonicalized()
-		if param.IsScalar() && param.Scalar() == predeclared.Bool {
-			switch text {
-			case "true":
-				return &pwsv1.AnnotationArg{Value: &pwsv1.AnnotationArg_BoolValue{BoolValue: true}}
-			case "false":
-				return &pwsv1.AnnotationArg{Value: &pwsv1.AnnotationArg_BoolValue{BoolValue: false}}
-			}
+		// Identifier path: the boolean keywords `true` / `false`, or
+		// an enum-value reference.
+		path := value.AsPath().Path
+		switch path.Canonicalized() {
+		case "true":
+			return &pwsv1.AnnotationArg{Value: &pwsv1.AnnotationArg_BoolValue{BoolValue: true}}
+		case "false":
+			return &pwsv1.AnnotationArg{Value: &pwsv1.AnnotationArg_BoolValue{BoolValue: false}}
 		}
-		// Transitional: the path text is carried verbatim in value_name
-		// with enum_type/number unset. Link-time classification (#69)
-		// resolves the reference against the symbol table and fills in
-		// the full EnumLiteral, diagnosing unresolvable names.
 		return &pwsv1.AnnotationArg{
 			Value: &pwsv1.AnnotationArg_Literal{
 				Literal: &pwsv1.Literal{
-					Kind: &pwsv1.Literal_EnumValue{
-						EnumValue: &pwsv1.EnumLiteral{ValueName: text},
-					},
+					Kind: &pwsv1.Literal_EnumValue{EnumValue: buildEnumLiteral(u, path)},
 				},
 			},
 		}
 
 	case ast.ExprKindPrefixed:
-		// `-N` numeric negation. The legalize pass rejects everything
-		// else under a prefix.
-		pref := arg.AsPrefixed()
+		// `-N` numeric negation; the classifier admits nothing else
+		// under a prefix.
+		pref := value.AsPrefixed()
 		if pref.Prefix() != keyword.Sub {
 			return nil
 		}
@@ -163,6 +168,72 @@ func buildArg(arg ast.ExprAny, param ir.AnnotationParam) *pwsv1.AnnotationArg {
 			v.DoubleValue = -v.DoubleValue
 		}
 		return neg
+
+	case ast.ExprKindArray:
+		return &pwsv1.AnnotationArg{Value: buildListLiteral(u, value.AsArray(), param)}
+	}
+
+	// Message literals (ExprKindDict) are rejected by B3 until Any
+	// serialization lands; nothing else can reach here.
+	return nil
+}
+
+// buildEnumLiteral lowers an enum-value reference into a resolved
+// [pwsv1.EnumLiteral] — enum type FQN, value name, and number — per
+// RFC-001 §8.1 ("enum references are lowered resolved").
+//
+// When the reference does not resolve (possible only when the B3
+// pass already diagnosed the file), the path text is carried
+// verbatim in value_name with enum_type/number unset.
+func buildEnumLiteral(u ir.AnnotationUse, path ast.Path) *pwsv1.EnumLiteral {
+	if member := u.ResolveEnumValueArg(path); !member.IsZero() {
+		return &pwsv1.EnumLiteral{
+			EnumType:  string(member.Parent().FullName()),
+			ValueName: member.Name(),
+			Number:    member.Number(),
+		}
+	}
+	return &pwsv1.EnumLiteral{ValueName: path.Canonicalized()}
+}
+
+// buildListLiteral lowers a list-literal argument into a
+// [pwsv1.ListLiteral] of [pwsv1.LiteralValue] elements. Elements
+// carry no names and can never be expressions; homogeneity was
+// checked by the B3 pass.
+func buildListLiteral(u ir.AnnotationUse, arr ast.ExprArray, param ir.AnnotationParam) *pwsv1.AnnotationArg_Literal {
+	list := &pwsv1.ListLiteral{}
+	for elem := range seq.Values(arr.Elements()) {
+		if lv := buildListElement(u, elem, param); lv != nil {
+			list.Elements = append(list.Elements, lv)
+		}
+	}
+	return &pwsv1.AnnotationArg_Literal{
+		Literal: &pwsv1.Literal{Kind: &pwsv1.Literal_List{List: list}},
+	}
+}
+
+// buildListElement lowers one list element into a
+// [pwsv1.LiteralValue]. The field numbers of LiteralValue's oneof
+// mirror AnnotationArg's, so the scalar lowering is shared and
+// re-wrapped.
+func buildListElement(u ir.AnnotationUse, elem ast.ExprAny, param ir.AnnotationParam) *pwsv1.LiteralValue {
+	arg := buildArgValue(u, elem, param)
+	if arg == nil {
+		return nil
+	}
+	switch v := arg.Value.(type) {
+	case *pwsv1.AnnotationArg_StringValue:
+		return &pwsv1.LiteralValue{Kind: &pwsv1.LiteralValue_StringValue{StringValue: v.StringValue}}
+	case *pwsv1.AnnotationArg_IntValue:
+		return &pwsv1.LiteralValue{Kind: &pwsv1.LiteralValue_IntValue{IntValue: v.IntValue}}
+	case *pwsv1.AnnotationArg_DoubleValue:
+		return &pwsv1.LiteralValue{Kind: &pwsv1.LiteralValue_DoubleValue{DoubleValue: v.DoubleValue}}
+	case *pwsv1.AnnotationArg_BoolValue:
+		return &pwsv1.LiteralValue{Kind: &pwsv1.LiteralValue_BoolValue{BoolValue: v.BoolValue}}
+	case *pwsv1.AnnotationArg_BytesValue:
+		return &pwsv1.LiteralValue{Kind: &pwsv1.LiteralValue_BytesValue{BytesValue: v.BytesValue}}
+	case *pwsv1.AnnotationArg_Literal:
+		return &pwsv1.LiteralValue{Kind: &pwsv1.LiteralValue_Literal{Literal: v.Literal}}
 	}
 	return nil
 }
@@ -273,9 +344,28 @@ func buildAnnotationParamDecl(p ir.AnnotationParam) *pwsv1.AnnotationParam {
 		}
 	}
 	if deflt := p.Default(); !deflt.IsZero() {
-		out.DefaultValue = buildArg(deflt, p)
+		out.DefaultValue = buildDefaultArg(deflt, p)
 	}
 	return out
+}
+
+// buildDefaultArg lowers a parameter's default-value expression.
+// Defaults are declaration-site expressions (not use-site captures),
+// so the lowering mirrors [buildArgValue] minus the pieces that need
+// a use site: enum-value references are carried unresolved (the path
+// text in EnumLiteral.value_name), pending default-expression
+// resolution machinery.
+func buildDefaultArg(deflt ast.ExprAny, param ir.AnnotationParam) *pwsv1.AnnotationArg {
+	if param.IsExpression() {
+		return &pwsv1.AnnotationArg{
+			Value: &pwsv1.AnnotationArg_Expression{
+				Expression: &pwsv1.Expression{
+					Source: strings.TrimSpace(deflt.Span().Text()),
+				},
+			},
+		}
+	}
+	return buildArgValue(ir.AnnotationUse{}, deflt, param)
 }
 
 // emitFileFunctions populates the [pwsv1.FileFunctions] extension

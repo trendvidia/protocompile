@@ -147,7 +147,10 @@ func resolveAnnotationUsesOn[Seq interface {
 // table. Returns the new ID. The resolved target is the zero ref on
 // resolution failure (after a diagnostic was emitted).
 func lowerAnnotationUse(file *File, r *report.Report, use ast.DeclAnnotationUse, scope FullName) id.ID[AnnotationUse] {
-	raw := rawAnnotationUse{def: use.ID()}
+	raw := rawAnnotationUse{
+		def:   use.ID(),
+		scope: file.session.intern.Intern(string(scope)),
+	}
 
 	name := use.Name()
 	if !name.IsZero() {
@@ -155,15 +158,34 @@ func lowerAnnotationUse(file *File, r *report.Report, use ast.DeclAnnotationUse,
 		// vs relative paths produce identical interned names; the existing
 		// symbolRef machinery already handles the absolute vs relative
 		// distinction internally via Name.Absolute().
-		sym := symbolRef{
+		ref := symbolRef{
 			File:   file,
-			Report: r,
+			Report: nil, // Quiet; the bare-name fallback runs first.
 			scope:  scope,
 			name:   FullName(name.Canonicalized()),
 			span:   name,
 			accept: func(k SymbolKind) bool { return k == SymbolKindAnnotation },
 			want:   taxa.Annotation,
-		}.resolve()
+		}
+
+		sym := ref.resolve()
+		if sym.Kind() != SymbolKindAnnotation {
+			// Standard scope resolution failed. Annotation names
+			// additionally resolve by bare name against the
+			// `annotation` declarations of visible imports — the
+			// RFC-001 §5.2/§5.3 spelling `@validate` with
+			// `import "protowire/schema/v1/annotations.proto"`,
+			// where the declaring package is never in the using
+			// file's scope chain.
+			if match, ok := resolveBareAnnotation(file, r, ref.name, name); ok {
+				ref.name = "." + match // Absolute lookup path.
+			}
+			// Re-run (with the fallback FQN when one matched) to
+			// bind the ref and, on failure, emit the standard
+			// diagnostics.
+			ref.Report = r
+			sym = ref.resolve()
+		}
 
 		if !sym.IsZero() && sym.Kind() == SymbolKindAnnotation {
 			raw.target = Ref[Symbol]{
@@ -177,6 +199,46 @@ func lowerAnnotationUse(file *File, r *report.Report, use ast.DeclAnnotationUse,
 	}
 
 	return id.ID[AnnotationUse](file.arenas.annotationUses.NewCompressed(raw))
+}
+
+// resolveBareAnnotation implements the bare-name fallback for
+// annotation use sites: a single-identifier name that standard scope
+// resolution did not find matches `annotation` declarations of that
+// name in any visible import. Exactly one match resolves; several are
+// ambiguous (diagnosed here); zero reports false so the caller can
+// emit the standard not-found diagnostics.
+func resolveBareAnnotation(file *File, r *report.Report, name FullName, span ast.Path) (FullName, bool) {
+	if name.Parent() != "" {
+		return "", false // Qualified names resolve standardly only.
+	}
+
+	var matches []Annotation
+	for imp := range seq.Values(file.TransitiveImports()) {
+		if !imp.Visible {
+			continue
+		}
+		for ann := range seq.Values(imp.Annotations()) {
+			if ann.Name() == string(name) {
+				matches = append(matches, ann)
+			}
+		}
+	}
+
+	switch len(matches) {
+	case 0:
+		return "", false
+	case 1:
+		return matches[0].FullName(), true
+	default:
+		d := r.Errorf("ambiguous annotation `@%s`", name).Apply(
+			report.Snippetf(span, "resolves to more than one imported `annotation` declaration"),
+			report.Helpf("qualify the name with its package"),
+		)
+		for _, m := range matches {
+			d.Apply(report.Snippetf(m.AST().Name(), "candidate: `%s`", m.FullName()))
+		}
+		return "", false
+	}
 }
 
 // refFileFor returns the [Ref.file] index for the file a resolved

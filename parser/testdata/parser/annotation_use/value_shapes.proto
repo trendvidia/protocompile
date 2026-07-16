@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package test;
+
+// Every argument shape of the RFC-001 §5.1 value grammar
+// `literal | qualifiedIdent | listLiteral | messageLiteral`. Each
+// should classify — the encoded arg carries both the capture and the
+// re-parsed value.
+
+@description("primary email")
+message M1 {}
+
+@example(42)
+message M2 {}
+
+@since(2026.06)
+message M3 {}
+
+@minimum(-1)
+message M4 {}
+
+@scope(public)
+message M5 {}
+
+@author(myco.acme.alice)
+message M6 {}
+
+@flag(true)
+message M7 {}
+
+@allowed(["US", "CA", "GB"])
+message M8 {}
+
+@nested([[1, 2], [3]])
+message M9 {}
+
+@empty_list([])
+message M10 {}
+
+@sample(Money{currency: "USD", units: 5})
+message M11 {}
+
+@untyped({key: "value", n: 3})
+message M12 {}
+
+@deep(Outer{tags: ["a", "b"], inner: {ok: true}})
+message M13 {}

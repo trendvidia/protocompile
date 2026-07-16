@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package test;
+
+// Trailing placement on semicolon-terminated defs (RFC-001 §5.1
+// hybrid placement): fields and enum values take trailing
+// annotations between the last follower and the `;`.
+
+message User {
+  string display_name = 1 @required;
+  string role = 2 @default("viewer");
+  string email = 3
+    @required
+    @validate(this.size() > 0, code = "email.empty");
+  string tagged = 4 [deprecated = true] @required;
+}
+
+enum Tier {
+  TIER_UNSPECIFIED = 0 @description("not yet selected");
+  TIER_FREE = 1 @description("free tier");
+}

@@ -1,0 +1,45 @@
+decls:
+- syntax: { kind: KIND_SYNTAX, value.literal.string_value: "proto3" }
+- package.path.components: [{ ident: "test" }]
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "M1" }]
+    body: {}
+    annotations:
+    - name.components: [{ ident: "validate" }]
+      args:
+      - capture: "is_email(this)"
+      - name: "code"
+        value.literal.string_value: "email.invalid"
+        capture: "\"email.invalid\""
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "M2" }]
+    body: {}
+    annotations:
+    - name.components: [{ ident: "http" }]
+      args:
+      - name: "method"
+        value.literal.string_value: "GET"
+        capture: "\"GET\""
+      - name: "path"
+        value.literal.string_value: "/users/{user_id}"
+        capture: "\"/users/{user_id}\""
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "M3" }]
+    body: {}
+    annotations:
+    - name.components: [{ ident: "validate" }]
+      args: [{ capture: "code == \"x\"" }]
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "M4" }]
+    body: {}
+    annotations:
+    - name.components: [{ ident: "tag" }]
+      args:
+      - name: "name"
+        value.literal.string_value: "auth"
+        capture: "\"auth\""
+      - { name: "weight", value.literal.int_value: 3, capture: "3" }

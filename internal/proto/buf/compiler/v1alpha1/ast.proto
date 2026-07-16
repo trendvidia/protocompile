@@ -238,12 +238,37 @@ message Decl {
   // orphan `@name(args)` that did not bind to a following decl.
   message AnnotationUse {
     Path name = 1;
-    repeated Expr args = 2;
+    repeated Arg args = 2;
 
     Span span = 10;
     Span at_span = 11;
     // parens_span is unset for the bare `@Name` form.
     Span parens_span = 12;
+
+    // A single argument, parsed capture-then-classify per RFC-001
+    // §5.1: the raw capture always survives in capture/value_span;
+    // value is set only when the capture re-parses under the §5.1
+    // value grammar `literal | qualifiedIdent | listLiteral |
+    // messageLiteral`.
+    message Arg {
+      // The named-argument identifier text; empty for positional
+      // arguments.
+      string name = 1;
+      // The re-parsed value; unset for opaque engine-expression
+      // captures.
+      Expr value = 2;
+      // The leading type name of a typed message literal
+      // (`Money{...}`).
+      Path type_name = 3;
+      // The raw captured source text (untrimmed).
+      string capture = 4;
+
+      Span span = 10;
+      // name_span/equals_span are unset for positional arguments.
+      Span name_span = 11;
+      Span equals_span = 12;
+      Span value_span = 13;
+    }
   }
 
   oneof decl {

@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package test;
+
+// Engine-expression fragments: none of these re-parse under the
+// §5.1 value grammar, so each is captured opaquely (value unset,
+// capture populated). Delimiters balance via the token tree and
+// string literals are opaque to the scan.
+
+@validate(is_email(this))
+message M1 {}
+
+@validate(matches(this, "^[^@]+@[^@]+$"))
+message M2 {}
+
+@validate(this == 1 || this == 2)
+message M3 {}
+
+@validate(this.size() < 280)
+message M4 {}
+
+@validate(this in ["US", "CA"])
+message M5 {}
+
+@validate(size(split(this, ",")[0]) > 0)
+message M6 {}
+
+@validate(matches(this, "^[a-z),]+$"))
+message M7 {}
+
+@negated_path(-foo.bar)
+message M8 {}

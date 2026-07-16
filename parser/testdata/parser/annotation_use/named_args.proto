@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package test;
+
+// Named arguments: a leading `Ident =` (single `=`, next token not
+// `=`) is peeled before capture. `code == "x"` starts with a single
+// `==` token and stays a positional opaque capture.
+
+@validate(is_email(this), code = "email.invalid")
+message M1 {}
+
+@http(method = "GET", path = "/users/{user_id}")
+message M2 {}
+
+@validate(code == "x")
+message M3 {}
+
+@tag(name = "auth", weight = 3)
+message M4 {}

@@ -119,19 +119,26 @@ message M {}
 	assert.Contains(t, expr.Source, "this != 0")
 }
 
-// TestAnnotationEmissionPath verifies identifier-path args lower
-// into Literal.enum_value, carrying the path text in value_name.
-// The enum_type/number fields stay unset until link-time
-// classification (#69) resolves the reference.
+// TestAnnotationEmissionPath verifies enum-value reference args
+// lower into a linker-resolved Literal.enum_value: enum type FQN,
+// value name, and number (RFC-001 §8.1, "enum references are
+// lowered resolved").
 func TestAnnotationEmissionPath(t *testing.T) {
 	t.Parallel()
 
 	const src = `syntax = "proto3";
 package test;
 
-annotation scope(visibility: any);
+enum OrderStatus {
+  ORDER_STATUS_UNSPECIFIED = 0;
+  PLACED = 1;
+  SHIPPED = 2;
+  CANCELLED = 3;
+}
 
-@scope(myco.acme.public)
+annotation sample(value: any);
+
+@sample(OrderStatus.CANCELLED)
 message M {}
 `
 
@@ -146,8 +153,149 @@ message M {}
 	require.NotNil(t, lit)
 	ev := lit.GetEnumValue()
 	require.NotNil(t, ev)
-	assert.Equal(t, "myco.acme.public", ev.GetValueName())
-	assert.Empty(t, ev.GetEnumType())
+	assert.Equal(t, "test.OrderStatus", ev.GetEnumType())
+	assert.Equal(t, "CANCELLED", ev.GetValueName())
+	assert.Equal(t, int32(3), ev.GetNumber())
+}
+
+// TestAnnotationEmissionExpressionCalls verifies RFC-001 §8.1
+// expression lowering: the capture goes into Expression.source
+// verbatim (trimmed, quotes intact), calls to declared functions are
+// extracted with their arity, and engine builtins are absent.
+func TestAnnotationEmissionExpressionCalls(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+function in_region(value: string, regions: string);
+
+annotation validate(rule: expression, code: string = "");
+
+message Account {
+  string country = 1
+    @validate(in_region(this, ["US", "CA"]), code = "account.bad_region");
+  string display_name = 2
+    @validate(matches(this, "^[a-z),]+$"), code = "account.bad_name");
+  int32 tier = 3
+    @validate(this == 1 || this == 2, code = "account.bad_tier");
+  string tags_csv = 4
+    @validate(size(split(this, ",")[0]) > 0);
+}
+`
+
+	f := compileForFDPTest(t, src)
+	fields := f.GetMessageType()[0].GetField()
+	require.Len(t, fields, 4)
+
+	annotationOf := func(i int) *pwsv1.Annotation {
+		list, ok := proto.GetExtension(fields[i].Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+		require.True(t, ok, "field %d should carry the annotations extension", i)
+		require.Len(t, list.Entries, 1)
+		return list.Entries[0]
+	}
+
+	// country: declared-function call, nested list literal. The comma
+	// inside the list does not count toward the call's arity.
+	entry := annotationOf(0)
+	require.Len(t, entry.Args, 2)
+	expr := entry.Args[0].GetExpression()
+	require.NotNil(t, expr)
+	assert.Equal(t, `in_region(this, ["US", "CA"])`, expr.Source)
+	require.Len(t, expr.Calls, 1)
+	assert.Equal(t, "test.in_region", expr.Calls[0].Fqn)
+	assert.Equal(t, int32(2), expr.Calls[0].Arity)
+	assert.Equal(t, "code", entry.Args[1].Name)
+	assert.Equal(t, "account.bad_region", entry.Args[1].GetStringValue())
+
+	// display_name: engine builtin only; the `)` and `,` inside the
+	// string literal are opaque to the capture scan.
+	expr = annotationOf(1).Args[0].GetExpression()
+	require.NotNil(t, expr)
+	assert.Equal(t, `matches(this, "^[a-z),]+$")`, expr.Source)
+	assert.Empty(t, expr.Calls)
+
+	// tier: infix fragment with == and ||; not a named argument.
+	entry = annotationOf(2)
+	expr = entry.Args[0].GetExpression()
+	require.NotNil(t, expr)
+	assert.Equal(t, `this == 1 || this == 2`, expr.Source)
+	assert.Empty(t, expr.Calls)
+	assert.Equal(t, "account.bad_tier", entry.Args[1].GetStringValue())
+
+	// tags_csv: nested delimiters of all three kinds in one capture.
+	expr = annotationOf(3).Args[0].GetExpression()
+	require.NotNil(t, expr)
+	assert.Equal(t, `size(split(this, ",")[0]) > 0`, expr.Source)
+	assert.Empty(t, expr.Calls)
+}
+
+// TestAnnotationEmissionListLiteral verifies list-literal args lower
+// into Literal.list with LiteralValue elements (no names, scalar
+// oneof mirroring AnnotationArg fields 10-14).
+func TestAnnotationEmissionListLiteral(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+annotation allowed(values: any);
+
+@allowed(["US", "CA", "GB"])
+message M {}
+`
+
+	f := compileForFDPTest(t, src)
+	mdp := f.GetMessageType()[0]
+	list, ok := proto.GetExtension(mdp.Options, pwsv1.E_MessageAnnotations).(*pwsv1.AnnotationList)
+	require.True(t, ok)
+	require.Len(t, list.Entries, 1)
+	args := list.Entries[0].Args
+	require.Len(t, args, 1)
+	ll := args[0].GetLiteral().GetList()
+	require.NotNil(t, ll)
+	require.Len(t, ll.Elements, 3)
+	assert.Equal(t, "US", ll.Elements[0].GetStringValue())
+	assert.Equal(t, "CA", ll.Elements[1].GetStringValue())
+	assert.Equal(t, "GB", ll.Elements[2].GetStringValue())
+}
+
+// TestAnnotationEmissionTrailingPlacement verifies trailing
+// annotations on fields and enum values (RFC-001 §5.1 hybrid
+// placement) reach the respective Options extensions.
+func TestAnnotationEmissionTrailingPlacement(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+annotation required;
+annotation description(text: string);
+
+message User {
+  string display_name = 1 @required;
+}
+
+enum Tier {
+  TIER_UNSPECIFIED = 0 @description("not yet selected");
+}
+`
+
+	f := compileForFDPTest(t, src)
+
+	field := f.GetMessageType()[0].GetField()[0]
+	list, ok := proto.GetExtension(field.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+	require.True(t, ok, "field should carry the annotations extension")
+	require.Len(t, list.Entries, 1)
+	assert.Equal(t, "test.required", list.Entries[0].Name)
+
+	ev := f.GetEnumType()[0].GetValue()[0]
+	list, ok = proto.GetExtension(ev.Options, pwsv1.E_EnumValueAnnotations).(*pwsv1.AnnotationList)
+	require.True(t, ok, "enum value should carry the annotations extension")
+	require.Len(t, list.Entries, 1)
+	assert.Equal(t, "test.description", list.Entries[0].Name)
+	require.Len(t, list.Entries[0].Args, 1)
+	assert.Equal(t, "not yet selected", list.Entries[0].Args[0].GetStringValue())
 }
 
 // TestAnnotationEmissionNegative verifies `-N` numeric negation
