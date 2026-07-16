@@ -124,8 +124,7 @@ annotation core;
 
 @deprecated
 message M {
-  @authored("alice")
-  string field_a = 1;
+  string field_a = 1 @authored("alice");
 }
 
 @authored("alice")
@@ -1150,5 +1149,108 @@ annotation plan(free: any = nothing.here);
 `)
 		assert.True(t, hasErrorContaining(rep, "nothing.here"),
 			"expected unresolved-reference diagnostic, got: %v", rep.Diagnostics)
+	})
+}
+
+// TestAnnotationPlacementLegalized verifies RFC-001 §5.1 hybrid
+// placement is enforced by production: leading on fields/enum
+// values/type/function declarations and trailing on rpc methods are
+// diagnosed.
+func TestAnnotationPlacementLegalized(t *testing.T) {
+	t.Parallel()
+
+	t.Run("leading-on-field", func(t *testing.T) {
+		t.Parallel()
+		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+annotation required;
+message M {
+  @required
+  string s = 1;
+}
+`)
+		assert.True(t, hasErrorContaining(rep, "leading annotation on a field"),
+			"expected placement diagnostic, got: %v", rep.Diagnostics)
+	})
+
+	t.Run("leading-on-enum-value", func(t *testing.T) {
+		t.Parallel()
+		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+annotation described;
+enum E {
+  @described
+  E_UNSET = 0;
+}
+`)
+		assert.True(t, hasErrorContaining(rep, "leading annotation on an enum value"),
+			"expected placement diagnostic, got: %v", rep.Diagnostics)
+	})
+
+	t.Run("trailing-on-method", func(t *testing.T) {
+		t.Parallel()
+		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+annotation described;
+message M {}
+service S {
+  rpc Ping(M) returns (M) @described;
+}
+`)
+		assert.True(t, hasErrorContaining(rep, "trailing annotation on a method"),
+			"expected placement diagnostic, got: %v", rep.Diagnostics)
+	})
+
+	t.Run("leading-on-type", func(t *testing.T) {
+		t.Parallel()
+		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+annotation described;
+@described
+type Email = string;
+`)
+		assert.True(t, hasErrorContaining(rep, "leading annotation on a type"),
+			"expected placement diagnostic, got: %v", rep.Diagnostics)
+	})
+
+	t.Run("leading-on-function", func(t *testing.T) {
+		t.Parallel()
+		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+annotation described;
+@described
+function f(x: string);
+`)
+		assert.True(t, hasErrorContaining(rep, "leading annotation on a function"),
+			"expected placement diagnostic, got: %v", rep.Diagnostics)
+	})
+
+	t.Run("correct-placements-accepted", func(t *testing.T) {
+		t.Parallel()
+		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+annotation described(text: string = "");
+message M {}
+type Email = string @described;
+function f(x: string) @described;
+@described
+message N {
+  string s = 1 @described;
+}
+@described
+enum E {
+  E_UNSET = 0 @described;
+}
+@described
+service S {
+  @described
+  rpc Ping(M) returns (M);
+}
+`)
+		for _, d := range rep.Diagnostics {
+			if d.Level() >= report.Error {
+				t.Errorf("unexpected diagnostic: %s", d.Message())
+			}
+		}
 	})
 }

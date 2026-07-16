@@ -74,16 +74,27 @@ func legalizeDecl(p *parser, parent classified, decl ast.DeclAny) {
 		what := classified{def, taxa.Classify(def)}
 
 		legalizeDef(p, parent, def)
+		legalizeAnnotationPlacement(p, def)
 		for decl := range seq.Values(body.Decls()) {
 			legalizeDecl(p, what, decl)
 		}
 
-	case ast.DeclKindType, ast.DeclKindFunction, ast.DeclKindAnnotation, ast.DeclKindAnnotationUse:
+	case ast.DeclKindType:
+		ty := decl.AsType()
+		legalizeLeadingOnTrailingDecl(p, "type", ty.KeywordToken(), ty.Annotations())
+
+	case ast.DeclKindFunction:
+		fn := decl.AsFunction()
+		legalizeLeadingOnTrailingDecl(p, "function", fn.KeywordToken(), fn.Annotations())
+
+	case ast.DeclKindAnnotation, ast.DeclKindAnnotationUse:
 		// Annotation-use argument shapes are no longer legalized at
 		// parse time: arguments are captured verbatim per RFC-001 §5.1
 		// and classified against the resolved annotation's parameter
 		// types at link time (capture-then-classify). Orphan top-level
-		// use sites are diagnosed elsewhere.
+		// use sites are diagnosed elsewhere. `annotation` declarations
+		// are absent from the spec's placement list; this
+		// implementation accepts their trailing form unchecked.
 	}
 }
 

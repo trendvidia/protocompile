@@ -11,8 +11,7 @@ annotation k;
 
 @k
 message M {
-  @k
-  string field_a = 1;
+  string field_a = 1 @k;
 
   @k
   oneof choice {
@@ -23,8 +22,7 @@ message M {
 @k
 enum E {
   E_UNSET = 0;
-  @k
-  E_ONE = 1;
+  E_ONE = 1 @k;
 }
 
 @k
