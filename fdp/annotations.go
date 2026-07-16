@@ -114,7 +114,7 @@ func buildArg(arg ast.ExprAny, param ir.AnnotationParam) *pwsv1.AnnotationArg {
 		return buildLiteralArg(arg.AsLiteral(), param)
 
 	case ast.ExprKindPath:
-		// Identifier path: model as Literal.enum_name. Covers both
+		// Identifier path: model as Literal.enum_value. Covers both
 		// enum-value references (`@scope(PUBLIC)`) and the boolean
 		// keywords `true` / `false` when the param is bool.
 		path := arg.AsPath().Path
@@ -127,10 +127,16 @@ func buildArg(arg ast.ExprAny, param ir.AnnotationParam) *pwsv1.AnnotationArg {
 				return &pwsv1.AnnotationArg{Value: &pwsv1.AnnotationArg_BoolValue{BoolValue: false}}
 			}
 		}
+		// Transitional: the path text is carried verbatim in value_name
+		// with enum_type/number unset. Link-time classification (#69)
+		// resolves the reference against the symbol table and fills in
+		// the full EnumLiteral, diagnosing unresolvable names.
 		return &pwsv1.AnnotationArg{
 			Value: &pwsv1.AnnotationArg_Literal{
 				Literal: &pwsv1.Literal{
-					Kind: &pwsv1.Literal_EnumName{EnumName: text},
+					Kind: &pwsv1.Literal_EnumValue{
+						EnumValue: &pwsv1.EnumLiteral{ValueName: text},
+					},
 				},
 			},
 		}
