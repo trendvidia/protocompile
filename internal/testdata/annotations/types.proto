@@ -14,6 +14,11 @@ message Email {
   string addr = 1;
 }
 
+enum Visibility {
+  VISIBILITY_UNSPECIFIED = 0;
+  PUBLIC = 1;
+}
+
 annotation each_kind(
   s: string = "anonymous",
   n: int32 = -1,
@@ -21,6 +26,6 @@ annotation each_kind(
   flag: bool = true,
   data: bytes = "",
   rule: expression = "this != null",
-  free: any = anything.you.want,
+  free: any = Visibility.PUBLIC,
   user_type: Email
 );
