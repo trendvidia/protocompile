@@ -549,3 +549,109 @@ service S {
 	require.Len(t, sdp.GetMethod(), 1)
 	assert.NotNil(t, proto.GetExtension(sdp.GetMethod()[0].Options, pwsv1.E_MethodAnnotations))
 }
+
+// TestAnnotationEmissionMessageLiteral verifies message-literal args
+// lower into Literal.message: a google.protobuf.Any typed by the
+// literal's resolved message and serialized at lowering. Mirrors the
+// three-entry shape of protowire's 11_literal_carrier_golden.textproto
+// (resolved enum, Any message, list) built from 10_literal_args.proto's
+// source forms.
+func TestAnnotationEmissionMessageLiteral(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package fixtures.literals;
+
+annotation sample(value: any);
+annotation allowed(values: any);
+
+enum OrderStatus {
+  ORDER_STATUS_UNSPECIFIED = 0;
+  PLACED = 1;
+  SHIPPED = 2;
+  CANCELLED = 3;
+}
+
+message Money {
+  string currency = 1;
+  int64 units = 2;
+}
+
+message Order {
+  OrderStatus status = 1
+    @sample(OrderStatus.CANCELLED);
+  Money total = 2
+    @sample(Money{currency: "USD", units: 5});
+  string country = 3
+    @allowed(["US", "CA", "GB"]);
+}
+`
+
+	f := compileForFDPTest(t, src)
+	fields := f.GetMessageType()[1].GetField()
+	require.Len(t, fields, 3)
+
+	argOf := func(i int) *pwsv1.AnnotationArg {
+		list, ok := proto.GetExtension(fields[i].Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+		require.True(t, ok)
+		require.Len(t, list.Entries, 1)
+		require.Len(t, list.Entries[0].Args, 1)
+		return list.Entries[0].Args[0]
+	}
+
+	// Entry 1: linker-resolved enum-value reference.
+	ev := argOf(0).GetLiteral().GetEnumValue()
+	require.NotNil(t, ev)
+	assert.Equal(t, "fixtures.literals.OrderStatus", ev.GetEnumType())
+	assert.Equal(t, "CANCELLED", ev.GetValueName())
+	assert.Equal(t, int32(3), ev.GetNumber())
+
+	// Entry 2: typed message literal, serialized into an Any at
+	// lowering. The golden's wire bytes are "\n\003USD\020\005".
+	anyMsg := argOf(1).GetLiteral().GetMessage()
+	require.NotNil(t, anyMsg)
+	assert.Equal(t, "type.googleapis.com/fixtures.literals.Money", anyMsg.GetTypeUrl())
+	assert.Equal(t, []byte("\n\x03USD\x10\x05"), anyMsg.GetValue())
+
+	// Entry 3: homogeneous list literal.
+	ll := argOf(2).GetLiteral().GetList()
+	require.NotNil(t, ll)
+	require.Len(t, ll.Elements, 3)
+	assert.Equal(t, "US", ll.Elements[0].GetStringValue())
+}
+
+// TestAnnotationEmissionMessageLiteralOnMessageParam verifies the
+// declared-type path: a message-typed parameter takes an untyped
+// literal (the type comes from the declaration) and an explicitly
+// typed one that must match.
+func TestAnnotationEmissionMessageLiteralOnMessageParam(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+message Money {
+  string currency = 1;
+}
+
+annotation price(value: Money);
+
+@price({currency: "EUR"})
+message A {}
+
+@price(Money{currency: "GBP"})
+message B {}
+`
+
+	f := compileForFDPTest(t, src)
+	for i, want := range []string{"EUR", "GBP"} {
+		mdp := f.GetMessageType()[i+1]
+		list, ok := proto.GetExtension(mdp.Options, pwsv1.E_MessageAnnotations).(*pwsv1.AnnotationList)
+		require.True(t, ok)
+		require.Len(t, list.Entries, 1)
+		anyMsg := list.Entries[0].Args[0].GetLiteral().GetMessage()
+		require.NotNil(t, anyMsg)
+		assert.Equal(t, "type.googleapis.com/test.Money", anyMsg.GetTypeUrl())
+		assert.Equal(t, append([]byte("\n\x03"), want...), anyMsg.GetValue())
+	}
+}

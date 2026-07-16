@@ -877,23 +877,86 @@ annotation sample(value: any);
 @sample(Money{amount: 5})
 message M {}
 `)
-		assert.True(t, hasErrorContaining(rep, "no field named", "amount"),
+		assert.True(t, hasErrorContaining(rep, "cannot resolve", "test.Money"),
 			"expected unknown-field diagnostic, got: %v", rep.Diagnostics)
 	})
 
-	t.Run("not-yet-lowered", func(t *testing.T) {
+	t.Run("accepted", func(t *testing.T) {
+		t.Parallel()
+		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+message Inner {
+  bool ok = 1;
+}
+message Money {
+  string currency = 1;
+  int64 units = 2;
+  repeated string tags = 3;
+  Inner inner = 4;
+}
+annotation sample(value: any);
+@sample(Money{currency: "USD", units: 5, tags: ["a", "b"], inner: {ok: true}})
+message M {}
+`)
+		for _, d := range rep.Diagnostics {
+			if d.Level() >= report.Error {
+				t.Errorf("unexpected diagnostic: %s", d.Message())
+			}
+		}
+	})
+
+	t.Run("field-type-mismatch", func(t *testing.T) {
+		t.Parallel()
+		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+message Money {
+  int64 units = 1;
+}
+annotation sample(value: any);
+@sample(Money{units: "not a number"})
+message M {}
+`)
+		var saw bool
+		for _, d := range rep.Diagnostics {
+			if d.Level() >= report.Error {
+				saw = true
+				break
+			}
+		}
+		assert.True(t, saw, "expected a field-value type mismatch diagnostic")
+	})
+
+	t.Run("map-field-rejected", func(t *testing.T) {
+		t.Parallel()
+		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+message Money {
+  map<string, string> attrs = 1;
+}
+annotation sample(value: any);
+@sample(Money{attrs: [{key: "k", value: "v"}]})
+message M {}
+`)
+		assert.True(t, hasErrorContaining(rep, "map-typed field", "attrs"),
+			"expected map-field rejection, got: %v", rep.Diagnostics)
+	})
+
+	t.Run("wrong-explicit-type-on-message-param", func(t *testing.T) {
 		t.Parallel()
 		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
 package test;
 message Money {
   string currency = 1;
 }
-annotation sample(value: any);
-@sample(Money{currency: "USD"})
+message Other {
+  string x = 1;
+}
+annotation sample(value: Money);
+@sample(Other{x: "y"})
 message M {}
 `)
-		assert.True(t, hasErrorContaining(rep, "not yet supported"),
-			"expected temporary cap diagnostic, got: %v", rep.Diagnostics)
+		assert.True(t, hasErrorContaining(rep, "typed `test.Other`", "declares `test.Money`"),
+			"expected type-mismatch diagnostic, got: %v", rep.Diagnostics)
 	})
 }
 
