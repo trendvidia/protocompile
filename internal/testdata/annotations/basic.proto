@@ -14,6 +14,5 @@ annotation description(text: string);
 
 @description("primary email")
 message Email {
-  @description("RFC-5322 address")
-  string value = 1;
+  string value = 1 @description("RFC-5322 address");
 }
