@@ -25,99 +25,84 @@ import (
 )
 
 // emitSourceMap populates the [pwsv1.SourceMap] extension on
-// FileOptions (50404) with one [pwsv1.SourceEntry] per resolved
-// annotation use site in `file`.
+// FileOptions (50404) with [pwsv1.SourceEntry] entries covering
+// every annotation lowering in `file`.
 //
-// `descriptor_path` syntax. The carrier proto comment marks the
-// path syntax as "implementation-defined and matched by protolsp /
-// pxfed." This implementation uses the carrier's fully-qualified
-// name (dotted, e.g. "test.User.email" for a field), which is
-// unambiguous within a file and the same identifier downstream
-// tools already consume via [ir.Symbol.FullName]. Future revisions
-// may switch to an array path matching
-// [google.protobuf.SourceCodeInfo.Location.path]; the change
-// would be a coordinated bump on protolsp / pxfed.
+// `descriptor_path` follows the canonical RFC-001 §8.3.1 grammar,
+// produced and parsed via [DescriptorPath] — the shared contract
+// with protolsp / pxfed.
 //
-// MVP scope. Only [pwsv1.EntryKind_ANNOTATION_USE] entries are
-// emitted at this revision. The other kinds —
-// [pwsv1.EntryKind_TYPE_REFINEMENT],
-// [pwsv1.EntryKind_FIELD_VALIDATE],
-// [pwsv1.EntryKind_MESSAGE_VALIDATE], and
-// [pwsv1.EntryKind_FUNCTION_CALL] — and the
-// [pwsv1.TypeChainLink] type chain population are deferred to
-// follow-up work as the underlying IR machinery for type
-// refinements and validation lowering matures.
+// Entry kinds, per the carrier proto's normative comments:
+//
+//   - Every annotation in a carrier's AnnotationList gets one entry
+//     keyed `elementPath[annotationFQN#ordinal]`. The kind is
+//     [pwsv1.EntryKind_FIELD_VALIDATE] on fields and extensions,
+//     [pwsv1.EntryKind_MESSAGE_VALIDATE] on messages, and
+//     [pwsv1.EntryKind_ANNOTATION_USE] on every other carrier.
+//     Ordinals count same-named annotations on the carrier in list
+//     order — including uses macro-expanded from type aliases, whose
+//     provenance is separately captured by the TYPE_REFINEMENT entry.
+//   - Each function-call site extracted from an expression argument
+//     gets a [pwsv1.EntryKind_FUNCTION_CALL] entry keyed
+//     `.../arg#i/call#j`, where i indexes the lowered
+//     Annotation.args and j that argument's Expression.calls.
+//   - A field or extension whose declared type resolved through a
+//     type-alias chain gets one bare-elementPath
+//     [pwsv1.EntryKind_TYPE_REFINEMENT] entry with the full chain.
 //
 // Returns true when the extension was attached.
 func emitSourceMap(file *ir.File, target *descriptorpb.FileOptions) bool {
 	out := &pwsv1.SourceMap{File: file.Path()}
 
-	add := func(path ir.FullName, use ir.AnnotationUse) {
-		if use.TargetRef().IsZero() {
-			return
-		}
-		entry := buildAnnotationUseEntry(string(path), use)
-		if entry == nil {
-			return
-		}
-		out.Entries = append(out.Entries, entry)
+	add := func(path ir.FullName, kind pwsv1.EntryKind, uses seq.Indexer[ir.AnnotationUse]) {
+		addAnnotationEntries(&out.Entries, string(path), kind, uses)
 	}
 
 	for ty := range seq.Values(file.AllTypes()) {
-		for u := range seq.Values(ty.Annotations()) {
-			add(ty.FullName(), u)
+		memberKind := pwsv1.EntryKind_FIELD_VALIDATE
+		tyKind := pwsv1.EntryKind_MESSAGE_VALIDATE
+		if ty.IsEnum() {
+			// Enum and enum-value carriers are neither field- nor
+			// message-validation surfaces.
+			memberKind = pwsv1.EntryKind_ANNOTATION_USE
+			tyKind = pwsv1.EntryKind_ANNOTATION_USE
 		}
+		add(ty.FullName(), tyKind, ty.Annotations())
 		for field := range seq.Values(ty.Members()) {
-			for u := range seq.Values(field.Annotations()) {
-				add(field.FullName(), u)
-			}
+			add(field.FullName(), memberKind, field.Annotations())
 			if entry := buildTypeRefinementEntry(field); entry != nil {
 				out.Entries = append(out.Entries, entry)
 			}
 		}
 		for o := range seq.Values(ty.Oneofs()) {
-			for u := range seq.Values(o.Annotations()) {
-				add(o.FullName(), u)
-			}
+			add(o.FullName(), pwsv1.EntryKind_ANNOTATION_USE, o.Annotations())
 		}
 	}
 
 	for ext := range seq.Values(file.AllExtensions()) {
-		for u := range seq.Values(ext.Annotations()) {
-			add(ext.FullName(), u)
-		}
+		add(ext.FullName(), pwsv1.EntryKind_FIELD_VALIDATE, ext.Annotations())
 		if entry := buildTypeRefinementEntry(ext); entry != nil {
 			out.Entries = append(out.Entries, entry)
 		}
 	}
 
 	for svc := range seq.Values(file.Services()) {
-		for u := range seq.Values(svc.Annotations()) {
-			add(svc.FullName(), u)
-		}
+		add(svc.FullName(), pwsv1.EntryKind_ANNOTATION_USE, svc.Annotations())
 		for m := range seq.Values(svc.Methods()) {
-			for u := range seq.Values(m.Annotations()) {
-				add(m.FullName(), u)
-			}
+			add(m.FullName(), pwsv1.EntryKind_ANNOTATION_USE, m.Annotations())
 		}
 	}
 
 	for ann := range seq.Values(file.Annotations()) {
-		for u := range seq.Values(ann.Annotations()) {
-			add(ann.FullName(), u)
-		}
+		add(ann.FullName(), pwsv1.EntryKind_ANNOTATION_USE, ann.Annotations())
 	}
 
 	for fn := range seq.Values(file.Functions()) {
-		for u := range seq.Values(fn.Annotations()) {
-			add(fn.FullName(), u)
-		}
+		add(fn.FullName(), pwsv1.EntryKind_ANNOTATION_USE, fn.Annotations())
 	}
 
 	for ta := range seq.Values(file.TypeAliases()) {
-		for u := range seq.Values(ta.Annotations()) {
-			add(ta.FullName(), u)
-		}
+		add(ta.FullName(), pwsv1.EntryKind_ANNOTATION_USE, ta.Annotations())
 	}
 
 	if len(out.Entries) == 0 {
@@ -127,10 +112,69 @@ func emitSourceMap(file *ir.File, target *descriptorpb.FileOptions) bool {
 	return true
 }
 
+// addAnnotationEntries appends the source-map entries for one
+// carrier's annotation list: an entry of `kind` per lowered
+// annotation, plus a FUNCTION_CALL entry per call site extracted
+// from its expression arguments.
+//
+// The anchor ordinals and arg/call indexes mirror the carrier
+// emission in [buildAnnotation]/[buildArg] exactly: unresolved uses
+// (dropped from the carrier) don't advance ordinals, and dropped
+// arguments don't advance arg indexes.
+func addAnnotationEntries(entries *[]*pwsv1.SourceEntry, elementPath string, kind pwsv1.EntryKind, uses seq.Indexer[ir.AnnotationUse]) {
+	var ordinals map[string]int
+	for use := range seq.Values(uses) {
+		target := use.Target()
+		if target.IsZero() {
+			continue // Not in the carrier; already diagnosed.
+		}
+		name := string(target.FullName())
+		if ordinals == nil {
+			ordinals = make(map[string]int)
+		}
+		ordinal := ordinals[name]
+		ordinals[name]++
+
+		anchor := DescriptorPath{
+			Element:    elementPath,
+			Annotation: name,
+			Ordinal:    ordinal,
+		}
+
+		if entry := buildAnnotationUseEntry(anchor, kind, use); entry != nil {
+			*entries = append(*entries, entry)
+		}
+
+		argIndex := 0
+		for _, b := range use.ArgBindings() {
+			arg := buildArg(use, b)
+			if arg == nil {
+				continue // Dropped from the carrier.
+			}
+			if b.Param.IsExpression() {
+				for callIndex, call := range use.ExtractCalls(b.Arg) {
+					path := anchor
+					path.HasCall = true
+					path.ArgIndex = argIndex
+					path.CallIndex = callIndex
+					*entries = append(*entries, &pwsv1.SourceEntry{
+						Kind:           pwsv1.EntryKind_FUNCTION_CALL,
+						DescriptorPath: path.String(),
+						SourceLocation: sourceLocation(call.Span, call.Span.StartLoc()),
+					})
+				}
+			}
+			argIndex++
+		}
+	}
+}
+
 // buildAnnotationUseEntry lowers one annotation use site into a
 // [pwsv1.SourceEntry]. Returns nil when no usable source span is
-// available (e.g. a synthesized use without an AST node).
-func buildAnnotationUseEntry(carrierFQN string, use ir.AnnotationUse) *pwsv1.SourceEntry {
+// available (e.g. a synthesized use without an AST node) — the
+// anchor ordinal still advances in that case, since the annotation
+// is in the carrier.
+func buildAnnotationUseEntry(anchor DescriptorPath, kind pwsv1.EntryKind, use ir.AnnotationUse) *pwsv1.SourceEntry {
 	ast := use.AST()
 	if ast.IsZero() {
 		return nil
@@ -141,8 +185,8 @@ func buildAnnotationUseEntry(carrierFQN string, use ir.AnnotationUse) *pwsv1.Sou
 	}
 	loc := span.StartLoc()
 	return &pwsv1.SourceEntry{
-		Kind:           pwsv1.EntryKind_ANNOTATION_USE,
-		DescriptorPath: carrierFQN,
+		Kind:           kind,
+		DescriptorPath: anchor.String(),
 		SourceLocation: sourceLocation(span, loc),
 	}
 }
