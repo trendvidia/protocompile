@@ -120,7 +120,9 @@ message M {}
 }
 
 // TestAnnotationEmissionPath verifies identifier-path args lower
-// into Literal.enum_name.
+// into Literal.enum_value, carrying the path text in value_name.
+// The enum_type/number fields stay unset until link-time
+// classification (#69) resolves the reference.
 func TestAnnotationEmissionPath(t *testing.T) {
 	t.Parallel()
 
@@ -142,7 +144,10 @@ message M {}
 	require.Len(t, args, 1)
 	lit := args[0].GetLiteral()
 	require.NotNil(t, lit)
-	assert.Equal(t, "myco.acme.public", lit.GetEnumName())
+	ev := lit.GetEnumValue()
+	require.NotNil(t, ev)
+	assert.Equal(t, "myco.acme.public", ev.GetValueName())
+	assert.Empty(t, ev.GetEnumType())
 }
 
 // TestAnnotationEmissionNegative verifies `-N` numeric negation
