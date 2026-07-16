@@ -375,11 +375,10 @@ func buildAnnotationParamDecl(p ir.AnnotationParam) *pwsv1.AnnotationParam {
 }
 
 // buildDefaultArg lowers a parameter's default-value expression.
-// Defaults are declaration-site expressions (not use-site captures),
-// so the lowering mirrors [buildArgValue] minus the pieces that need
-// a use site: enum-value references are carried unresolved (the path
-// text in EnumLiteral.value_name), pending default-expression
-// resolution machinery.
+// Defaults are declaration-site expressions (not use-site captures);
+// enum-value references resolve relative to the annotation
+// declaration's own scope and lower into the resolved [pwsv1.EnumLiteral]
+// form, same as use-site arguments.
 func buildDefaultArg(deflt ast.ExprAny, param ir.AnnotationParam) *pwsv1.AnnotationArg {
 	if param.IsExpression() {
 		return &pwsv1.AnnotationArg{
@@ -391,6 +390,32 @@ func buildDefaultArg(deflt ast.ExprAny, param ir.AnnotationParam) *pwsv1.Annotat
 			},
 		}
 	}
+
+	if deflt.Kind() == ast.ExprKindPath {
+		path := deflt.AsPath().Path
+		switch path.Canonicalized() {
+		case "true":
+			return &pwsv1.AnnotationArg{Value: &pwsv1.AnnotationArg_BoolValue{BoolValue: true}}
+		case "false":
+			return &pwsv1.AnnotationArg{Value: &pwsv1.AnnotationArg_BoolValue{BoolValue: false}}
+		}
+		lit := &pwsv1.EnumLiteral{ValueName: path.Canonicalized()}
+		if member := param.Annotation().ResolveEnumValueDefault(path); !member.IsZero() {
+			lit = &pwsv1.EnumLiteral{
+				EnumType:  string(member.Parent().FullName()),
+				ValueName: member.Name(),
+				Number:    member.Number(),
+			}
+		}
+		return &pwsv1.AnnotationArg{
+			Value: &pwsv1.AnnotationArg_Literal{
+				Literal: &pwsv1.Literal{
+					Kind: &pwsv1.Literal_EnumValue{EnumValue: lit},
+				},
+			},
+		}
+	}
+
 	return buildArgValue(ir.AnnotationUse{}, deflt, param)
 }
 

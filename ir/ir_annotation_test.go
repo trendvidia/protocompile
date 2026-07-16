@@ -1105,3 +1105,50 @@ message M {}
 	assert.True(t, hasErrorContaining(rep, "ambiguous annotation", "tag"),
 		"expected ambiguity diagnostic, got: %v", rep.Diagnostics)
 }
+
+// TestAnnotationParamDefaultEnumRef verifies enum-value references
+// in parameter defaults: both spellings resolve relative to the
+// declaration's scope, wrong-enum defaults are diagnosed, and
+// unresolvable identifiers on `any`-typed params are errors.
+func TestAnnotationParamDefaultEnumRef(t *testing.T) {
+	t.Parallel()
+
+	t.Run("accepted", func(t *testing.T) {
+		t.Parallel()
+		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+enum Tier {
+  TIER_UNSPECIFIED = 0;
+  TIER_FREE = 1;
+}
+annotation plan(t: Tier = TIER_FREE, u: Tier = Tier.TIER_FREE, free: any = TIER_FREE);
+`)
+		for _, d := range rep.Diagnostics {
+			if d.Level() >= report.Error {
+				t.Errorf("unexpected diagnostic: %s", d.Message())
+			}
+		}
+	})
+
+	t.Run("wrong-enum", func(t *testing.T) {
+		t.Parallel()
+		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+enum A { A_UNSPECIFIED = 0; }
+enum B { B_UNSPECIFIED = 0; }
+annotation plan(a: A = B_UNSPECIFIED);
+`)
+		assert.True(t, hasErrorContaining(rep, "expects a value of enum `test.A`", "test.B"),
+			"expected wrong-enum diagnostic, got: %v", rep.Diagnostics)
+	})
+
+	t.Run("unresolved-on-any", func(t *testing.T) {
+		t.Parallel()
+		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+annotation plan(free: any = nothing.here);
+`)
+		assert.True(t, hasErrorContaining(rep, "nothing.here"),
+			"expected unresolved-reference diagnostic, got: %v", rep.Diagnostics)
+	})
+}
