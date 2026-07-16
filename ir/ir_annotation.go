@@ -87,6 +87,11 @@ type rawAnnotationParam struct {
 type rawAnnotationUse struct {
 	def    id.ID[ast.DeclAnnotationUse]
 	target Ref[Symbol]
+	// The use site's enclosing lexical scope (the carrier's scope),
+	// interned. Name references inside arguments — enum-value
+	// references and function-call sites in engine expressions —
+	// resolve relative to this scope.
+	scope intern.ID
 }
 
 // AST returns the declaration for this annotation, if known.

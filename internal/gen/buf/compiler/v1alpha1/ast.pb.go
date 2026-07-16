@@ -2171,11 +2171,11 @@ func (x *Decl_Annotation) GetSemicolonSpan() *Span {
 // AnnotationUse appears here only when the parser recovers from an
 // orphan `@name(args)` that did not bind to a following decl.
 type Decl_AnnotationUse struct {
-	state  protoimpl.MessageState `protogen:"open.v1"`
-	Name   *Path                  `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Args   []*Expr                `protobuf:"bytes,2,rep,name=args,proto3" json:"args,omitempty"`
-	Span   *Span                  `protobuf:"bytes,10,opt,name=span,proto3" json:"span,omitempty"`
-	AtSpan *Span                  `protobuf:"bytes,11,opt,name=at_span,json=atSpan,proto3" json:"at_span,omitempty"`
+	state  protoimpl.MessageState    `protogen:"open.v1"`
+	Name   *Path                     `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Args   []*Decl_AnnotationUse_Arg `protobuf:"bytes,2,rep,name=args,proto3" json:"args,omitempty"`
+	Span   *Span                     `protobuf:"bytes,10,opt,name=span,proto3" json:"span,omitempty"`
+	AtSpan *Span                     `protobuf:"bytes,11,opt,name=at_span,json=atSpan,proto3" json:"at_span,omitempty"`
 	// parens_span is unset for the bare `@Name` form.
 	ParensSpan    *Span `protobuf:"bytes,12,opt,name=parens_span,json=parensSpan,proto3" json:"parens_span,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -2219,7 +2219,7 @@ func (x *Decl_AnnotationUse) GetName() *Path {
 	return nil
 }
 
-func (x *Decl_AnnotationUse) GetArgs() []*Expr {
+func (x *Decl_AnnotationUse) GetArgs() []*Decl_AnnotationUse_Arg {
 	if x != nil {
 		return x.Args
 	}
@@ -2417,6 +2417,119 @@ func (x *Decl_Annotation_Param) GetEqualsSpan() *Span {
 	return nil
 }
 
+// A single argument, parsed capture-then-classify per RFC-001
+// §5.1: the raw capture always survives in capture/value_span;
+// value is set only when the capture re-parses under the §5.1
+// value grammar `literal | qualifiedIdent | listLiteral |
+// messageLiteral`.
+type Decl_AnnotationUse_Arg struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The named-argument identifier text; empty for positional
+	// arguments.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// The re-parsed value; unset for opaque engine-expression
+	// captures.
+	Value *Expr `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	// The leading type name of a typed message literal
+	// (`Money{...}`).
+	TypeName *Path `protobuf:"bytes,3,opt,name=type_name,json=typeName,proto3" json:"type_name,omitempty"`
+	// The raw captured source text (untrimmed).
+	Capture string `protobuf:"bytes,4,opt,name=capture,proto3" json:"capture,omitempty"`
+	Span    *Span  `protobuf:"bytes,10,opt,name=span,proto3" json:"span,omitempty"`
+	// name_span/equals_span are unset for positional arguments.
+	NameSpan      *Span `protobuf:"bytes,11,opt,name=name_span,json=nameSpan,proto3" json:"name_span,omitempty"`
+	EqualsSpan    *Span `protobuf:"bytes,12,opt,name=equals_span,json=equalsSpan,proto3" json:"equals_span,omitempty"`
+	ValueSpan     *Span `protobuf:"bytes,13,opt,name=value_span,json=valueSpan,proto3" json:"value_span,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Decl_AnnotationUse_Arg) Reset() {
+	*x = Decl_AnnotationUse_Arg{}
+	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Decl_AnnotationUse_Arg) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Decl_AnnotationUse_Arg) ProtoMessage() {}
+
+func (x *Decl_AnnotationUse_Arg) ProtoReflect() protoreflect.Message {
+	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Decl_AnnotationUse_Arg.ProtoReflect.Descriptor instead.
+func (*Decl_AnnotationUse_Arg) Descriptor() ([]byte, []int) {
+	return file_buf_compiler_v1alpha1_ast_proto_rawDescGZIP(), []int{3, 9, 0}
+}
+
+func (x *Decl_AnnotationUse_Arg) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *Decl_AnnotationUse_Arg) GetValue() *Expr {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
+func (x *Decl_AnnotationUse_Arg) GetTypeName() *Path {
+	if x != nil {
+		return x.TypeName
+	}
+	return nil
+}
+
+func (x *Decl_AnnotationUse_Arg) GetCapture() string {
+	if x != nil {
+		return x.Capture
+	}
+	return ""
+}
+
+func (x *Decl_AnnotationUse_Arg) GetSpan() *Span {
+	if x != nil {
+		return x.Span
+	}
+	return nil
+}
+
+func (x *Decl_AnnotationUse_Arg) GetNameSpan() *Span {
+	if x != nil {
+		return x.NameSpan
+	}
+	return nil
+}
+
+func (x *Decl_AnnotationUse_Arg) GetEqualsSpan() *Span {
+	if x != nil {
+		return x.EqualsSpan
+	}
+	return nil
+}
+
+func (x *Decl_AnnotationUse_Arg) GetValueSpan() *Span {
+	if x != nil {
+		return x.ValueSpan
+	}
+	return nil
+}
+
 // A method signature. This appears on `KIND_METHOD`, for example.
 type Def_Signature struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -2432,7 +2545,7 @@ type Def_Signature struct {
 
 func (x *Def_Signature) Reset() {
 	*x = Def_Signature{}
-	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[21]
+	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2444,7 +2557,7 @@ func (x *Def_Signature) String() string {
 func (*Def_Signature) ProtoMessage() {}
 
 func (x *Def_Signature) ProtoReflect() protoreflect.Message {
-	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[21]
+	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2513,7 +2626,7 @@ type Options_Entry struct {
 
 func (x *Options_Entry) Reset() {
 	*x = Options_Entry{}
-	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[22]
+	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2525,7 +2638,7 @@ func (x *Options_Entry) String() string {
 func (*Options_Entry) ProtoMessage() {}
 
 func (x *Options_Entry) ProtoReflect() protoreflect.Message {
-	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[22]
+	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2581,7 +2694,7 @@ type Expr_Literal struct {
 
 func (x *Expr_Literal) Reset() {
 	*x = Expr_Literal{}
-	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[23]
+	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2593,7 +2706,7 @@ func (x *Expr_Literal) String() string {
 func (*Expr_Literal) ProtoMessage() {}
 
 func (x *Expr_Literal) ProtoReflect() protoreflect.Message {
-	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[23]
+	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2685,7 +2798,7 @@ type Expr_Prefixed struct {
 
 func (x *Expr_Prefixed) Reset() {
 	*x = Expr_Prefixed{}
-	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[24]
+	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2697,7 +2810,7 @@ func (x *Expr_Prefixed) String() string {
 func (*Expr_Prefixed) ProtoMessage() {}
 
 func (x *Expr_Prefixed) ProtoReflect() protoreflect.Message {
-	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[24]
+	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2757,7 +2870,7 @@ type Expr_Range struct {
 
 func (x *Expr_Range) Reset() {
 	*x = Expr_Range{}
-	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[25]
+	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2769,7 +2882,7 @@ func (x *Expr_Range) String() string {
 func (*Expr_Range) ProtoMessage() {}
 
 func (x *Expr_Range) ProtoReflect() protoreflect.Message {
-	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[25]
+	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2827,7 +2940,7 @@ type Expr_Array struct {
 
 func (x *Expr_Array) Reset() {
 	*x = Expr_Array{}
-	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[26]
+	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2839,7 +2952,7 @@ func (x *Expr_Array) String() string {
 func (*Expr_Array) ProtoMessage() {}
 
 func (x *Expr_Array) ProtoReflect() protoreflect.Message {
-	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[26]
+	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2904,7 +3017,7 @@ type Expr_Dict struct {
 
 func (x *Expr_Dict) Reset() {
 	*x = Expr_Dict{}
-	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[27]
+	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2916,7 +3029,7 @@ func (x *Expr_Dict) String() string {
 func (*Expr_Dict) ProtoMessage() {}
 
 func (x *Expr_Dict) ProtoReflect() protoreflect.Message {
-	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[27]
+	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2981,7 +3094,7 @@ type Expr_Field struct {
 
 func (x *Expr_Field) Reset() {
 	*x = Expr_Field{}
-	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[28]
+	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2993,7 +3106,7 @@ func (x *Expr_Field) String() string {
 func (*Expr_Field) ProtoMessage() {}
 
 func (x *Expr_Field) ProtoReflect() protoreflect.Message {
-	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[28]
+	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3050,7 +3163,7 @@ type Type_Prefixed struct {
 
 func (x *Type_Prefixed) Reset() {
 	*x = Type_Prefixed{}
-	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[29]
+	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3062,7 +3175,7 @@ func (x *Type_Prefixed) String() string {
 func (*Type_Prefixed) ProtoMessage() {}
 
 func (x *Type_Prefixed) ProtoReflect() protoreflect.Message {
-	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[29]
+	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3124,7 +3237,7 @@ type Type_Generic struct {
 
 func (x *Type_Generic) Reset() {
 	*x = Type_Generic{}
-	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[30]
+	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3136,7 +3249,7 @@ func (x *Type_Generic) String() string {
 func (*Type_Generic) ProtoMessage() {}
 
 func (x *Type_Generic) ProtoReflect() protoreflect.Message {
-	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[30]
+	mi := &file_buf_compiler_v1alpha1_ast_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3222,7 +3335,7 @@ const file_buf_compiler_v1alpha1_ast_proto_rawDesc = "" +
 	"\x15SEPARATOR_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rSEPARATOR_DOT\x10\x01\x12\x13\n" +
 	"\x0fSEPARATOR_SLASH\x10\x02B\v\n" +
-	"\tcomponent\"\xdb'\n" +
+	"\tcomponent\"\xf5*\n" +
 	"\x04Decl\x129\n" +
 	"\x05empty\x18\x01 \x01(\v2!.buf.compiler.v1alpha1.Decl.EmptyH\x00R\x05empty\x12<\n" +
 	"\x06syntax\x18\x02 \x01(\v2\".buf.compiler.v1alpha1.Decl.SyntaxH\x00R\x06syntax\x12<\n" +
@@ -3347,15 +3460,27 @@ const file_buf_compiler_v1alpha1_ast_proto_rawDesc = "" +
 	"\n" +
 	"colon_span\x18\f \x01(\v2\x1b.buf.compiler.v1alpha1.SpanR\tcolonSpan\x12<\n" +
 	"\vequals_span\x18\r \x01(\v2\x1b.buf.compiler.v1alpha1.SpanR\n" +
-	"equalsSpan\x1a\x96\x02\n" +
+	"equalsSpan\x1a\xb0\x05\n" +
 	"\rAnnotationUse\x12/\n" +
-	"\x04name\x18\x01 \x01(\v2\x1b.buf.compiler.v1alpha1.PathR\x04name\x12/\n" +
-	"\x04args\x18\x02 \x03(\v2\x1b.buf.compiler.v1alpha1.ExprR\x04args\x12/\n" +
+	"\x04name\x18\x01 \x01(\v2\x1b.buf.compiler.v1alpha1.PathR\x04name\x12A\n" +
+	"\x04args\x18\x02 \x03(\v2-.buf.compiler.v1alpha1.Decl.AnnotationUse.ArgR\x04args\x12/\n" +
 	"\x04span\x18\n" +
 	" \x01(\v2\x1b.buf.compiler.v1alpha1.SpanR\x04span\x124\n" +
 	"\aat_span\x18\v \x01(\v2\x1b.buf.compiler.v1alpha1.SpanR\x06atSpan\x12<\n" +
 	"\vparens_span\x18\f \x01(\v2\x1b.buf.compiler.v1alpha1.SpanR\n" +
-	"parensSpanB\x06\n" +
+	"parensSpan\x1a\x85\x03\n" +
+	"\x03Arg\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x121\n" +
+	"\x05value\x18\x02 \x01(\v2\x1b.buf.compiler.v1alpha1.ExprR\x05value\x128\n" +
+	"\ttype_name\x18\x03 \x01(\v2\x1b.buf.compiler.v1alpha1.PathR\btypeName\x12\x18\n" +
+	"\acapture\x18\x04 \x01(\tR\acapture\x12/\n" +
+	"\x04span\x18\n" +
+	" \x01(\v2\x1b.buf.compiler.v1alpha1.SpanR\x04span\x128\n" +
+	"\tname_span\x18\v \x01(\v2\x1b.buf.compiler.v1alpha1.SpanR\bnameSpan\x12<\n" +
+	"\vequals_span\x18\f \x01(\v2\x1b.buf.compiler.v1alpha1.SpanR\n" +
+	"equalsSpan\x12:\n" +
+	"\n" +
+	"value_span\x18\r \x01(\v2\x1b.buf.compiler.v1alpha1.SpanR\tvalueSpanB\x06\n" +
 	"\x04decl\"\xf2\t\n" +
 	"\x03Def\x123\n" +
 	"\x04kind\x18\x01 \x01(\x0e2\x1f.buf.compiler.v1alpha1.Def.KindR\x04kind\x12/\n" +
@@ -3509,50 +3634,51 @@ func file_buf_compiler_v1alpha1_ast_proto_rawDescGZIP() []byte {
 }
 
 var file_buf_compiler_v1alpha1_ast_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
-var file_buf_compiler_v1alpha1_ast_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
+var file_buf_compiler_v1alpha1_ast_proto_msgTypes = make([]protoimpl.MessageInfo, 32)
 var file_buf_compiler_v1alpha1_ast_proto_goTypes = []any{
-	(Path_Component_Separator)(0), // 0: buf.compiler.v1alpha1.Path.Component.Separator
-	(Decl_Syntax_Kind)(0),         // 1: buf.compiler.v1alpha1.Decl.Syntax.Kind
-	(Decl_Import_Modifier)(0),     // 2: buf.compiler.v1alpha1.Decl.Import.Modifier
-	(Decl_Range_Kind)(0),          // 3: buf.compiler.v1alpha1.Decl.Range.Kind
-	(Def_Kind)(0),                 // 4: buf.compiler.v1alpha1.Def.Kind
-	(Expr_Prefixed_Prefix)(0),     // 5: buf.compiler.v1alpha1.Expr.Prefixed.Prefix
-	(Type_Prefixed_Prefix)(0),     // 6: buf.compiler.v1alpha1.Type.Prefixed.Prefix
-	(*File)(nil),                  // 7: buf.compiler.v1alpha1.File
-	(*Span)(nil),                  // 8: buf.compiler.v1alpha1.Span
-	(*Path)(nil),                  // 9: buf.compiler.v1alpha1.Path
-	(*Decl)(nil),                  // 10: buf.compiler.v1alpha1.Decl
-	(*Def)(nil),                   // 11: buf.compiler.v1alpha1.Def
-	(*Options)(nil),               // 12: buf.compiler.v1alpha1.Options
-	(*Expr)(nil),                  // 13: buf.compiler.v1alpha1.Expr
-	(*Type)(nil),                  // 14: buf.compiler.v1alpha1.Type
-	(*Path_Component)(nil),        // 15: buf.compiler.v1alpha1.Path.Component
-	(*Decl_Empty)(nil),            // 16: buf.compiler.v1alpha1.Decl.Empty
-	(*Decl_Syntax)(nil),           // 17: buf.compiler.v1alpha1.Decl.Syntax
-	(*Decl_Package)(nil),          // 18: buf.compiler.v1alpha1.Decl.Package
-	(*Decl_Import)(nil),           // 19: buf.compiler.v1alpha1.Decl.Import
-	(*Decl_Body)(nil),             // 20: buf.compiler.v1alpha1.Decl.Body
-	(*Decl_Range)(nil),            // 21: buf.compiler.v1alpha1.Decl.Range
-	(*Decl_TypeAlias)(nil),        // 22: buf.compiler.v1alpha1.Decl.TypeAlias
-	(*Decl_Function)(nil),         // 23: buf.compiler.v1alpha1.Decl.Function
-	(*Decl_Annotation)(nil),       // 24: buf.compiler.v1alpha1.Decl.Annotation
-	(*Decl_AnnotationUse)(nil),    // 25: buf.compiler.v1alpha1.Decl.AnnotationUse
-	(*Decl_Function_Param)(nil),   // 26: buf.compiler.v1alpha1.Decl.Function.Param
-	(*Decl_Annotation_Param)(nil), // 27: buf.compiler.v1alpha1.Decl.Annotation.Param
-	(*Def_Signature)(nil),         // 28: buf.compiler.v1alpha1.Def.Signature
-	(*Options_Entry)(nil),         // 29: buf.compiler.v1alpha1.Options.Entry
-	(*Expr_Literal)(nil),          // 30: buf.compiler.v1alpha1.Expr.Literal
-	(*Expr_Prefixed)(nil),         // 31: buf.compiler.v1alpha1.Expr.Prefixed
-	(*Expr_Range)(nil),            // 32: buf.compiler.v1alpha1.Expr.Range
-	(*Expr_Array)(nil),            // 33: buf.compiler.v1alpha1.Expr.Array
-	(*Expr_Dict)(nil),             // 34: buf.compiler.v1alpha1.Expr.Dict
-	(*Expr_Field)(nil),            // 35: buf.compiler.v1alpha1.Expr.Field
-	(*Type_Prefixed)(nil),         // 36: buf.compiler.v1alpha1.Type.Prefixed
-	(*Type_Generic)(nil),          // 37: buf.compiler.v1alpha1.Type.Generic
-	(*Report_File)(nil),           // 38: buf.compiler.v1alpha1.Report.File
+	(Path_Component_Separator)(0),  // 0: buf.compiler.v1alpha1.Path.Component.Separator
+	(Decl_Syntax_Kind)(0),          // 1: buf.compiler.v1alpha1.Decl.Syntax.Kind
+	(Decl_Import_Modifier)(0),      // 2: buf.compiler.v1alpha1.Decl.Import.Modifier
+	(Decl_Range_Kind)(0),           // 3: buf.compiler.v1alpha1.Decl.Range.Kind
+	(Def_Kind)(0),                  // 4: buf.compiler.v1alpha1.Def.Kind
+	(Expr_Prefixed_Prefix)(0),      // 5: buf.compiler.v1alpha1.Expr.Prefixed.Prefix
+	(Type_Prefixed_Prefix)(0),      // 6: buf.compiler.v1alpha1.Type.Prefixed.Prefix
+	(*File)(nil),                   // 7: buf.compiler.v1alpha1.File
+	(*Span)(nil),                   // 8: buf.compiler.v1alpha1.Span
+	(*Path)(nil),                   // 9: buf.compiler.v1alpha1.Path
+	(*Decl)(nil),                   // 10: buf.compiler.v1alpha1.Decl
+	(*Def)(nil),                    // 11: buf.compiler.v1alpha1.Def
+	(*Options)(nil),                // 12: buf.compiler.v1alpha1.Options
+	(*Expr)(nil),                   // 13: buf.compiler.v1alpha1.Expr
+	(*Type)(nil),                   // 14: buf.compiler.v1alpha1.Type
+	(*Path_Component)(nil),         // 15: buf.compiler.v1alpha1.Path.Component
+	(*Decl_Empty)(nil),             // 16: buf.compiler.v1alpha1.Decl.Empty
+	(*Decl_Syntax)(nil),            // 17: buf.compiler.v1alpha1.Decl.Syntax
+	(*Decl_Package)(nil),           // 18: buf.compiler.v1alpha1.Decl.Package
+	(*Decl_Import)(nil),            // 19: buf.compiler.v1alpha1.Decl.Import
+	(*Decl_Body)(nil),              // 20: buf.compiler.v1alpha1.Decl.Body
+	(*Decl_Range)(nil),             // 21: buf.compiler.v1alpha1.Decl.Range
+	(*Decl_TypeAlias)(nil),         // 22: buf.compiler.v1alpha1.Decl.TypeAlias
+	(*Decl_Function)(nil),          // 23: buf.compiler.v1alpha1.Decl.Function
+	(*Decl_Annotation)(nil),        // 24: buf.compiler.v1alpha1.Decl.Annotation
+	(*Decl_AnnotationUse)(nil),     // 25: buf.compiler.v1alpha1.Decl.AnnotationUse
+	(*Decl_Function_Param)(nil),    // 26: buf.compiler.v1alpha1.Decl.Function.Param
+	(*Decl_Annotation_Param)(nil),  // 27: buf.compiler.v1alpha1.Decl.Annotation.Param
+	(*Decl_AnnotationUse_Arg)(nil), // 28: buf.compiler.v1alpha1.Decl.AnnotationUse.Arg
+	(*Def_Signature)(nil),          // 29: buf.compiler.v1alpha1.Def.Signature
+	(*Options_Entry)(nil),          // 30: buf.compiler.v1alpha1.Options.Entry
+	(*Expr_Literal)(nil),           // 31: buf.compiler.v1alpha1.Expr.Literal
+	(*Expr_Prefixed)(nil),          // 32: buf.compiler.v1alpha1.Expr.Prefixed
+	(*Expr_Range)(nil),             // 33: buf.compiler.v1alpha1.Expr.Range
+	(*Expr_Array)(nil),             // 34: buf.compiler.v1alpha1.Expr.Array
+	(*Expr_Dict)(nil),              // 35: buf.compiler.v1alpha1.Expr.Dict
+	(*Expr_Field)(nil),             // 36: buf.compiler.v1alpha1.Expr.Field
+	(*Type_Prefixed)(nil),          // 37: buf.compiler.v1alpha1.Type.Prefixed
+	(*Type_Generic)(nil),           // 38: buf.compiler.v1alpha1.Type.Generic
+	(*Report_File)(nil),            // 39: buf.compiler.v1alpha1.Report.File
 }
 var file_buf_compiler_v1alpha1_ast_proto_depIdxs = []int32{
-	38,  // 0: buf.compiler.v1alpha1.File.file:type_name -> buf.compiler.v1alpha1.Report.File
+	39,  // 0: buf.compiler.v1alpha1.File.file:type_name -> buf.compiler.v1alpha1.Report.File
 	10,  // 1: buf.compiler.v1alpha1.File.decls:type_name -> buf.compiler.v1alpha1.Decl
 	15,  // 2: buf.compiler.v1alpha1.Path.components:type_name -> buf.compiler.v1alpha1.Path.Component
 	8,   // 3: buf.compiler.v1alpha1.Path.span:type_name -> buf.compiler.v1alpha1.Span
@@ -3570,7 +3696,7 @@ var file_buf_compiler_v1alpha1_ast_proto_depIdxs = []int32{
 	4,   // 15: buf.compiler.v1alpha1.Def.kind:type_name -> buf.compiler.v1alpha1.Def.Kind
 	9,   // 16: buf.compiler.v1alpha1.Def.name:type_name -> buf.compiler.v1alpha1.Path
 	14,  // 17: buf.compiler.v1alpha1.Def.type:type_name -> buf.compiler.v1alpha1.Type
-	28,  // 18: buf.compiler.v1alpha1.Def.signature:type_name -> buf.compiler.v1alpha1.Def.Signature
+	29,  // 18: buf.compiler.v1alpha1.Def.signature:type_name -> buf.compiler.v1alpha1.Def.Signature
 	13,  // 19: buf.compiler.v1alpha1.Def.value:type_name -> buf.compiler.v1alpha1.Expr
 	12,  // 20: buf.compiler.v1alpha1.Def.options:type_name -> buf.compiler.v1alpha1.Options
 	20,  // 21: buf.compiler.v1alpha1.Def.body:type_name -> buf.compiler.v1alpha1.Decl.Body
@@ -3579,18 +3705,18 @@ var file_buf_compiler_v1alpha1_ast_proto_depIdxs = []int32{
 	8,   // 24: buf.compiler.v1alpha1.Def.keyword_span:type_name -> buf.compiler.v1alpha1.Span
 	8,   // 25: buf.compiler.v1alpha1.Def.equals_span:type_name -> buf.compiler.v1alpha1.Span
 	8,   // 26: buf.compiler.v1alpha1.Def.semicolon_span:type_name -> buf.compiler.v1alpha1.Span
-	29,  // 27: buf.compiler.v1alpha1.Options.entries:type_name -> buf.compiler.v1alpha1.Options.Entry
+	30,  // 27: buf.compiler.v1alpha1.Options.entries:type_name -> buf.compiler.v1alpha1.Options.Entry
 	8,   // 28: buf.compiler.v1alpha1.Options.span:type_name -> buf.compiler.v1alpha1.Span
-	30,  // 29: buf.compiler.v1alpha1.Expr.literal:type_name -> buf.compiler.v1alpha1.Expr.Literal
+	31,  // 29: buf.compiler.v1alpha1.Expr.literal:type_name -> buf.compiler.v1alpha1.Expr.Literal
 	9,   // 30: buf.compiler.v1alpha1.Expr.path:type_name -> buf.compiler.v1alpha1.Path
-	31,  // 31: buf.compiler.v1alpha1.Expr.prefixed:type_name -> buf.compiler.v1alpha1.Expr.Prefixed
-	32,  // 32: buf.compiler.v1alpha1.Expr.range:type_name -> buf.compiler.v1alpha1.Expr.Range
-	33,  // 33: buf.compiler.v1alpha1.Expr.array:type_name -> buf.compiler.v1alpha1.Expr.Array
-	34,  // 34: buf.compiler.v1alpha1.Expr.dict:type_name -> buf.compiler.v1alpha1.Expr.Dict
-	35,  // 35: buf.compiler.v1alpha1.Expr.field:type_name -> buf.compiler.v1alpha1.Expr.Field
+	32,  // 31: buf.compiler.v1alpha1.Expr.prefixed:type_name -> buf.compiler.v1alpha1.Expr.Prefixed
+	33,  // 32: buf.compiler.v1alpha1.Expr.range:type_name -> buf.compiler.v1alpha1.Expr.Range
+	34,  // 33: buf.compiler.v1alpha1.Expr.array:type_name -> buf.compiler.v1alpha1.Expr.Array
+	35,  // 34: buf.compiler.v1alpha1.Expr.dict:type_name -> buf.compiler.v1alpha1.Expr.Dict
+	36,  // 35: buf.compiler.v1alpha1.Expr.field:type_name -> buf.compiler.v1alpha1.Expr.Field
 	9,   // 36: buf.compiler.v1alpha1.Type.path:type_name -> buf.compiler.v1alpha1.Path
-	36,  // 37: buf.compiler.v1alpha1.Type.prefixed:type_name -> buf.compiler.v1alpha1.Type.Prefixed
-	37,  // 38: buf.compiler.v1alpha1.Type.generic:type_name -> buf.compiler.v1alpha1.Type.Generic
+	37,  // 37: buf.compiler.v1alpha1.Type.prefixed:type_name -> buf.compiler.v1alpha1.Type.Prefixed
+	38,  // 38: buf.compiler.v1alpha1.Type.generic:type_name -> buf.compiler.v1alpha1.Type.Generic
 	9,   // 39: buf.compiler.v1alpha1.Path.Component.extension:type_name -> buf.compiler.v1alpha1.Path
 	0,   // 40: buf.compiler.v1alpha1.Path.Component.separator:type_name -> buf.compiler.v1alpha1.Path.Component.Separator
 	8,   // 41: buf.compiler.v1alpha1.Path.Component.component_span:type_name -> buf.compiler.v1alpha1.Span
@@ -3647,7 +3773,7 @@ var file_buf_compiler_v1alpha1_ast_proto_depIdxs = []int32{
 	8,   // 92: buf.compiler.v1alpha1.Decl.Annotation.parens_span:type_name -> buf.compiler.v1alpha1.Span
 	8,   // 93: buf.compiler.v1alpha1.Decl.Annotation.semicolon_span:type_name -> buf.compiler.v1alpha1.Span
 	9,   // 94: buf.compiler.v1alpha1.Decl.AnnotationUse.name:type_name -> buf.compiler.v1alpha1.Path
-	13,  // 95: buf.compiler.v1alpha1.Decl.AnnotationUse.args:type_name -> buf.compiler.v1alpha1.Expr
+	28,  // 95: buf.compiler.v1alpha1.Decl.AnnotationUse.args:type_name -> buf.compiler.v1alpha1.Decl.AnnotationUse.Arg
 	8,   // 96: buf.compiler.v1alpha1.Decl.AnnotationUse.span:type_name -> buf.compiler.v1alpha1.Span
 	8,   // 97: buf.compiler.v1alpha1.Decl.AnnotationUse.at_span:type_name -> buf.compiler.v1alpha1.Span
 	8,   // 98: buf.compiler.v1alpha1.Decl.AnnotationUse.parens_span:type_name -> buf.compiler.v1alpha1.Span
@@ -3661,53 +3787,59 @@ var file_buf_compiler_v1alpha1_ast_proto_depIdxs = []int32{
 	8,   // 106: buf.compiler.v1alpha1.Decl.Annotation.Param.name_span:type_name -> buf.compiler.v1alpha1.Span
 	8,   // 107: buf.compiler.v1alpha1.Decl.Annotation.Param.colon_span:type_name -> buf.compiler.v1alpha1.Span
 	8,   // 108: buf.compiler.v1alpha1.Decl.Annotation.Param.equals_span:type_name -> buf.compiler.v1alpha1.Span
-	14,  // 109: buf.compiler.v1alpha1.Def.Signature.inputs:type_name -> buf.compiler.v1alpha1.Type
-	14,  // 110: buf.compiler.v1alpha1.Def.Signature.outputs:type_name -> buf.compiler.v1alpha1.Type
-	8,   // 111: buf.compiler.v1alpha1.Def.Signature.span:type_name -> buf.compiler.v1alpha1.Span
-	8,   // 112: buf.compiler.v1alpha1.Def.Signature.input_span:type_name -> buf.compiler.v1alpha1.Span
-	8,   // 113: buf.compiler.v1alpha1.Def.Signature.returns_span:type_name -> buf.compiler.v1alpha1.Span
-	8,   // 114: buf.compiler.v1alpha1.Def.Signature.output_span:type_name -> buf.compiler.v1alpha1.Span
-	9,   // 115: buf.compiler.v1alpha1.Options.Entry.path:type_name -> buf.compiler.v1alpha1.Path
-	13,  // 116: buf.compiler.v1alpha1.Options.Entry.value:type_name -> buf.compiler.v1alpha1.Expr
-	8,   // 117: buf.compiler.v1alpha1.Options.Entry.equals_span:type_name -> buf.compiler.v1alpha1.Span
-	8,   // 118: buf.compiler.v1alpha1.Expr.Literal.span:type_name -> buf.compiler.v1alpha1.Span
-	5,   // 119: buf.compiler.v1alpha1.Expr.Prefixed.prefix:type_name -> buf.compiler.v1alpha1.Expr.Prefixed.Prefix
-	13,  // 120: buf.compiler.v1alpha1.Expr.Prefixed.expr:type_name -> buf.compiler.v1alpha1.Expr
-	8,   // 121: buf.compiler.v1alpha1.Expr.Prefixed.span:type_name -> buf.compiler.v1alpha1.Span
-	8,   // 122: buf.compiler.v1alpha1.Expr.Prefixed.prefix_span:type_name -> buf.compiler.v1alpha1.Span
-	13,  // 123: buf.compiler.v1alpha1.Expr.Range.start:type_name -> buf.compiler.v1alpha1.Expr
-	13,  // 124: buf.compiler.v1alpha1.Expr.Range.end:type_name -> buf.compiler.v1alpha1.Expr
-	8,   // 125: buf.compiler.v1alpha1.Expr.Range.span:type_name -> buf.compiler.v1alpha1.Span
-	8,   // 126: buf.compiler.v1alpha1.Expr.Range.to_span:type_name -> buf.compiler.v1alpha1.Span
-	13,  // 127: buf.compiler.v1alpha1.Expr.Array.elements:type_name -> buf.compiler.v1alpha1.Expr
-	8,   // 128: buf.compiler.v1alpha1.Expr.Array.span:type_name -> buf.compiler.v1alpha1.Span
-	8,   // 129: buf.compiler.v1alpha1.Expr.Array.open_span:type_name -> buf.compiler.v1alpha1.Span
-	8,   // 130: buf.compiler.v1alpha1.Expr.Array.close_span:type_name -> buf.compiler.v1alpha1.Span
-	8,   // 131: buf.compiler.v1alpha1.Expr.Array.comma_spans:type_name -> buf.compiler.v1alpha1.Span
-	35,  // 132: buf.compiler.v1alpha1.Expr.Dict.entries:type_name -> buf.compiler.v1alpha1.Expr.Field
-	8,   // 133: buf.compiler.v1alpha1.Expr.Dict.span:type_name -> buf.compiler.v1alpha1.Span
-	8,   // 134: buf.compiler.v1alpha1.Expr.Dict.open_span:type_name -> buf.compiler.v1alpha1.Span
-	8,   // 135: buf.compiler.v1alpha1.Expr.Dict.close_span:type_name -> buf.compiler.v1alpha1.Span
-	8,   // 136: buf.compiler.v1alpha1.Expr.Dict.comma_spans:type_name -> buf.compiler.v1alpha1.Span
-	13,  // 137: buf.compiler.v1alpha1.Expr.Field.key:type_name -> buf.compiler.v1alpha1.Expr
-	13,  // 138: buf.compiler.v1alpha1.Expr.Field.value:type_name -> buf.compiler.v1alpha1.Expr
-	8,   // 139: buf.compiler.v1alpha1.Expr.Field.span:type_name -> buf.compiler.v1alpha1.Span
-	8,   // 140: buf.compiler.v1alpha1.Expr.Field.colon_span:type_name -> buf.compiler.v1alpha1.Span
-	6,   // 141: buf.compiler.v1alpha1.Type.Prefixed.prefix:type_name -> buf.compiler.v1alpha1.Type.Prefixed.Prefix
-	14,  // 142: buf.compiler.v1alpha1.Type.Prefixed.type:type_name -> buf.compiler.v1alpha1.Type
-	8,   // 143: buf.compiler.v1alpha1.Type.Prefixed.span:type_name -> buf.compiler.v1alpha1.Span
-	8,   // 144: buf.compiler.v1alpha1.Type.Prefixed.prefix_span:type_name -> buf.compiler.v1alpha1.Span
-	9,   // 145: buf.compiler.v1alpha1.Type.Generic.path:type_name -> buf.compiler.v1alpha1.Path
-	14,  // 146: buf.compiler.v1alpha1.Type.Generic.args:type_name -> buf.compiler.v1alpha1.Type
-	8,   // 147: buf.compiler.v1alpha1.Type.Generic.span:type_name -> buf.compiler.v1alpha1.Span
-	8,   // 148: buf.compiler.v1alpha1.Type.Generic.open_span:type_name -> buf.compiler.v1alpha1.Span
-	8,   // 149: buf.compiler.v1alpha1.Type.Generic.close_span:type_name -> buf.compiler.v1alpha1.Span
-	8,   // 150: buf.compiler.v1alpha1.Type.Generic.comma_spans:type_name -> buf.compiler.v1alpha1.Span
-	151, // [151:151] is the sub-list for method output_type
-	151, // [151:151] is the sub-list for method input_type
-	151, // [151:151] is the sub-list for extension type_name
-	151, // [151:151] is the sub-list for extension extendee
-	0,   // [0:151] is the sub-list for field type_name
+	13,  // 109: buf.compiler.v1alpha1.Decl.AnnotationUse.Arg.value:type_name -> buf.compiler.v1alpha1.Expr
+	9,   // 110: buf.compiler.v1alpha1.Decl.AnnotationUse.Arg.type_name:type_name -> buf.compiler.v1alpha1.Path
+	8,   // 111: buf.compiler.v1alpha1.Decl.AnnotationUse.Arg.span:type_name -> buf.compiler.v1alpha1.Span
+	8,   // 112: buf.compiler.v1alpha1.Decl.AnnotationUse.Arg.name_span:type_name -> buf.compiler.v1alpha1.Span
+	8,   // 113: buf.compiler.v1alpha1.Decl.AnnotationUse.Arg.equals_span:type_name -> buf.compiler.v1alpha1.Span
+	8,   // 114: buf.compiler.v1alpha1.Decl.AnnotationUse.Arg.value_span:type_name -> buf.compiler.v1alpha1.Span
+	14,  // 115: buf.compiler.v1alpha1.Def.Signature.inputs:type_name -> buf.compiler.v1alpha1.Type
+	14,  // 116: buf.compiler.v1alpha1.Def.Signature.outputs:type_name -> buf.compiler.v1alpha1.Type
+	8,   // 117: buf.compiler.v1alpha1.Def.Signature.span:type_name -> buf.compiler.v1alpha1.Span
+	8,   // 118: buf.compiler.v1alpha1.Def.Signature.input_span:type_name -> buf.compiler.v1alpha1.Span
+	8,   // 119: buf.compiler.v1alpha1.Def.Signature.returns_span:type_name -> buf.compiler.v1alpha1.Span
+	8,   // 120: buf.compiler.v1alpha1.Def.Signature.output_span:type_name -> buf.compiler.v1alpha1.Span
+	9,   // 121: buf.compiler.v1alpha1.Options.Entry.path:type_name -> buf.compiler.v1alpha1.Path
+	13,  // 122: buf.compiler.v1alpha1.Options.Entry.value:type_name -> buf.compiler.v1alpha1.Expr
+	8,   // 123: buf.compiler.v1alpha1.Options.Entry.equals_span:type_name -> buf.compiler.v1alpha1.Span
+	8,   // 124: buf.compiler.v1alpha1.Expr.Literal.span:type_name -> buf.compiler.v1alpha1.Span
+	5,   // 125: buf.compiler.v1alpha1.Expr.Prefixed.prefix:type_name -> buf.compiler.v1alpha1.Expr.Prefixed.Prefix
+	13,  // 126: buf.compiler.v1alpha1.Expr.Prefixed.expr:type_name -> buf.compiler.v1alpha1.Expr
+	8,   // 127: buf.compiler.v1alpha1.Expr.Prefixed.span:type_name -> buf.compiler.v1alpha1.Span
+	8,   // 128: buf.compiler.v1alpha1.Expr.Prefixed.prefix_span:type_name -> buf.compiler.v1alpha1.Span
+	13,  // 129: buf.compiler.v1alpha1.Expr.Range.start:type_name -> buf.compiler.v1alpha1.Expr
+	13,  // 130: buf.compiler.v1alpha1.Expr.Range.end:type_name -> buf.compiler.v1alpha1.Expr
+	8,   // 131: buf.compiler.v1alpha1.Expr.Range.span:type_name -> buf.compiler.v1alpha1.Span
+	8,   // 132: buf.compiler.v1alpha1.Expr.Range.to_span:type_name -> buf.compiler.v1alpha1.Span
+	13,  // 133: buf.compiler.v1alpha1.Expr.Array.elements:type_name -> buf.compiler.v1alpha1.Expr
+	8,   // 134: buf.compiler.v1alpha1.Expr.Array.span:type_name -> buf.compiler.v1alpha1.Span
+	8,   // 135: buf.compiler.v1alpha1.Expr.Array.open_span:type_name -> buf.compiler.v1alpha1.Span
+	8,   // 136: buf.compiler.v1alpha1.Expr.Array.close_span:type_name -> buf.compiler.v1alpha1.Span
+	8,   // 137: buf.compiler.v1alpha1.Expr.Array.comma_spans:type_name -> buf.compiler.v1alpha1.Span
+	36,  // 138: buf.compiler.v1alpha1.Expr.Dict.entries:type_name -> buf.compiler.v1alpha1.Expr.Field
+	8,   // 139: buf.compiler.v1alpha1.Expr.Dict.span:type_name -> buf.compiler.v1alpha1.Span
+	8,   // 140: buf.compiler.v1alpha1.Expr.Dict.open_span:type_name -> buf.compiler.v1alpha1.Span
+	8,   // 141: buf.compiler.v1alpha1.Expr.Dict.close_span:type_name -> buf.compiler.v1alpha1.Span
+	8,   // 142: buf.compiler.v1alpha1.Expr.Dict.comma_spans:type_name -> buf.compiler.v1alpha1.Span
+	13,  // 143: buf.compiler.v1alpha1.Expr.Field.key:type_name -> buf.compiler.v1alpha1.Expr
+	13,  // 144: buf.compiler.v1alpha1.Expr.Field.value:type_name -> buf.compiler.v1alpha1.Expr
+	8,   // 145: buf.compiler.v1alpha1.Expr.Field.span:type_name -> buf.compiler.v1alpha1.Span
+	8,   // 146: buf.compiler.v1alpha1.Expr.Field.colon_span:type_name -> buf.compiler.v1alpha1.Span
+	6,   // 147: buf.compiler.v1alpha1.Type.Prefixed.prefix:type_name -> buf.compiler.v1alpha1.Type.Prefixed.Prefix
+	14,  // 148: buf.compiler.v1alpha1.Type.Prefixed.type:type_name -> buf.compiler.v1alpha1.Type
+	8,   // 149: buf.compiler.v1alpha1.Type.Prefixed.span:type_name -> buf.compiler.v1alpha1.Span
+	8,   // 150: buf.compiler.v1alpha1.Type.Prefixed.prefix_span:type_name -> buf.compiler.v1alpha1.Span
+	9,   // 151: buf.compiler.v1alpha1.Type.Generic.path:type_name -> buf.compiler.v1alpha1.Path
+	14,  // 152: buf.compiler.v1alpha1.Type.Generic.args:type_name -> buf.compiler.v1alpha1.Type
+	8,   // 153: buf.compiler.v1alpha1.Type.Generic.span:type_name -> buf.compiler.v1alpha1.Span
+	8,   // 154: buf.compiler.v1alpha1.Type.Generic.open_span:type_name -> buf.compiler.v1alpha1.Span
+	8,   // 155: buf.compiler.v1alpha1.Type.Generic.close_span:type_name -> buf.compiler.v1alpha1.Span
+	8,   // 156: buf.compiler.v1alpha1.Type.Generic.comma_spans:type_name -> buf.compiler.v1alpha1.Span
+	157, // [157:157] is the sub-list for method output_type
+	157, // [157:157] is the sub-list for method input_type
+	157, // [157:157] is the sub-list for extension type_name
+	157, // [157:157] is the sub-list for extension extendee
+	0,   // [0:157] is the sub-list for field type_name
 }
 
 func init() { file_buf_compiler_v1alpha1_ast_proto_init() }
@@ -3747,7 +3879,7 @@ func file_buf_compiler_v1alpha1_ast_proto_init() {
 		(*Path_Component_Ident)(nil),
 		(*Path_Component_Extension)(nil),
 	}
-	file_buf_compiler_v1alpha1_ast_proto_msgTypes[23].OneofWrappers = []any{
+	file_buf_compiler_v1alpha1_ast_proto_msgTypes[24].OneofWrappers = []any{
 		(*Expr_Literal_IntValue)(nil),
 		(*Expr_Literal_FloatValue)(nil),
 		(*Expr_Literal_StringValue)(nil),
@@ -3758,7 +3890,7 @@ func file_buf_compiler_v1alpha1_ast_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_buf_compiler_v1alpha1_ast_proto_rawDesc), len(file_buf_compiler_v1alpha1_ast_proto_rawDesc)),
 			NumEnums:      7,
-			NumMessages:   31,
+			NumMessages:   32,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

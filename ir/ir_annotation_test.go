@@ -595,16 +595,23 @@ annotation bad(name: string = 42);
 
 // TestAnnotationArgsAccepted verifies the happy path: well-typed
 // arguments against an annotation with mixed param kinds produce no
-// diagnostics.
+// diagnostics. The `any`-typed param takes a resolvable enum-value
+// reference — under the finalized Literal carrier, identifier
+// arguments are enum-value references and must resolve.
 func TestAnnotationArgsAccepted(t *testing.T) {
 	t.Parallel()
 
 	const src = `syntax = "proto3";
 package test;
 
+enum Visibility {
+  VISIBILITY_UNSPECIFIED = 0;
+  PUBLIC = 1;
+}
+
 annotation ok(s: string, n: int32, b: bool, free: any);
 
-@ok("hello", -42, true, anything.you.want)
+@ok("hello", -42, true, Visibility.PUBLIC)
 message M {}
 `
 
@@ -614,4 +621,424 @@ message M {}
 			t.Errorf("unexpected diagnostic: %s", d.Message())
 		}
 	}
+}
+
+// TestAnnotationArgUnresolvedEnumRef verifies that an identifier
+// argument on an `any`-typed param that does not resolve to an enum
+// value is diagnosed: the carrier lowers enum references resolved
+// (RFC-001 §8.1), so there is no home for a bare name.
+func TestAnnotationArgUnresolvedEnumRef(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+annotation ok(free: any);
+
+@ok(anything.you.want)
+message M {}
+`
+
+	_, rep := compileForAnnotationTest(t, src)
+	var saw bool
+	for _, d := range rep.Diagnostics {
+		if d.Level() >= report.Error && strings.Contains(d.Message(), "anything.you.want") {
+			saw = true
+			break
+		}
+	}
+	assert.True(t, saw, "expected unresolved enum-value reference diagnostic")
+}
+
+// hasErrorContaining reports whether the report contains an error-
+// level diagnostic whose message contains every needle.
+func hasErrorContaining(rep *report.Report, needles ...string) bool {
+	for _, d := range rep.Diagnostics {
+		if d.Level() < report.Error {
+			continue
+		}
+		all := true
+		for _, n := range needles {
+			if !strings.Contains(d.Message(), n) {
+				all = false
+				break
+			}
+		}
+		if all {
+			return true
+		}
+	}
+	return false
+}
+
+// TestAnnotationArgCallArityMismatch verifies RFC-001 §8.1 arity
+// verification: a call site whose name resolves to a declared
+// function must match the declaration's parameter count.
+func TestAnnotationArgCallArityMismatch(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+function in_region(value: string, regions: string);
+
+annotation validate(rule: expression);
+
+@validate(in_region(this))
+message M {}
+`
+
+	_, rep := compileForAnnotationTest(t, src)
+	assert.True(t,
+		hasErrorContaining(rep, "test.in_region", "1 argument(s)", "declares 2"),
+		"expected arity mismatch diagnostic, got: %v", rep.Diagnostics)
+}
+
+// TestAnnotationArgBuiltinsUndiagnosed verifies that call sites whose
+// names do not resolve to a declared function are presumed engine
+// builtins: not diagnosed, whatever their arity.
+func TestAnnotationArgBuiltinsUndiagnosed(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+annotation validate(rule: expression);
+
+@validate(matches(this, "^[a-z]+$"))
+@validate(now())
+@validate(this.size() < 280)
+message M {}
+`
+
+	_, rep := compileForAnnotationTest(t, src)
+	for _, d := range rep.Diagnostics {
+		if d.Level() >= report.Error {
+			t.Errorf("unexpected diagnostic: %s", d.Message())
+		}
+	}
+}
+
+// TestAnnotationArgNamedBinding verifies named-argument binding and
+// its diagnostics: unknown names, positional-after-named, and double
+// binding.
+func TestAnnotationArgNamedBinding(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unknown", func(t *testing.T) {
+		t.Parallel()
+		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+annotation validate(rule: expression, code: string);
+@validate(this != 0, oops = "x")
+message M {}
+`)
+		assert.True(t, hasErrorContaining(rep, "unknown named argument", "oops"),
+			"expected unknown-named-argument diagnostic, got: %v", rep.Diagnostics)
+	})
+
+	t.Run("positional-after-named", func(t *testing.T) {
+		t.Parallel()
+		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+annotation validate(rule: expression, code: string);
+@validate(code = "x", this != 0)
+message M {}
+`)
+		assert.True(t, hasErrorContaining(rep, "positional argument after named argument"),
+			"expected ordering diagnostic, got: %v", rep.Diagnostics)
+	})
+
+	t.Run("double-binding", func(t *testing.T) {
+		t.Parallel()
+		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+annotation validate(rule: expression, code: string);
+@validate(this != 0, code = "x", code = "y")
+message M {}
+`)
+		assert.True(t, hasErrorContaining(rep, "bound more than once", "code"),
+			"expected double-binding diagnostic, got: %v", rep.Diagnostics)
+	})
+
+	t.Run("accepted", func(t *testing.T) {
+		t.Parallel()
+		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+annotation validate(rule: expression, code: string = "", message: string = "");
+@validate(this != 0, code = "tier.invalid", message = "bad tier")
+message M {}
+`)
+		for _, d := range rep.Diagnostics {
+			if d.Level() >= report.Error {
+				t.Errorf("unexpected diagnostic: %s", d.Message())
+			}
+		}
+	})
+}
+
+// TestAnnotationArgOpaqueOnNonExpression verifies that an engine-
+// expression fragment bound to a non-expression parameter is
+// diagnosed: only `expression`-typed params keep opaque captures.
+func TestAnnotationArgOpaqueOnNonExpression(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+annotation tag(name: string);
+
+@tag(this == 1)
+message M {}
+`
+
+	_, rep := compileForAnnotationTest(t, src)
+	assert.True(t, hasErrorContaining(rep, "must be a literal or a qualified name"),
+		"expected opaque-capture diagnostic, got: %v", rep.Diagnostics)
+}
+
+// TestAnnotationArgListHomogeneity verifies RFC-001 §8.1 list rules:
+// heterogeneous lists and mixed enum types are diagnosed; homogeneous
+// lists (including nested) are accepted.
+func TestAnnotationArgListHomogeneity(t *testing.T) {
+	t.Parallel()
+
+	t.Run("heterogeneous", func(t *testing.T) {
+		t.Parallel()
+		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+annotation allowed(values: any);
+@allowed(["US", 42])
+message M {}
+`)
+		assert.True(t, hasErrorContaining(rep, "heterogeneous list literal"),
+			"expected homogeneity diagnostic, got: %v", rep.Diagnostics)
+	})
+
+	t.Run("mixed-enums", func(t *testing.T) {
+		t.Parallel()
+		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+enum A { A_UNSPECIFIED = 0; A_ONE = 1; }
+enum B { B_UNSPECIFIED = 0; B_ONE = 1; }
+annotation allowed(values: any);
+@allowed([A_ONE, B_ONE])
+message M {}
+`)
+		assert.True(t, hasErrorContaining(rep, "mixed enum types"),
+			"expected mixed-enum diagnostic, got: %v", rep.Diagnostics)
+	})
+
+	t.Run("accepted", func(t *testing.T) {
+		t.Parallel()
+		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+annotation allowed(values: any);
+@allowed(["US", "CA", "GB"])
+@allowed([1, 2, 3])
+@allowed([[1], [2, 3]])
+@allowed([])
+message M {}
+`)
+		for _, d := range rep.Diagnostics {
+			if d.Level() >= report.Error {
+				t.Errorf("unexpected diagnostic: %s", d.Message())
+			}
+		}
+	})
+}
+
+// TestAnnotationArgMessageLiteral verifies the message-literal rules:
+// the explicit-typing requirement under `any` params, unknown-field
+// diagnosis, and the temporary not-yet-lowered cap.
+func TestAnnotationArgMessageLiteral(t *testing.T) {
+	t.Parallel()
+
+	t.Run("explicit-type-required", func(t *testing.T) {
+		t.Parallel()
+		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+annotation sample(value: any);
+@sample({currency: "USD"})
+message M {}
+`)
+		assert.True(t, hasErrorContaining(rep, "requires an explicit type name"),
+			"expected explicit-typing diagnostic, got: %v", rep.Diagnostics)
+	})
+
+	t.Run("unknown-field", func(t *testing.T) {
+		t.Parallel()
+		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+message Money {
+  string currency = 1;
+}
+annotation sample(value: any);
+@sample(Money{amount: 5})
+message M {}
+`)
+		assert.True(t, hasErrorContaining(rep, "no field named", "amount"),
+			"expected unknown-field diagnostic, got: %v", rep.Diagnostics)
+	})
+
+	t.Run("not-yet-lowered", func(t *testing.T) {
+		t.Parallel()
+		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+message Money {
+  string currency = 1;
+}
+annotation sample(value: any);
+@sample(Money{currency: "USD"})
+message M {}
+`)
+		assert.True(t, hasErrorContaining(rep, "not yet supported"),
+			"expected temporary cap diagnostic, got: %v", rep.Diagnostics)
+	})
+}
+
+// TestAnnotationArgEnumQualifiedForm verifies both accepted enum-
+// reference spellings resolve: the value's scoped name and the
+// enum-qualified form.
+func TestAnnotationArgEnumQualifiedForm(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+enum Visibility {
+  VISIBILITY_UNSPECIFIED = 0;
+  PUBLIC = 1;
+}
+
+annotation scope(v: Visibility);
+
+@scope(PUBLIC)
+message M1 {}
+
+@scope(Visibility.PUBLIC)
+message M2 {}
+
+@scope(test.Visibility.PUBLIC)
+message M3 {}
+`
+
+	_, rep := compileForAnnotationTest(t, src)
+	for _, d := range rep.Diagnostics {
+		if d.Level() >= report.Error {
+			t.Errorf("unexpected diagnostic: %s", d.Message())
+		}
+	}
+}
+
+// compileTwoForAnnotationTest compiles main.proto against lib.proto.
+func compileTwoForAnnotationTest(t *testing.T, mainSrc, libSrc string) (*ir.File, *report.Report) {
+	t.Helper()
+	opener := source.NewMap(map[string]*source.File{
+		"main.proto": source.NewFile("main.proto", mainSrc),
+		"lib.proto":  source.NewFile("lib.proto", libSrc),
+	})
+	allOpeners := &source.Openers{opener, source.WKTs()}
+
+	exec := incremental.New()
+	sess := new(ir.Session)
+	results, rep, err := incremental.Run(t.Context(), exec, queries.IR{
+		Opener:  allOpeners,
+		Session: sess,
+		Path:    "main.proto",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, rep)
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].Value)
+	return results[0].Value, rep
+}
+
+// TestAnnotationUseBareImportResolution verifies the RFC-001
+// §5.2/§5.3 spelling: a bare `@validate` resolves to an imported
+// `annotation` declaration whose package is not in the using file's
+// scope chain, and a qualified spelling keeps working.
+func TestAnnotationUseBareImportResolution(t *testing.T) {
+	t.Parallel()
+
+	const lib = `syntax = "proto3";
+package protowire.schema.v1;
+
+annotation validate(rule: expression, code: string = "");
+annotation required;
+`
+	const main = `syntax = "proto3";
+package myco.users;
+
+import "lib.proto";
+
+message User {
+  string email = 1
+    @required
+    @validate(this.size() > 0, code = "email.empty")
+    @protowire.schema.v1.required;
+}
+`
+
+	file, rep := compileTwoForAnnotationTest(t, main, lib)
+	for _, d := range rep.Diagnostics {
+		if d.Level() >= report.Error {
+			t.Errorf("unexpected diagnostic: %s", d.Message())
+		}
+	}
+
+	for ty := range seq.Values(file.AllTypes()) {
+		if ty.Name() != "User" {
+			continue
+		}
+		for f := range seq.Values(ty.Members()) {
+			var targets []string
+			for u := range seq.Values(f.Annotations()) {
+				targets = append(targets, string(u.Target().FullName()))
+			}
+			assert.Equal(t, []string{
+				"protowire.schema.v1.required",
+				"protowire.schema.v1.validate",
+				"protowire.schema.v1.required",
+			}, targets)
+		}
+	}
+}
+
+// TestAnnotationUseBareImportAmbiguity verifies that a bare name
+// matching `annotation` declarations in more than one visible import
+// is diagnosed as ambiguous.
+func TestAnnotationUseBareImportAmbiguity(t *testing.T) {
+	t.Parallel()
+
+	opener := source.NewMap(map[string]*source.File{
+		"a.proto": source.NewFile("a.proto", `syntax = "proto3";
+package liba;
+annotation tag(name: string);
+`),
+		"b.proto": source.NewFile("b.proto", `syntax = "proto3";
+package libb;
+annotation tag(name: string);
+`),
+		"main.proto": source.NewFile("main.proto", `syntax = "proto3";
+package myco;
+import "a.proto";
+import "b.proto";
+@tag("x")
+message M {}
+`),
+	})
+	allOpeners := &source.Openers{opener, source.WKTs()}
+
+	exec := incremental.New()
+	sess := new(ir.Session)
+	_, rep, err := incremental.Run(t.Context(), exec, queries.IR{
+		Opener:  allOpeners,
+		Session: sess,
+		Path:    "main.proto",
+	})
+	require.NoError(t, err)
+
+	assert.True(t, hasErrorContaining(rep, "ambiguous annotation", "tag"),
+		"expected ambiguity diagnostic, got: %v", rep.Diagnostics)
 }

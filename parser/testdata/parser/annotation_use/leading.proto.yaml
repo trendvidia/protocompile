@@ -25,7 +25,7 @@ decls:
         value.literal.int_value: 1
     annotations:
     - name.components: [{ ident: "authored" }]
-      args: [{ literal.string_value: "alice" }]
+      args: [{ value.literal.string_value: "alice", capture: "\"alice\"" }]
     - name.components: [{ ident: "reviewed" }]
 - def:
     kind: KIND_SERVICE
@@ -39,4 +39,5 @@ decls:
           outputs: [{ path.components: [{ ident: "M" }] }]
     annotations:
     - name.components: [{ ident: "since" }]
-      args: [{ literal.string_value: "2026-06-01" }]
+      args:
+      - { value.literal.string_value: "2026-06-01", capture: "\"2026-06-01\"" }

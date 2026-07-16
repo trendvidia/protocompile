@@ -18,6 +18,7 @@ import (
 	"github.com/trendvidia/protocompile/ast"
 	"github.com/trendvidia/protocompile/internal/errtoken"
 	"github.com/trendvidia/protocompile/internal/taxa"
+	"github.com/trendvidia/protocompile/report"
 	"github.com/trendvidia/protocompile/seq"
 	"github.com/trendvidia/protocompile/token"
 	"github.com/trendvidia/protocompile/token/keyword"
@@ -214,11 +215,10 @@ func parseAnnotationParams(p *parser, c *token.Cursor, decl ast.DeclAnnotation, 
 
 // parseAnnotationUse parses a single `@name(args)` annotation use site.
 //
-//	DeclAnnotationUse := `@` Path (`(` (Expr `,`?)* `)`)?
+//	DeclAnnotationUse := `@` Path (`(` (Arg `,`?)* `)`)?
 //
-// The argument expressions are parsed via [parseExpr] and may use the
-// full CEL expression grammar. A legalize pass in a subsequent PR
-// rejects shapes outside the PR 5 narrow set.
+// Arguments are parsed capture-then-classify per RFC-001 §5.1 — see
+// [parseAnnotationUseArgs].
 func parseAnnotationUse(p *parser, c *token.Cursor, in taxa.Noun) ast.DeclAnnotationUse {
 	at := c.Next()
 
@@ -250,23 +250,279 @@ func parseAnnotationUse(p *parser, c *token.Cursor, in taxa.Noun) ast.DeclAnnota
 	return decl
 }
 
-// parseAnnotationUseArgs parses a comma-separated list of expression
-// arguments from inside an annotation use site's parens.
+// parseAnnotationUseArgs parses a comma-separated list of arguments
+// from inside an annotation use site's parens, following RFC-001 §5.1
+// capture-then-classify:
+//
+//  1. An argument that begins `Ident =` — where the token after the
+//     `=` is not itself `=` — is a named argument; the name and `=`
+//     are peeled off before capture. (`code == "x"` starts with a
+//     single `==` token and stays positional.)
+//  2. The value is captured as the raw token range extending to the
+//     next `,` or `)` at zero delimiter depth. The lexer's fused
+//     token trees provide the delimiter balancing — nested `(...)`,
+//     `[...]`, `{...}` are single tokens here — and string literals
+//     are single tokens, so commas and delimiters inside them never
+//     split an argument. An empty capture is a compile error.
+//  3. The capture is speculatively re-parsed under the §5.1 value
+//     grammar `literal | qualifiedIdent | listLiteral |
+//     messageLiteral`. On a match the parsed [ast.ExprAny] is stored
+//     alongside the capture; otherwise the capture is opaque — legal
+//     only for arguments bound to `expression`-typed parameters,
+//     which the link-time classification pass checks.
 func parseAnnotationUseArgs(p *parser, c *token.Cursor, decl ast.DeclAnnotationUse, in taxa.Noun) {
-	delimited[ast.ExprAny]{
-		p:    p,
-		c:    c,
-		what: taxa.Expr,
-		in:   in,
+	for !c.Done() {
+		spec, ok := parseAnnotationUseArg(p, c, in)
 
-		required: true,
-		exhaust:  true,
-		parse: func(c *token.Cursor) (ast.ExprAny, bool) {
-			e := parseExpr(p, c, in.In())
-			return e, !e.IsZero()
-		},
-		start: canStartExpr,
-	}.appendTo(decl.Args())
+		var comma token.Token
+		if next := c.Peek(); next.Keyword() == keyword.Comma {
+			comma = c.Next()
+			if c.Done() {
+				p.Errorf("trailing `,` in annotation argument list").Apply(
+					report.Snippet(comma),
+				)
+			}
+		}
+
+		if ok {
+			decl.Args().AppendComma(decl.NewArg(spec), comma)
+		}
+	}
+}
+
+// parseAnnotationUseArg parses a single annotation argument up to (but
+// not including) the next top-level comma. Reports false when the
+// argument is empty (in which case a diagnostic was already emitted).
+func parseAnnotationUseArg(p *parser, c *token.Cursor, in taxa.Noun) (ast.AnnotationUseArgSpec, bool) {
+	var spec ast.AnnotationUseArgSpec
+
+	// Named-argument peel: `Ident =` where the token after `=` is not
+	// itself `=`. A `==` lexes as one token, so expression fragments
+	// like `code == "x"` never match.
+	if name := c.Peek(); name.Kind() == token.Ident {
+		clone := c.Clone()
+		clone.Next()
+		if eq := clone.Peek(); eq.Keyword() == keyword.Assign {
+			clone.Next()
+			if clone.Peek().Keyword() != keyword.Assign {
+				spec.Name = c.Next()
+				spec.Equals = c.Next()
+			}
+		}
+	}
+
+	// Capture: everything to the next top-level `,` (or the end of the
+	// parens). Fused bracket tokens keep nested commas out of this
+	// stream, and string literals are single opaque tokens.
+	var tokens []token.Token
+	for !c.Done() && c.Peek().Keyword() != keyword.Comma {
+		tokens = append(tokens, c.Next())
+	}
+
+	if len(tokens) == 0 {
+		what := taxa.Expr.AsSet()
+		err := errtoken.Unexpected{
+			What:  c.Peek(),
+			Where: in.In(),
+			Want:  what,
+		}
+		if c.Done() {
+			_, span := c.SeekToEnd()
+			err.What = span
+			err.Got = taxa.EOF
+		}
+		p.Error(err)
+		return spec, false
+	}
+
+	spec.Start = tokens[0]
+	spec.End = tokens[len(tokens)-1]
+	spec.Value, spec.MessageType = classifyAnnotationArgValue(p, tokens)
+	return spec, true
+}
+
+// classifyAnnotationArgValue speculatively re-parses a captured
+// argument under the RFC-001 §5.1 value grammar:
+//
+//	annotArgValue  ::= literal | qualifiedIdent
+//	literal        ::= scalarLit | listLiteral | messageLiteral
+//	scalarLit      ::= strLit | intLit | floatLit ("-" forms included)
+//	listLiteral    ::= "[" (literalValue ("," literalValue)*)? "]"
+//	messageLiteral ::= qualifiedIdent? "{" (fieldInit ("," fieldInit)*)? "}"
+//	fieldInit      ::= Ident ":" literalValue
+//
+// Returns a zero [ast.ExprAny] when the capture does not match — the
+// argument is then an opaque engine-expression fragment. The second
+// return is the leading type name of a typed message literal.
+//
+// The token shapes are fully pre-checked before any node construction,
+// so a failed classification emits no diagnostics and allocates no
+// nodes.
+func classifyAnnotationArgValue(p *parser, tokens []token.Token) (ast.ExprAny, ast.Path) {
+	switch {
+	case len(tokens) == 1 && (tokens[0].Kind() == token.String || tokens[0].Kind() == token.Number):
+		return ast.ExprLiteral{File: p.File(), Token: tokens[0]}.AsAny(), ast.Path{}
+
+	case len(tokens) == 2 && tokens[0].Keyword() == keyword.Sub && tokens[1].Kind() == token.Number:
+		return p.NewExprPrefixed(ast.ExprPrefixedArgs{
+			Prefix: tokens[0],
+			Expr:   ast.ExprLiteral{File: p.File(), Token: tokens[1]}.AsAny(),
+		}).AsAny(), ast.Path{}
+
+	case isQualifiedIdent(tokens):
+		return ast.ExprPath{Path: pathOf(p, tokens[0])}.AsAny(), ast.Path{}
+
+	case len(tokens) == 1 && tokens[0].Keyword() == keyword.Brackets:
+		if arr, ok := classifyListLiteral(p, tokens[0]); ok {
+			return arr, ast.Path{}
+		}
+
+	case tokens[len(tokens)-1].Keyword() == keyword.Braces &&
+		(len(tokens) == 1 || isQualifiedIdent(tokens[:len(tokens)-1])):
+		if dict, ok := classifyMessageLiteral(p, tokens[len(tokens)-1]); ok {
+			var typeName ast.Path
+			if len(tokens) > 1 {
+				typeName = pathOf(p, tokens[0])
+			}
+			return dict, typeName
+		}
+	}
+
+	return ast.ExprAny{}, ast.Path{}
+}
+
+// classifyListLiteral re-parses a fused `[...]` token as a §5.1 list
+// literal whose elements are each `literalValue ::= literal |
+// qualifiedIdent`. Reports false when any element fails to classify
+// (making the whole capture opaque) or the list has empty elements.
+func classifyListLiteral(p *parser, brackets token.Token) (ast.ExprAny, bool) {
+	elements, commas, ok := splitTopLevelCommas(brackets.Children())
+	if !ok {
+		return ast.ExprAny{}, false
+	}
+
+	exprs := make([]ast.ExprAny, len(elements))
+	for i, elem := range elements {
+		expr, typeName := classifyAnnotationArgValue(p, elem)
+		// Typed message literals are legal list elements, but the
+		// element expr loses the type path here: element-level typed
+		// messages are rare and the linker re-derives the type from
+		// the list's context. Reject for now so the S2 element-typing
+		// story stays explicit — the argument stays opaque and the
+		// link-time classifier diagnoses it if the param isn't
+		// expression-typed.
+		if expr.IsZero() || !typeName.IsZero() {
+			return ast.ExprAny{}, false
+		}
+		exprs[i] = expr
+	}
+
+	array := p.NewExprArray(brackets)
+	for i, expr := range exprs {
+		array.Elements().AppendComma(expr, commas[i])
+	}
+	return array.AsAny(), true
+}
+
+// classifyMessageLiteral re-parses a fused `{...}` token as a §5.1
+// message literal: comma-separated `Ident : literalValue` field
+// initializers. Reports false when any field fails that shape.
+func classifyMessageLiteral(p *parser, braces token.Token) (ast.ExprAny, bool) {
+	fields, commas, ok := splitTopLevelCommas(braces.Children())
+	if !ok {
+		return ast.ExprAny{}, false
+	}
+
+	type fieldParts struct {
+		name  token.Token
+		colon token.Token
+		value ast.ExprAny
+	}
+	parts := make([]fieldParts, len(fields))
+	for i, field := range fields {
+		if len(field) < 3 || field[0].Kind() != token.Ident || field[1].Keyword() != keyword.Colon {
+			return ast.ExprAny{}, false
+		}
+		value, typeName := classifyAnnotationArgValue(p, field[2:])
+		if value.IsZero() || !typeName.IsZero() {
+			return ast.ExprAny{}, false
+		}
+		parts[i] = fieldParts{name: field[0], colon: field[1], value: value}
+	}
+
+	dict := p.NewExprDict(braces)
+	for i, f := range parts {
+		field := p.NewExprField(ast.ExprFieldArgs{
+			Key:   ast.ExprPath{Path: pathOf(p, f.name)}.AsAny(),
+			Colon: f.colon,
+			Value: f.value,
+		})
+		dict.Elements().AppendComma(field, commas[i])
+	}
+	return dict.AsAny(), true
+}
+
+// splitTopLevelCommas splits the children of a fused bracket token
+// into comma-separated segments, returning the segments and the comma
+// token following each (zero for the last). Reports false when a
+// segment is empty (leading, trailing, or doubled commas) — except
+// that zero segments (an empty list `[]` or `{}`) is legal.
+func splitTopLevelCommas(c *token.Cursor) (segments [][]token.Token, commas []token.Token, ok bool) {
+	var current []token.Token
+	for !c.Done() {
+		next := c.Next()
+		if next.Keyword() != keyword.Comma {
+			current = append(current, next)
+			continue
+		}
+		if len(current) == 0 {
+			return nil, nil, false
+		}
+		segments = append(segments, current)
+		commas = append(commas, next)
+		current = nil
+	}
+	switch {
+	case len(current) > 0:
+		segments = append(segments, current)
+		commas = append(commas, token.Zero)
+	case len(segments) > 0:
+		// Trailing comma.
+		return nil, nil, false
+	}
+	return segments, commas, true
+}
+
+// isQualifiedIdent reports whether tokens form a qualified identifier:
+// `Ident ("." Ident)*`, with an optional leading `.` for absolute
+// references.
+func isQualifiedIdent(tokens []token.Token) bool {
+	if len(tokens) == 0 {
+		return false
+	}
+	wantIdent := true
+	for i, tok := range tokens {
+		if i == 0 && tok.Keyword() == keyword.Dot {
+			continue // Absolute path.
+		}
+		if wantIdent {
+			if tok.Kind() != token.Ident {
+				return false
+			}
+		} else if tok.Keyword() != keyword.Dot {
+			return false
+		}
+		wantIdent = !wantIdent
+	}
+	return !wantIdent // Must end on an identifier.
+}
+
+// pathOf re-parses the path starting at tok, which the caller has
+// already shape-checked with [isQualifiedIdent]. [parsePath] consumes
+// exactly the qualified-identifier tokens: it stops at the first
+// token that is neither `.` nor an identifier.
+func pathOf(p *parser, tok token.Token) ast.Path {
+	return parsePath(p, token.NewCursorAt(tok))
 }
 
 // collectLeadingAnnotations consumes a run of `@name(args)` use sites

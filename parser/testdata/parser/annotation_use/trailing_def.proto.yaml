@@ -1,0 +1,66 @@
+decls:
+- syntax: { kind: KIND_SYNTAX, value.literal.string_value: "proto3" }
+- package.path.components: [{ ident: "test" }]
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "User" }]
+    body.decls:
+    - def:
+        kind: KIND_FIELD
+        name.components: [{ ident: "display_name" }]
+        type.path.components: [{ ident: "string" }]
+        value.literal.int_value: 1
+        annotations: [{ name.components: [{ ident: "required" }] }]
+    - def:
+        kind: KIND_FIELD
+        name.components: [{ ident: "role" }]
+        type.path.components: [{ ident: "string" }]
+        value.literal.int_value: 2
+        annotations:
+        - name.components: [{ ident: "default" }]
+          args:
+          - { value.literal.string_value: "viewer", capture: "\"viewer\"" }
+    - def:
+        kind: KIND_FIELD
+        name.components: [{ ident: "email" }]
+        type.path.components: [{ ident: "string" }]
+        value.literal.int_value: 3
+        annotations:
+        - name.components: [{ ident: "required" }]
+        - name.components: [{ ident: "validate" }]
+          args:
+          - capture: "this.size() > 0"
+          - name: "code"
+            value.literal.string_value: "email.empty"
+            capture: "\"email.empty\""
+    - def:
+        kind: KIND_FIELD
+        name.components: [{ ident: "tagged" }]
+        type.path.components: [{ ident: "string" }]
+        value.literal.int_value: 4
+        options.entries:
+        - path.components: [{ ident: "deprecated" }]
+          value.path.components: [{ ident: "true" }]
+        annotations: [{ name.components: [{ ident: "required" }] }]
+- def:
+    kind: KIND_ENUM
+    name.components: [{ ident: "Tier" }]
+    body.decls:
+    - def:
+        kind: KIND_ENUM_VALUE
+        name.components: [{ ident: "TIER_UNSPECIFIED" }]
+        value.literal.int_value: 0
+        annotations:
+        - name.components: [{ ident: "description" }]
+          args:
+          - value.literal.string_value: "not yet selected"
+            capture: "\"not yet selected\""
+    - def:
+        kind: KIND_ENUM_VALUE
+        name.components: [{ ident: "TIER_FREE" }]
+        value.literal.int_value: 1
+        annotations:
+        - name.components: [{ ident: "description" }]
+          args:
+          - value.literal.string_value: "free tier"
+            capture: "\"free tier\""

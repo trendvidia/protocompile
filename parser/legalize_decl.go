@@ -74,25 +74,16 @@ func legalizeDecl(p *parser, parent classified, decl ast.DeclAny) {
 		what := classified{def, taxa.Classify(def)}
 
 		legalizeDef(p, parent, def)
-		legalizeAttachedAnnotations(p, def.Annotations())
 		for decl := range seq.Values(body.Decls()) {
 			legalizeDecl(p, what, decl)
 		}
 
-	case ast.DeclKindType:
-		legalizeAttachedAnnotations(p, decl.AsType().Annotations())
-
-	case ast.DeclKindFunction:
-		legalizeAttachedAnnotations(p, decl.AsFunction().Annotations())
-
-	case ast.DeclKindAnnotation:
-		legalizeAttachedAnnotations(p, decl.AsAnnotation().Annotations())
-
-	case ast.DeclKindAnnotationUse:
-		// A top-level annotation use site is an orphan (the parser
-		// could not bind it to a following declaration). Validate the
-		// argument shapes anyway; orphan diagnosis lives elsewhere.
-		legalizeAnnotationUse(p, decl.AsAnnotationUse())
+	case ast.DeclKindType, ast.DeclKindFunction, ast.DeclKindAnnotation, ast.DeclKindAnnotationUse:
+		// Annotation-use argument shapes are no longer legalized at
+		// parse time: arguments are captured verbatim per RFC-001 §5.1
+		// and classified against the resolved annotation's parameter
+		// types at link time (capture-then-classify). Orphan top-level
+		// use sites are diagnosed elsewhere.
 	}
 }
 

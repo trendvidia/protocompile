@@ -1,0 +1,136 @@
+decls:
+- syntax: { kind: KIND_SYNTAX, value.literal.string_value: "proto3" }
+- package.path.components: [{ ident: "test" }]
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "M1" }]
+    body: {}
+    annotations:
+    - name.components: [{ ident: "description" }]
+      args:
+      - value.literal.string_value: "primary email"
+        capture: "\"primary email\""
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "M2" }]
+    body: {}
+    annotations:
+    - name.components: [{ ident: "example" }]
+      args: [{ value.literal.int_value: 42, capture: "42" }]
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "M3" }]
+    body: {}
+    annotations:
+    - name.components: [{ ident: "since" }]
+      args: [{ value.literal.float_value: 2026.06, capture: "2026.06" }]
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "M4" }]
+    body: {}
+    annotations:
+    - name.components: [{ ident: "minimum" }]
+      args:
+      - value.prefixed: { prefix: PREFIX_MINUS, expr.literal.int_value: 1 }
+        capture: "-1"
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "M5" }]
+    body: {}
+    annotations:
+    - name.components: [{ ident: "scope" }]
+      args:
+      - { value.path.components: [{ ident: "public" }], capture: "public" }
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "M6" }]
+    body: {}
+    annotations:
+    - name.components: [{ ident: "author" }]
+      args:
+      - value.path.components:
+        - ident: "myco"
+        - { ident: "acme", separator: SEPARATOR_DOT }
+        - { ident: "alice", separator: SEPARATOR_DOT }
+        capture: "myco.acme.alice"
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "M7" }]
+    body: {}
+    annotations:
+    - name.components: [{ ident: "flag" }]
+      args: [{ value.path.components: [{ ident: "true" }], capture: "true" }]
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "M8" }]
+    body: {}
+    annotations:
+    - name.components: [{ ident: "allowed" }]
+      args:
+      - value.array.elements:
+        - literal.string_value: "US"
+        - literal.string_value: "CA"
+        - literal.string_value: "GB"
+        capture: "[\"US\", \"CA\", \"GB\"]"
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "M9" }]
+    body: {}
+    annotations:
+    - name.components: [{ ident: "nested" }]
+      args:
+      - value.array.elements:
+        - array.elements: [{ literal.int_value: 1 }, { literal.int_value: 2 }]
+        - array.elements: [{ literal.int_value: 3 }]
+        capture: "[[1, 2], [3]]"
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "M10" }]
+    body: {}
+    annotations:
+    - name.components: [{ ident: "empty_list" }]
+      args: [{ value.array: {}, capture: "[]" }]
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "M11" }]
+    body: {}
+    annotations:
+    - name.components: [{ ident: "sample" }]
+      args:
+      - value.dict.entries:
+        - key.path.components: [{ ident: "currency" }]
+          value.literal.string_value: "USD"
+        - key.path.components: [{ ident: "units" }]
+          value.literal.int_value: 5
+        type_name.components: [{ ident: "Money" }]
+        capture: "Money{currency: \"USD\", units: 5}"
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "M12" }]
+    body: {}
+    annotations:
+    - name.components: [{ ident: "untyped" }]
+      args:
+      - value.dict.entries:
+        - key.path.components: [{ ident: "key" }]
+          value.literal.string_value: "value"
+        - { key.path.components: [{ ident: "n" }], value.literal.int_value: 3 }
+        capture: "{key: \"value\", n: 3}"
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "M13" }]
+    body: {}
+    annotations:
+    - name.components: [{ ident: "deep" }]
+      args:
+      - value.dict.entries:
+        - key.path.components: [{ ident: "tags" }]
+          value.array.elements:
+          - literal.string_value: "a"
+          - literal.string_value: "b"
+        - key.path.components: [{ ident: "inner" }]
+          value.dict.entries:
+          - key.path.components: [{ ident: "ok" }]
+            value.path.components: [{ ident: "true" }]
+        type_name.components: [{ ident: "Outer" }]
+        capture: "Outer{tags: [\"a\", \"b\"], inner: {ok: true}}"

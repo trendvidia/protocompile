@@ -1,0 +1,59 @@
+decls:
+- syntax: { kind: KIND_SYNTAX, value.literal.string_value: "proto3" }
+- package.path.components: [{ ident: "test" }]
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "M1" }]
+    body: {}
+    annotations:
+    - name.components: [{ ident: "validate" }]
+      args: [{ capture: "is_email(this)" }]
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "M2" }]
+    body: {}
+    annotations:
+    - name.components: [{ ident: "validate" }]
+      args: [{ capture: "matches(this, \"^[^@]+@[^@]+$\")" }]
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "M3" }]
+    body: {}
+    annotations:
+    - name.components: [{ ident: "validate" }]
+      args: [{ capture: "this == 1 || this == 2" }]
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "M4" }]
+    body: {}
+    annotations:
+    - name.components: [{ ident: "validate" }]
+      args: [{ capture: "this.size() < 280" }]
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "M5" }]
+    body: {}
+    annotations:
+    - name.components: [{ ident: "validate" }]
+      args: [{ capture: "this in [\"US\", \"CA\"]" }]
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "M6" }]
+    body: {}
+    annotations:
+    - name.components: [{ ident: "validate" }]
+      args: [{ capture: "size(split(this, \",\")[0]) > 0" }]
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "M7" }]
+    body: {}
+    annotations:
+    - name.components: [{ ident: "validate" }]
+      args: [{ capture: "matches(this, \"^[a-z),]+$\")" }]
+- def:
+    kind: KIND_MESSAGE
+    name.components: [{ ident: "M8" }]
+    body: {}
+    annotations:
+    - name.components: [{ ident: "negated_path" }]
+      args: [{ capture: "-foo.bar" }]

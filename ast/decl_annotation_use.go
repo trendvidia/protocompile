@@ -37,7 +37,8 @@ import (
 //
 // # Grammar
 //
-//	DeclAnnotationUse := `@` Path (`(` (Expr `,`?)* `)`)?
+//	DeclAnnotationUse := `@` Path (`(` (Arg `,`?)* `)`)?
+//	Arg               := (Ident `=`)? Capture
 //
 // Three forms are accepted:
 //
@@ -45,15 +46,28 @@ import (
 //	@Name()                        — empty parens
 //	@Name(arg1, name = arg2, ...)  — one or more args
 //
-// The argument expressions are held as the general [ExprAny] grammar so
-// the parser can defer narrow-shape validation to a legalize pass.
+// Arguments follow RFC-001 §5.1 capture-then-classify: each argument is
+// captured as the raw token range extending to the next `,` or `)` at
+// zero delimiter depth (see [AnnotationUseArg]). Arguments that re-parse
+// under the value grammar `literal | qualifiedIdent | listLiteral |
+// messageLiteral` additionally carry the parsed [ExprAny]; arguments
+// that do not (engine-expression fragments) carry only the capture.
 type DeclAnnotationUse id.Node[DeclAnnotationUse, *File, *rawDeclAnnotationUse]
 
 type rawDeclAnnotationUse struct {
-	args   []withComma[id.Dyn[ExprAny, ExprKind]]
+	args   []withComma[rawAnnotationUseArg]
 	name   PathID
 	at     token.ID
 	parens token.ID
+}
+
+type rawAnnotationUseArg struct {
+	value    id.Dyn[ExprAny, ExprKind]
+	typeName PathID
+	name     token.ID
+	equals   token.ID
+	start    token.ID
+	end      token.ID
 }
 
 // DeclAnnotationUseArgs is arguments for [Nodes.NewDeclAnnotationUse].
@@ -113,8 +127,8 @@ func (d DeclAnnotationUse) Parens() token.Token {
 //
 // Returns an empty seq for the bare `@Name` and empty-parens `@Name()`
 // forms.
-func (d DeclAnnotationUse) Args() Commas[ExprAny] {
-	type slice = commas[ExprAny, id.Dyn[ExprAny, ExprKind]]
+func (d DeclAnnotationUse) Args() Commas[AnnotationUseArg] {
+	type slice = commas[AnnotationUseArg, rawAnnotationUseArg]
 	if d.IsZero() {
 		return slice{}
 	}
@@ -122,15 +136,162 @@ func (d DeclAnnotationUse) Args() Commas[ExprAny] {
 		file: d.Context(),
 		SliceInserter: seq.NewSliceInserter(
 			&d.Raw().args,
-			func(_ int, c withComma[id.Dyn[ExprAny, ExprKind]]) ExprAny {
-				return id.WrapDyn(d.Context(), c.Value)
+			func(_ int, c withComma[rawAnnotationUseArg]) AnnotationUseArg {
+				return AnnotationUseArg{file: d.Context(), raw: c.Value}
 			},
-			func(_ int, e ExprAny) withComma[id.Dyn[ExprAny, ExprKind]] {
-				d.Context().Nodes().panicIfNotOurs(e.Context())
-				return withComma[id.Dyn[ExprAny, ExprKind]]{Value: e.ID()}
+			func(_ int, a AnnotationUseArg) withComma[rawAnnotationUseArg] {
+				if a.file != nil && a.file != d.Context() {
+					panic("protocompile/ast: attempted to insert an AnnotationUseArg from a different file")
+				}
+				return withComma[rawAnnotationUseArg]{Value: a.raw}
 			},
 		),
 	}
+}
+
+// AnnotationUseArgSpec is the arguments for [DeclAnnotationUse.NewArg].
+type AnnotationUseArgSpec struct {
+	// Name is the named-argument identifier for the `name = value`
+	// form; zero for positional arguments.
+	Name token.Token
+	// Equals is the `=` token of the `name = value` form; zero for
+	// positional arguments.
+	Equals token.Token
+	// Start and End delimit the captured value: every token from Start
+	// to End inclusive, at the argument's nesting depth. Both are
+	// always set (the capture must be non-empty).
+	Start, End token.Token
+	// MessageType is the leading type name of a typed message literal
+	// (`Money{...}`); zero otherwise.
+	MessageType Path
+	// Value is the argument re-parsed under the RFC-001 §5.1 value
+	// grammar `literal | qualifiedIdent | listLiteral | messageLiteral`;
+	// zero when the capture is an opaque engine-expression fragment.
+	Value ExprAny
+}
+
+// NewArg assembles an [AnnotationUseArg] for this use site from spec.
+// The returned value is appended to the use site via
+// [DeclAnnotationUse.Args].
+func (d DeclAnnotationUse) NewArg(spec AnnotationUseArgSpec) AnnotationUseArg {
+	d.Context().Nodes().panicIfNotOurs(
+		spec.Name.Context(), spec.Equals.Context(),
+		spec.Start.Context(), spec.End.Context(),
+		spec.MessageType.Context(), spec.Value.Context())
+
+	return AnnotationUseArg{
+		file: d.Context(),
+		raw: rawAnnotationUseArg{
+			value:    spec.Value.ID(),
+			typeName: spec.MessageType.raw,
+			name:     spec.Name.ID(),
+			equals:   spec.Equals.ID(),
+			start:    spec.Start.ID(),
+			end:      spec.End.ID(),
+		},
+	}
+}
+
+// AnnotationUseArg is a single argument of a [DeclAnnotationUse],
+// following RFC-001 §5.1 capture-then-classify parsing.
+//
+// Every argument records its captured token range ([AnnotationUseArg.ValueStart]
+// through [AnnotationUseArg.ValueEnd]; [AnnotationUseArg.ValueSpan] for
+// the raw text). Arguments that re-parse under the §5.1 value grammar
+// `literal | qualifiedIdent | listLiteral | messageLiteral` also carry
+// the parsed expression in [AnnotationUseArg.Value]; opaque
+// engine-expression fragments leave Value zero. Classification against
+// the annotation's parameter types happens at link time.
+type AnnotationUseArg struct {
+	file *File
+	raw  rawAnnotationUseArg
+}
+
+// IsZero reports whether this is the zero value.
+func (a AnnotationUseArg) IsZero() bool {
+	return a.file == nil
+}
+
+// Name returns the named-argument identifier for the `name = value`
+// form. Zero for positional arguments.
+func (a AnnotationUseArg) Name() token.Token {
+	if a.IsZero() {
+		return token.Zero
+	}
+	return id.Wrap(a.file.Stream(), a.raw.name)
+}
+
+// Equals returns the `=` token of the `name = value` form. Zero for
+// positional arguments.
+func (a AnnotationUseArg) Equals() token.Token {
+	if a.IsZero() {
+		return token.Zero
+	}
+	return id.Wrap(a.file.Stream(), a.raw.equals)
+}
+
+// IsNamed reports whether this is a named argument (`name = value`).
+func (a AnnotationUseArg) IsNamed() bool {
+	return !a.Name().IsZero()
+}
+
+// Value returns the argument re-parsed under the RFC-001 §5.1 value
+// grammar `literal | qualifiedIdent | listLiteral | messageLiteral`.
+//
+// Returns a zero [ExprAny] when the capture did not re-parse under
+// that grammar — i.e. the argument is an opaque engine-expression
+// fragment, legal only when bound to an `expression`-typed parameter
+// (diagnosed at link time).
+func (a AnnotationUseArg) Value() ExprAny {
+	if a.IsZero() {
+		return ExprAny{}
+	}
+	return id.WrapDyn(a.file, a.raw.value)
+}
+
+// MessageType returns the leading type name of a typed message-literal
+// argument (the `Money` of `Money{currency: "USD"}`), in which case
+// [AnnotationUseArg.Value] holds the braced initializer as an
+// [ExprDict]. Zero for every other argument shape.
+func (a AnnotationUseArg) MessageType() Path {
+	if a.IsZero() {
+		return Path{}
+	}
+	return a.raw.typeName.In(a.file)
+}
+
+// ValueStart returns the first token of the captured value.
+func (a AnnotationUseArg) ValueStart() token.Token {
+	if a.IsZero() {
+		return token.Zero
+	}
+	return id.Wrap(a.file.Stream(), a.raw.start)
+}
+
+// ValueEnd returns the last token of the captured value (inclusive).
+func (a AnnotationUseArg) ValueEnd() token.Token {
+	if a.IsZero() {
+		return token.Zero
+	}
+	return id.Wrap(a.file.Stream(), a.raw.end)
+}
+
+// ValueSpan returns the span of the captured value — the argument
+// without the `name =` prefix. Its Text() is the §5.1 verbatim capture
+// (before whitespace trimming).
+func (a AnnotationUseArg) ValueSpan() source.Span {
+	if a.IsZero() {
+		return source.Span{}
+	}
+	return source.Join(a.ValueStart(), a.ValueEnd())
+}
+
+// Span implements [source.Spanner].
+func (a AnnotationUseArg) Span() source.Span {
+	if a.IsZero() {
+		return source.Span{}
+	}
+	return source.Join(a.Name(), a.Equals(), a.ValueSpan())
 }
 
 // Span implements [source.Spanner].
