@@ -605,10 +605,22 @@ func allAnnotationUses(file *File) func(yield func(AnnotationUse) bool) {
 // [validateAnnotationUseArg] instead, which handles the capture-
 // then-classify argument model.)
 func validateAnnotationArg(r *report.Report, target Annotation, param AnnotationParam, arg ast.ExprAny) {
-	// Pseudo-types `expression` and `any` accept any default shape.
-	// Same for fully-unresolved params (a diagnostic was already
-	// emitted).
-	if param.IsExpression() || param.IsAny() {
+	// The `expression` pseudo-type accepts any default shape. Same
+	// for fully-unresolved params (a diagnostic was already emitted).
+	if param.IsExpression() {
+		return
+	}
+	if param.IsAny() {
+		// Identifier defaults on `any` params are enum-value
+		// references (the boolean keywords aside) and must resolve —
+		// the carrier lowers them resolved (RFC-001 §8.1).
+		if arg.Kind() == ast.ExprKindPath {
+			path := arg.AsPath().Path
+			if name, ok := isSingleIdent(path); ok && (name == "true" || name == "false") {
+				return
+			}
+			resolveEnumValueRef(param.Context(), r, target.FullName().Parent(), path)
+		}
 		return
 	}
 	if param.IsScalar() {
@@ -650,21 +662,11 @@ func validateEnumArg(r *report.Report, scope FullName, target Annotation, param 
 	}
 
 	path := arg.AsPath().Path
-	file := param.Context()
-	sym := symbolRef{
-		File:   file,
-		Report: r,
-		scope:  scope,
-		name:   FullName(path.Canonicalized()),
-		span:   path,
-		accept: func(k SymbolKind) bool { return k == SymbolKindEnumValue },
-		want:   taxa.EnumValue,
-	}.resolve()
-
-	if sym.IsZero() || sym.Kind() != SymbolKindEnumValue {
+	member := resolveEnumValueRef(param.Context(), r, scope, path)
+	if member.IsZero() {
 		return // resolve already emitted a diagnostic
 	}
-	if parent := sym.AsMember().Parent(); parent != enumTy {
+	if parent := member.Parent(); parent != enumTy {
 		r.Errorf("argument %q for `%s` expects a value of enum `%s`, got a value of enum `%s`",
 			param.Name(), target.FullName(), enumTy.FullName(), parent.FullName(),
 		).Apply(

@@ -111,15 +111,42 @@ func (u AnnotationUse) ResolveEnumValueArg(path ast.Path) Member {
 // When r is non-nil and neither spelling resolves, the standard
 // symbol-resolution diagnostics are emitted for the first form.
 func (u AnnotationUse) resolveEnumValue(r *report.Report, path ast.Path) Member {
-	if u.IsZero() || path.IsZero() {
+	if u.IsZero() {
+		return Member{}
+	}
+	return resolveEnumValueRef(u.Context(), r, u.scopeName(), path)
+}
+
+// ResolveEnumValueDefault resolves a qualified-identifier default
+// expression of one of this annotation's parameters as an enum-value
+// reference, relative to the declaration's own scope. Returns a zero
+// [Member] when the name does not resolve to an enum value.
+//
+// Like [AnnotationUse.ResolveEnumValueArg], this resolution is quiet;
+// the B3 defaults validator performs the same resolution with
+// diagnostics.
+func (a Annotation) ResolveEnumValueDefault(path ast.Path) Member {
+	if a.IsZero() {
+		return Member{}
+	}
+	return resolveEnumValueRef(a.Context(), nil, a.FullName().Parent(), path)
+}
+
+// resolveEnumValueRef resolves a path as an enum-value reference
+// relative to scope, accepting both RFC-001 §5.1 spellings (see
+// [AnnotationUse.resolveEnumValue]). When r is non-nil and neither
+// spelling resolves, the standard symbol-resolution diagnostics are
+// emitted for the value-name form.
+func resolveEnumValueRef(file *File, r *report.Report, scope FullName, path ast.Path) Member {
+	if path.IsZero() {
 		return Member{}
 	}
 
 	name := FullName(path.Canonicalized())
 	ref := symbolRef{
-		File:   u.Context(),
+		File:   file,
 		Report: nil, // Quiet; diagnostics only after both forms fail.
-		scope:  u.scopeName(),
+		scope:  scope,
 		name:   name,
 		span:   path,
 		accept: func(k SymbolKind) bool { return k == SymbolKindEnumValue },

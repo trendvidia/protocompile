@@ -749,3 +749,36 @@ message User {
 	require.NotNil(t, entry.Args[0].GetExpression().Location)
 	assert.Equal(t, "types.proto", entry.Args[0].GetExpression().Location.GetFile())
 }
+
+// TestAnnotationEmissionDefaultEnumRef verifies enum-value defaults
+// lower resolved into AnnotationParam.default_value, per the same
+// EnumLiteral rules as use-site arguments.
+func TestAnnotationEmissionDefaultEnumRef(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+enum Tier {
+  TIER_UNSPECIFIED = 0;
+  TIER_FREE = 1;
+}
+
+annotation plan(t: Tier = Tier.TIER_FREE);
+`
+
+	f := compileForFDPTest(t, src)
+	require.NotNil(t, f.Options)
+	decls, ok := proto.GetExtension(f.Options, pwsv1.E_AnnotationDecls).(*pwsv1.FileAnnotationDecls)
+	require.True(t, ok)
+	require.Len(t, decls.Declarations, 1)
+	require.Len(t, decls.Declarations[0].Params, 1)
+
+	deflt := decls.Declarations[0].Params[0].DefaultValue
+	require.NotNil(t, deflt)
+	ev := deflt.GetLiteral().GetEnumValue()
+	require.NotNil(t, ev)
+	assert.Equal(t, "test.Tier", ev.GetEnumType())
+	assert.Equal(t, "TIER_FREE", ev.GetValueName())
+	assert.Equal(t, int32(1), ev.GetNumber())
+}
