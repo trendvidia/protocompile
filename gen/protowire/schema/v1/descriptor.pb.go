@@ -1994,8 +1994,8 @@ const file_protowire_schema_v1_descriptor_proto_rawDesc = "" +
 	"\x16enum_value_annotations\x12!.google.protobuf.EnumValueOptions\x18\xe0\x89\x03 \x01(\v2#.protowire.schema.v1.AnnotationListR\x14enumValueAnnotations:w\n" +
 	"\x13service_annotations\x12\x1f.google.protobuf.ServiceOptions\x18\xe0\x89\x03 \x01(\v2#.protowire.schema.v1.AnnotationListR\x12serviceAnnotations:t\n" +
 	"\x12method_annotations\x12\x1e.google.protobuf.MethodOptions\x18\xe0\x89\x03 \x01(\v2#.protowire.schema.v1.AnnotationListR\x11methodAnnotations:q\n" +
-	"\x11oneof_annotations\x12\x1d.google.protobuf.OneofOptions\x18\xe0\x89\x03 \x01(\v2#.protowire.schema.v1.AnnotationListR\x10oneofAnnotationsB\xe6\x01\n" +
-	"\x17com.protowire.schema.v1B\x0fDescriptorProtoP\x01ZLgithub.com/trendvidia/protocompile/internal/gen/protowire/schema/v1;schemav1\xa2\x02\x03PSX\xaa\x02\x13Protowire.Schema.V1\xca\x02\x13Protowire\\Schema\\V1\xe2\x02\x1fProtowire\\Schema\\V1\\GPBMetadata\xea\x02\x15Protowire::Schema::V1b\x06proto3"
+	"\x11oneof_annotations\x12\x1d.google.protobuf.OneofOptions\x18\xe0\x89\x03 \x01(\v2#.protowire.schema.v1.AnnotationListR\x10oneofAnnotationsB\xdd\x01\n" +
+	"\x17com.protowire.schema.v1B\x0fDescriptorProtoP\x01ZCgithub.com/trendvidia/protocompile/gen/protowire/schema/v1;schemav1\xa2\x02\x03PSX\xaa\x02\x13Protowire.Schema.V1\xca\x02\x13Protowire\\Schema\\V1\xe2\x02\x1fProtowire\\Schema\\V1\\GPBMetadata\xea\x02\x15Protowire::Schema::V1b\x06proto3"
 
 var (
 	file_protowire_schema_v1_descriptor_proto_rawDescOnce sync.Once
