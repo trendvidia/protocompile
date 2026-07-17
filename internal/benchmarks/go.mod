@@ -9,9 +9,11 @@ require (
 	google.golang.org/protobuf v1.36.11
 )
 
-require golang.org/x/sync v0.20.0
+require golang.org/x/sync v0.22.0 // indirect
 
 require (
+	buf.build/gen/go/bufbuild/protodescriptor/protocolbuffers/go v1.36.11-20250109164928-1da0de137947.1 // indirect
+	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20240920164238-5a7b106cbb87.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/petermattis/goid v0.0.0-20260113132338-7c7de50cc741 // indirect
