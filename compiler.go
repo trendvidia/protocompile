@@ -39,9 +39,17 @@ type Compiler struct {
 	// parallelism via the incremental query executor.
 	MaxParallelism int
 
-	// Reporter receives error and warning diagnostics. If nil, a
-	// default reporter is used that fails compilation on any error and
-	// ignores warnings.
+	// Reporter receives error and warning diagnostics, with source
+	// positions attached. If nil, a default reporter is used that fails
+	// compilation on the first error and ignores warnings.
+	//
+	// The legacy reporter contract holds: if the reporter's Error
+	// method returns nil, compilation continues so that as many
+	// diagnostics as possible are reported, and Compile returns the
+	// files that did compile — with nil placeholders in the slots of
+	// files that didn't — alongside [reporter.ErrInvalidSource]. If the
+	// Error method returns a non-nil error, the batch aborts
+	// immediately with that error.
 	Reporter reporter.Reporter
 
 	// SourceInfoMode controls whether and how source-code-info is
