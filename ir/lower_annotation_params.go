@@ -169,7 +169,9 @@ func isSingleIdent(path ast.Path) (string, bool) {
 //   - Binding structure: positional arguments must precede named
 //     ones; named arguments must match a declared parameter; no
 //     parameter may be bound twice; the positional count must not
-//     exceed the parameter count.
+//     exceed the parameter count; every parameter without a default
+//     must be bound (covers `@name()`, the bare `@name` form, and
+//     partial argument lists alike).
 //   - `expression` params keep the capture verbatim; the function-
 //     call sites extracted from the capture are arity-checked
 //     against their resolved `function` declarations.
@@ -235,6 +237,22 @@ func validateAnnotationUseArgs(file *File, r *report.Report) {
 			).Apply(
 				report.Snippet(u.AST()),
 				report.Snippetf(target.AST().Name(), "declared here"),
+			)
+		}
+
+		for p := range seq.Values(params) {
+			if !p.Default().IsZero() {
+				continue
+			}
+			if _, ok := bound[p.Name()]; ok {
+				continue
+			}
+			r.Errorf("missing required argument %q for `%s`",
+				p.Name(), target.FullName(),
+			).Apply(
+				report.Snippet(u.AST()),
+				report.Snippetf(p.AST(), "parameter declared here"),
+				report.Notef("parameters without a default value are required"),
 			)
 		}
 
