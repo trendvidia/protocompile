@@ -71,6 +71,15 @@ func init() {
 // `protocompile` package from a `*protocompile.Compiler` before
 // dispatch; callers that prefer the explicit entry point can construct
 // Args themselves.
+//
+// Diagnostics produced by the pipeline are routed through
+// `args.Reporter` as positioned [reporter.ErrorWithPos] values,
+// preserving the legacy reporter contract: an error reporter that
+// returns nil lets the batch continue (so every diagnostic gets
+// reported) and Compile returns the files that did compile — with nil
+// placeholders in the slots of files that didn't — alongside
+// [reporter.ErrInvalidSource]; an error reporter that returns non-nil
+// aborts immediately with that error.
 func Compile(ctx context.Context, args exphook.Args, files []string) (linker.Files, error) {
 	opener := experimentalOpener(args.Resolver)
 	executor := incremental.New()
@@ -90,33 +99,56 @@ func Compile(ctx context.Context, args exphook.Args, files []string) (linker.Fil
 		return nil, err
 	}
 
-	for _, diag := range rpt.Diagnostics {
-		if diag.Level() == report.Error || diag.Level() == report.ICE {
-			return nil, fmt.Errorf("%v", diag)
+	// Route every diagnostic through the caller's reporter. The handler
+	// implements the legacy contract on top of it: an Error callback
+	// returning non-nil aborts the batch with that error, returning nil
+	// keeps reporting, and the batch then fails with ErrInvalidSource
+	// once all diagnostics are delivered. The same handler also serves
+	// the Symbols.Import collision path below so a single Compile
+	// reports through one consistent stream.
+	handler := reporter.NewHandler(args.Reporter)
+	for i := range rpt.Diagnostics {
+		diag := &rpt.Diagnostics[i]
+		switch diag.Level() {
+		case report.Error, report.ICE:
+			if err := handler.HandleError(diagErrorWithPos(diag)); err != nil {
+				return nil, err
+			}
+		case report.Warning:
+			handler.HandleWarning(diagErrorWithPos(diag))
+		case report.Remark:
+			// Remarks have no legacy reporter equivalent.
 		}
 	}
+	// True when error diagnostics were reported but the reporter
+	// swallowed all of them; per-file failures below then degrade to
+	// nil placeholders instead of failing the whole batch.
+	errsReported := handler.Error() != nil
 
 	fdpOpts := fdpOptionsFor(args.SourceInfoMode)
-
-	// Honor `Symbols`: when non-nil, each compiled file is imported
-	// into the shared symbol table so collisions across this Compile
-	// call and previous ones are reported. The reporter handler is
-	// reused across all Import calls so a single error report is
-	// consistent regardless of which file surfaced the collision.
-	var handler *reporter.Handler
-	if args.Symbols != nil {
-		handler = reporter.NewHandler(args.Reporter)
-	}
 
 	out := make(linker.Files, len(results))
 	for i, r := range results {
 		if r.Fatal != nil {
+			if errsReported {
+				// Already reported as a diagnostic above; keep the rest
+				// of the batch alive.
+				continue
+			}
 			return nil, fmt.Errorf("compilation failed for %s: %w", files[i], r.Fatal)
 		}
 		lf, err := irFileToLinkerFile(r.Value, fdpOpts)
 		if err != nil {
+			if errsReported {
+				// This file (or one of its imports) had reported errors,
+				// so its partial IR need not convert cleanly.
+				continue
+			}
 			return nil, fmt.Errorf("convert %s to linker.File: %w", files[i], err)
 		}
+		// Honor `Symbols`: when non-nil, each compiled file is imported
+		// into the shared symbol table so collisions across this Compile
+		// call and previous ones are reported.
 		if args.Symbols != nil {
 			if err := args.Symbols.Import(lf, handler); err != nil {
 				return nil, fmt.Errorf("symbol collision in %s: %w", files[i], err)
@@ -132,7 +164,33 @@ func Compile(ctx context.Context, args exphook.Args, files []string) (linker.Fil
 		}
 		out[i] = lf
 	}
+
+	// Legacy partial-result semantics: when errors were reported but
+	// the reporter chose to continue, hand back what did compile along
+	// with the handler's terminal error (ErrInvalidSource, or whatever
+	// a collision import reported).
+	if err := handler.Error(); err != nil {
+		return out, err
+	}
 	return out, nil
+}
+
+// diagErrorWithPos converts an experimental [report.Diagnostic] into
+// the legacy [reporter.ErrorWithPos] shape. Positions come from the
+// diagnostic's primary span when it has one; diagnostics without a
+// span (e.g. "file not found") carry only the file name.
+func diagErrorWithPos(diag *report.Diagnostic) reporter.ErrorWithPos {
+	err := errors.New(diag.Message())
+	span := diag.Primary()
+	if span.IsZero() {
+		return reporter.Error(reporter.UnknownSpan(diag.File()), err)
+	}
+	start, end := span.StartLoc(), span.EndLoc()
+	path := span.File.Path()
+	return reporter.Error(reporter.NewSourceSpan(
+		reporter.SourcePos{Filename: path, Line: start.Line, Col: start.Column, Offset: start.Offset},
+		reporter.SourcePos{Filename: path, Line: end.Line, Col: end.Column, Offset: end.Offset},
+	), err)
 }
 
 // IRHolder is the interface a [linker.File] returned by [Compile]

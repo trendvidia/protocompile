@@ -1,0 +1,19 @@
+# proto-file: protowire/schema/config/v1/config.proto
+# proto-message: protowire.schema.config.v1.EngineConfig
+#
+# Golden engine configuration (RFC-001 §9.4): the content of a project's
+# `protowire.config.textproto`. Configures the engine the §5.3 worked
+# example would run under. Exercises every EngineConfig field. Loader
+# conformance: discovery walks upward to the NEAREST config (no merging);
+# per-setting CLI flags > --config > PROTOWIRE_CONFIG > discovered file >
+# defaults ("cel", lenient, collect-all); unknown engine names are
+# startup errors, never fallbacks.
+
+engine: "cel"
+function_libraries: "myco/commons/validator.proto"
+function_libraries: "myco/commons/types.proto"
+catalog_libraries: "myco/i18n/en.proto"
+catalog_libraries: "myco/i18n/de.proto"
+strict_validation: true
+default_mode: EXECUTION_MODE_COLLECT_ALL
+max_recursion_depth: 64

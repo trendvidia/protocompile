@@ -1,0 +1,167 @@
+// Copyright 2020-2026 Buf Technologies, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Protowire Schema Extensions — validation report wire shape (RFC-001 §7).
+//
+// Vendored from `trendvidia/protowire` (`proto/schema/v1/report.proto`)
+// at commit 2fcc2181a9d8b6f3cf420b67980864fdbc0d33d1. The vendored copy
+// and the upstream are byte-identical (modulo this header) from
+// `syntax = "proto3"` down. Vendored because
+// `protowire/schema/config/v1/config.proto` (the §9.4 engine-config
+// schema behind the `engineconfig` loader package) needs this file's
+// `ExecutionMode` enum; protocompile itself never emits or consumes
+// reports — they are a runtime artifact of validation engines
+// (protocheck and per-port equivalents), never of the compiler.
+
+syntax = "proto3";
+
+package protowire.schema.v1;
+
+import "google/protobuf/any.proto";
+import "protowire/schema/v1/descriptor.proto"; // SourceLocation
+
+// Report is the complete result of validating one message instance.
+// All 10 ports emit this shape (RFC-001 goal 5).
+message Report {
+  // Fully-qualified name of the root message type validated.
+  string message_type = 1;
+
+  // Empty and truncated == false means the instance is valid.
+  repeated EnrichedViolation violations = 2;
+
+  // COLLECT_ALL is the default per RFC-001 §6.4.
+  ExecutionMode mode = 3;
+
+  // True when `violations` is not exhaustive: fail-fast stopped at the
+  // first violation, or an engine limit (e.g. recursion depth) cut
+  // traversal short.
+  bool truncated = 4;
+
+  EngineInfo engine = 5;
+
+  // Wall-clock validation time. 0 = not measured.
+  uint64 wall_time_nanos = 6;
+}
+
+enum ExecutionMode {
+  EXECUTION_MODE_UNSPECIFIED = 0;
+  EXECUTION_MODE_COLLECT_ALL = 1;
+  EXECUTION_MODE_FAIL_FAST   = 2;
+}
+
+// EngineInfo identifies the engine that produced the report.
+message EngineInfo {
+  string name    = 1; // e.g. "protocheck-go/cel"
+  string version = 2;
+}
+
+// Violation is the engine-independent failure value returned by validation
+// functions (RFC-001 §6.5). Function authors populate a stable code,
+// structured params, and a fallback message; all context the function
+// cannot know lives in EnrichedViolation.
+message Violation {
+  // Stable, machine-readable code, e.g. "user.invalid_country".
+  string code = 1;
+
+  // Structured parameters for locale-catalog interpolation
+  // ({pattern, min, max, ...}).
+  map<string, Value> params = 2;
+
+  // Engine-author default message, used on catalog miss.
+  string fallback_message = 3;
+}
+
+// EnrichedViolation wraps a function-returned Violation with engine context.
+message EnrichedViolation {
+  Violation cause = 1;
+
+  FieldPath path = 2;
+
+  // Refinement provenance, base first:
+  //   ["string", "myco.commons.Email", "myco.commons.CompanyEmail"]
+  repeated string type_chain = 3;
+
+  // The offending value. Unset = field absent (three-state presence) —
+  // or redacted; see value_redacted.
+  Value actual_value = 4;
+
+  // From the embedded source map (50404), when available.
+  SourceLocation source = 5;
+
+  RuleKind rule_kind = 6;
+
+  // True when the violated field is @sensitive (RFC-001 §6.7): the
+  // engine withheld the offending value, leaving actual_value unset.
+  // Distinguishes redaction from genuine absence.
+  bool value_redacted = 7;
+}
+
+// Values are prefixed: descriptor.proto's EntryKind already claims
+// TYPE_REFINEMENT in this package's enum-value scope.
+enum RuleKind {
+  RULE_KIND_UNSPECIFIED     = 0;
+  RULE_KIND_VALIDATE        = 1;
+  RULE_KIND_REQUIRED        = 2;
+  RULE_KIND_DEFAULT         = 3;
+  RULE_KIND_TYPE_REFINEMENT = 4;
+}
+
+// FieldPath addresses a value inside a message instance. Structured — not a
+// dotted string — so map keys and repeated indices are unambiguous; the
+// human-readable dotted rendering is derived, never parsed back.
+message FieldPath {
+  repeated FieldPathSegment segments = 1;
+}
+
+message FieldPathSegment {
+  string field_name   = 1;
+  int32  field_number = 2;
+
+  // Set when the segment addresses one element of a repeated field or map.
+  // Map keys are typed — protowire never coerces keys through strings.
+  oneof subscript {
+    uint64 index      = 3; // repeated element
+    string string_key = 4; // map<string, V>
+    int64  int_key    = 5; // map<int32|int64|sint*|sfixed*, V>
+    uint64 uint_key   = 6; // map<uint32|uint64|fixed32/64, V>
+    bool   bool_key   = 7; // map<bool, V>
+  }
+}
+
+// Value is a typed runtime value. google.protobuf.Value is deliberately NOT
+// used: it folds int64 into double, cannot carry bytes, and erases the
+// set/null/absent distinction. A Value field left unset means "absent";
+// null_value means the producer explicitly set null.
+message Value {
+  oneof kind {
+    NullValue           null_value    = 1;
+    string              string_value  = 2;
+    int64               int_value     = 3;  // int32/sint*/sfixed* widen losslessly
+    uint64              uint_value    = 4;  // uint32/fixed* widen losslessly
+    double              double_value  = 5;  // float widens losslessly
+    bool                bool_value    = 6;
+    bytes               bytes_value   = 7;
+    string              enum_name     = 8;  // "myco.OrderStatus.CANCELLED"
+    google.protobuf.Any message_value = 9;
+    ListValue           list_value    = 10;
+  }
+}
+
+enum NullValue {
+  NULL_VALUE = 0;
+}
+
+message ListValue {
+  repeated Value values = 1;
+}

@@ -66,8 +66,10 @@ type Args struct {
 	// surface as errors. Optional.
 	Symbols *linker.Symbols
 
-	// Reporter receives diagnostics during symbol-table import.
-	// Required when Symbols is non-nil.
+	// Reporter receives every error and warning diagnostic the pipeline
+	// produces (including symbol-table import collisions), as
+	// positioned [reporter.ErrorWithPos] values. Optional; when nil the
+	// first error fails the batch and warnings are dropped.
 	Reporter reporter.Reporter
 
 	// SourceInfoMode is the same integer value as
