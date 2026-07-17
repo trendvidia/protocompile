@@ -75,8 +75,12 @@ clean: ## Delete intermediate build artifacts
 
 .PHONY: test
 test: $(PROTOC) ## Run unit tests
-	$(GO) test $(if $(filter 386,$(GOARCH)),,-race) -cover ./...
-	$(GO) test -tags protolegacy ./...
+	@# -timeout 20m: TestCompileGoogleapisMemory compiles all of googleapis
+	@# under -race and runs right at the edge of go test's default 10m
+	@# per-package timeout on CI runners (a passing run has been observed
+	@# at 585s). The ceiling costs nothing when tests are fast.
+	$(GO) test $(if $(filter 386,$(GOARCH)),,-race) -timeout 20m -cover ./...
+	$(GO) test -tags protolegacy -timeout 20m ./...
 
 .PHONY: benchmarks
 benchmarks: $(PROTOC) ## Run benchmarks
