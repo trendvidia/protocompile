@@ -437,6 +437,62 @@ message M {}
 	assert.True(t, found, "expected arity diagnostic")
 }
 
+// TestAnnotationArgMissingRequired verifies that a use site which
+// leaves a parameter without a default unbound is diagnosed with the
+// missing parameter's name — for the empty-parens form, the bare
+// `@name` form, and a partial named argument list alike.
+func TestAnnotationArgMissingRequired(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+annotation description(text: string);
+annotation pair(a: string, b: string);
+annotation labeled(text: string, level: int32 = 1);
+
+@description()
+message EmptyParens {}
+
+@description
+message Bare {}
+
+@pair(a = "x")
+message Partial {}
+
+@labeled("x")
+message DefaultCovers {}
+`
+
+	_, rep := compileForAnnotationTest(t, src)
+
+	assert.True(t,
+		hasErrorContaining(rep, "missing required argument \"text\" for `test.description`"),
+		"expected missing-argument diagnostic for `@description()` and `@description`")
+	assert.True(t,
+		hasErrorContaining(rep, "missing required argument \"b\" for `test.pair`"),
+		"expected missing-argument diagnostic for `@pair(a = \"x\")`")
+
+	// Both the empty-parens and the bare use site must be diagnosed.
+	var missingText int
+	for _, d := range rep.Diagnostics {
+		if d.Level() >= report.Error &&
+			strings.Contains(d.Message(), "missing required argument \"text\" for `test.description`") {
+			missingText++
+		}
+	}
+	assert.Equal(t, 2, missingText, "want one diagnostic per `@description` use site")
+
+	// A parameter with a default is not required, and a bound
+	// required parameter is not re-reported.
+	assert.False(t,
+		hasErrorContaining(rep, "missing required argument", "test.labeled"),
+		"`level` has a default; `@labeled(\"x\")` must not be diagnosed")
+	assert.False(t,
+		hasErrorContaining(rep, "missing required argument \"a\""),
+		"`a` is bound by `@pair(a = \"x\")`")
+}
+
 // TestAnnotationEnumArgAccepted verifies that an enum-typed user-
 // type parameter accepts an identifier-path argument that resolves
 // to an enum value of the matching enum, with no diagnostics.
