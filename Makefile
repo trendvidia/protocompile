@@ -125,6 +125,11 @@ generate: $(BIN)/license-header wellknownimports test-descriptors ext-features-d
 			--copyright-holder "Buf Technologies, Inc." \
 			--year-range "$(COPYRIGHT_YEARS)"
 
+.PHONY: generate-protos
+generate-protos: ## Regenerate .pb.go files from the buf workspace (requires the buf CLI)
+	buf generate
+	buf generate --template buf.gen.public.yaml
+
 .PHONY: generate-golden
 generate-golden: generate
 	PATH="$(BIN)$(PATH_SEP)$(PATH)" PROTOCOMPILE_REFRESH=** $(GO) test  ./... -run 'TestSourceCodeInfoOptions|TestIR|TestLexer|TestParse|TestRender|TestFormat|TestEdits' || true

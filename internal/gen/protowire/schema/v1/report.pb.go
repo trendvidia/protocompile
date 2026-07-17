@@ -33,6 +33,7 @@
 package schemav1
 
 import (
+	v1 "github.com/trendvidia/protocompile/gen/protowire/schema/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	anypb "google.golang.org/protobuf/types/known/anypb"
@@ -424,8 +425,8 @@ type EnrichedViolation struct {
 	// or redacted; see value_redacted.
 	ActualValue *Value `protobuf:"bytes,4,opt,name=actual_value,json=actualValue,proto3" json:"actual_value,omitempty"`
 	// From the embedded source map (50404), when available.
-	Source   *SourceLocation `protobuf:"bytes,5,opt,name=source,proto3" json:"source,omitempty"`
-	RuleKind RuleKind        `protobuf:"varint,6,opt,name=rule_kind,json=ruleKind,proto3,enum=protowire.schema.v1.RuleKind" json:"rule_kind,omitempty"`
+	Source   *v1.SourceLocation `protobuf:"bytes,5,opt,name=source,proto3" json:"source,omitempty"`
+	RuleKind RuleKind           `protobuf:"varint,6,opt,name=rule_kind,json=ruleKind,proto3,enum=protowire.schema.v1.RuleKind" json:"rule_kind,omitempty"`
 	// True when the violated field is @sensitive (RFC-001 §6.7): the
 	// engine withheld the offending value, leaving actual_value unset.
 	// Distinguishes redaction from genuine absence.
@@ -492,7 +493,7 @@ func (x *EnrichedViolation) GetActualValue() *Value {
 	return nil
 }
 
-func (x *EnrichedViolation) GetSource() *SourceLocation {
+func (x *EnrichedViolation) GetSource() *v1.SourceLocation {
 	if x != nil {
 		return x.Source
 	}
@@ -1076,7 +1077,7 @@ var file_protowire_schema_v1_report_proto_goTypes = []any{
 	(*Value)(nil),             // 9: protowire.schema.v1.Value
 	(*ListValue)(nil),         // 10: protowire.schema.v1.ListValue
 	nil,                       // 11: protowire.schema.v1.Violation.ParamsEntry
-	(*SourceLocation)(nil),    // 12: protowire.schema.v1.SourceLocation
+	(*v1.SourceLocation)(nil), // 12: protowire.schema.v1.SourceLocation
 	(*anypb.Any)(nil),         // 13: google.protobuf.Any
 }
 var file_protowire_schema_v1_report_proto_depIdxs = []int32{
@@ -1107,7 +1108,6 @@ func file_protowire_schema_v1_report_proto_init() {
 	if File_protowire_schema_v1_report_proto != nil {
 		return
 	}
-	file_protowire_schema_v1_descriptor_proto_init()
 	file_protowire_schema_v1_report_proto_msgTypes[5].OneofWrappers = []any{
 		(*FieldPathSegment_Index)(nil),
 		(*FieldPathSegment_StringKey)(nil),

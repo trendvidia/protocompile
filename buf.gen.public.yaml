@@ -1,0 +1,21 @@
+version: v2
+# Generates the RFC-001 protowire.schema.v1 carrier types (SourceMap,
+# Annotation, AnnotationList, the descriptor.proto Options extensions,
+# ...) to the public import path
+# github.com/trendvidia/protocompile/gen/protowire/schema/v1 so that
+# external consumers (protolsp, protocheck, codegen tools) can read the
+# carriers off compiled descriptors. Everything else in the workspace
+# stays under internal/gen — see buf.gen.yaml.
+inputs:
+  - directory: .
+    paths:
+      - proto/protowire/schema/v1/descriptor.proto
+managed:
+  enabled: true
+  override:
+   - file_option: go_package_prefix
+     value: 'github.com/trendvidia/protocompile/gen'
+plugins:
+  - remote: buf.build/protocolbuffers/go
+    out: gen
+    opt: paths=source_relative

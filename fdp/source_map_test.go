@@ -23,9 +23,9 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 
 	"github.com/trendvidia/protocompile/fdp"
+	pwsv1 "github.com/trendvidia/protocompile/gen/protowire/schema/v1"
 	"github.com/trendvidia/protocompile/incremental"
 	"github.com/trendvidia/protocompile/incremental/queries"
-	pwsv1 "github.com/trendvidia/protocompile/internal/gen/protowire/schema/v1"
 	"github.com/trendvidia/protocompile/ir"
 	"github.com/trendvidia/protocompile/source"
 )

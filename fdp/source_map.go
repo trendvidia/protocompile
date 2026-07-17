@@ -18,7 +18,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	pwsv1 "github.com/trendvidia/protocompile/internal/gen/protowire/schema/v1"
+	pwsv1 "github.com/trendvidia/protocompile/gen/protowire/schema/v1"
 	"github.com/trendvidia/protocompile/ir"
 	"github.com/trendvidia/protocompile/seq"
 	"github.com/trendvidia/protocompile/source"
