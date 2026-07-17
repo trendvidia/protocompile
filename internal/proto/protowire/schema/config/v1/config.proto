@@ -1,0 +1,79 @@
+// Copyright 2020-2026 Buf Technologies, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Protowire Schema Extensions — project-level engine configuration
+// (RFC-001 §9.4). Loaded from `protowire.config.textproto` at the project
+// root; a build-time artifact consumed by validator binaries and tooling,
+// never embedded in descriptors. Allocates no extension numbers.
+//
+// Vendored from `trendvidia/protowire`
+// (`proto/schema/config/v1/config.proto`) at commit
+// 2fcc2181a9d8b6f3cf420b67980864fdbc0d33d1 — the revision that pinned the
+// engine-config format (protowire#95, spec/060-engine-config). The
+// vendored copy and the upstream are byte-identical (modulo this header)
+// from `syntax = "proto3"` down. This vendor backs the public
+// `engineconfig` loader package — the reference discovery/precedence
+// implementation shared by protocheck, protolsp, and CLI tooling.
+
+syntax = "proto3";
+
+package protowire.schema.config.v1;
+
+import "protowire/schema/v1/report.proto"; // ExecutionMode
+
+// EngineConfig selects and parameterizes the single validation engine a
+// project uses (RFC-001 §9.1: one engine per project, chosen at
+// validator-binary build time).
+//
+// Discovery: tools walk upward from the working directory (or an explicit
+// schema root) to the filesystem root; the nearest
+// `protowire.config.textproto` wins. No merging or cascading between
+// nested configs — nearest wins, full stop.
+//
+// Precedence (highest first): per-setting CLI flags override individual
+// fields; `--config <path>` selects the file explicitly; the
+// PROTOWIRE_CONFIG environment variable points at a file (never inline
+// settings); otherwise discovery; otherwise built-in defaults
+// (engine "cel", lenient registration, collect-all).
+message EngineConfig {
+  // Registered engine identifier, e.g. "cel", "starlark", "go".
+  // Resolved against the runtime's engine registry at init. An unknown
+  // name is a startup error — never a silent fallback.
+  string engine = 1;
+
+  // Import paths (resolved like proto imports) of schema files whose
+  // `function` declarations this project's engine must implement.
+  // Used by init-time verification (§9.2) and codegen (§9.3).
+  repeated string function_libraries = 2;
+
+  // Locale catalog sources registered with the engine for i18n
+  // message rendering (§7).
+  repeated string catalog_libraries = 3;
+
+  // When true, missing function implementations fail engine startup
+  // instead of failing at first call (§9.2).
+  bool strict_validation = 4;
+
+  // Default execution mode for Validate() when the caller does not
+  // choose one. UNSPECIFIED means COLLECT_ALL (§6.4).
+  protowire.schema.v1.ExecutionMode default_mode = 5;
+
+  // Maximum message-nesting depth validated (§6.4): the root instance is
+  // depth 0; entering any message-typed value increments by 1. 0 means
+  // the normative default, 64. At the limit the engine does not descend:
+  // it records a `protowire.depth_exceeded` violation for the subtree,
+  // sets Report.truncated, and continues with siblings — the instance
+  // fails closed, never silently accepted.
+  uint32 max_recursion_depth = 6;
+}
