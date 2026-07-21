@@ -15,10 +15,7 @@
 package incremental_test
 
 import (
-	"runtime"
-	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,11 +24,16 @@ import (
 )
 
 // TestSpawnBudgetBoundsGoroutines verifies that the executor's
-// spawn-budget cap keeps the in-flight goroutine count bounded
-// regardless of how wide the sub-query fan-out gets. Without the cap,
-// a depth-5 quadratic fan-out spawns hundreds of goroutines that all
-// park on the global sema; with the cap, the live goroutine count
-// stays within a small multiple of the budget.
+// spawn-budget cap keeps the number of in-flight async sub-task
+// goroutines bounded regardless of how wide the sub-query fan-out gets.
+// Without the cap, a depth-5 quadratic fan-out spawns hundreds of
+// goroutines that all park on the global sema; with the cap, the
+// executor never has more than `budget` spawned goroutines live at once.
+//
+// We assert against the executor's own high-water mark ([Executor.SpawnPeak])
+// rather than runtime.NumGoroutine(). The latter is a process-global count
+// that, under t.Parallel(), is polluted by goroutines spawned by other tests
+// running concurrently, which makes the measurement flaky on loaded CI runners.
 func TestSpawnBudgetBoundsGoroutines(t *testing.T) {
 	t.Parallel()
 
@@ -42,43 +44,20 @@ func TestSpawnBudgetBoundsGoroutines(t *testing.T) {
 		incremental.WithGoroutineBudget(budget),
 	)
 
-	// Sample the goroutine count every few ms while the query is
-	// in flight. The compute work inside Fanout is trivial (just
-	// arithmetic), so observed goroutine count is dominated by
-	// in-flight task goroutines.
-	baseline := runtime.NumGoroutine()
-	var peak atomic.Int32
-	stop := make(chan struct{})
-	go func() {
-		ticker := time.NewTicker(2 * time.Millisecond)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-stop:
-				return
-			case <-ticker.C:
-				n := int32(runtime.NumGoroutine() - baseline)
-				for {
-					prev := peak.Load()
-					if n <= prev || peak.CompareAndSwap(prev, n) {
-						break
-					}
-				}
-			}
-		}
-	}()
-
 	// Depth-5 quadratic fan-out: under the old unbounded model this
-	// spawns hundreds of goroutines (5! - 1).
-	_, _, err := incremental.Run(t.Context(), exec, Fanout{Depth: 5})
-	close(stop)
+	// spawned hundreds of goroutines (5! - 1), all parked on the global
+	// semaphore.
+	result, _, err := incremental.Run(t.Context(), exec, Fanout{Depth: 5})
 	require.NoError(t, err)
+	require.NoError(t, result[0].Fatal)
+	assert.Equal(t, 1*2*3*4*5, result[0].Value)
 
-	// Allow a generous slack: workload goroutines (the sampler, test
-	// runner internals, etc.) plus up to 2x the budget for async
-	// tasks in flight at any moment.
-	const slack = 16
-	limit := int32(budget + slack)
-	assert.LessOrEqual(t, peak.Load(), limit,
-		"peak goroutines above budget (peak=%d, limit=%d)", peak.Load(), limit)
+	// Sanity check that the fan-out actually exercised the async spawn
+	// path; otherwise the bound below would pass vacuously.
+	assert.Positive(t, exec.SpawnPeak(),
+		"fan-out did not spawn any async goroutines")
+
+	assert.LessOrEqual(t, exec.SpawnPeak(), budget,
+		"peak spawned goroutines above budget (peak=%d, budget=%d)",
+		exec.SpawnPeak(), budget)
 }

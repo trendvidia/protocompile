@@ -19,3 +19,7 @@ package incremental
 
 // Abort forces an abort on the given task.
 func (t *Task) Abort(err error) { t.abort(err) }
+
+// SpawnPeak returns the high-water mark of the number of goroutines the
+// executor spawned for async sub-tasks, as bounded by the spawn budget.
+func (e *Executor) SpawnPeak() int { return int(e.spawnPeak.Load()) }
