@@ -433,8 +433,12 @@ func (t *task) start(caller *Task, q *AnyQuery, sync bool, done func(*result)) (
 	}
 
 	// Complete the rest of the computation asynchronously.
+	caller.exec.spawnEnter()
 	go func() {
-		defer func() { <-caller.exec.spawnBudget }()
+		defer func() {
+			caller.exec.spawnLeave()
+			<-caller.exec.spawnBudget
+		}()
 		done(t.run(caller, q, true))
 	}()
 	return true

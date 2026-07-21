@@ -66,6 +66,14 @@ type Executor struct {
 	evictGCDeadline time.Duration
 
 	counter atomic.Uint64 // Used for generating sequence IDs for Result.Unchanged.
+
+	// spawnLive is the number of goroutines currently spawned by [task.start],
+	// and spawnPeak is its high-water mark. These exist purely so tests can
+	// verify that [Executor.spawnBudget] keeps the live spawned-goroutine count
+	// bounded, without depending on the process-global runtime.NumGoroutine(),
+	// which is polluted by other tests running in parallel. See spawn_budget_test.go.
+	spawnLive atomic.Int32
+	spawnPeak atomic.Int32
 }
 
 // ExecutorOption is an option func for [New].
@@ -314,6 +322,21 @@ func (e *Executor) EvictWithCleanup(keys []any, cleanup func()) {
 		cleanup()
 	}
 }
+
+// spawnEnter records the start of a goroutine spawned by [task.start],
+// bumping the live count and updating the high-water mark.
+func (e *Executor) spawnEnter() {
+	n := e.spawnLive.Add(1)
+	for {
+		peak := e.spawnPeak.Load()
+		if n <= peak || e.spawnPeak.CompareAndSwap(peak, n) {
+			break
+		}
+	}
+}
+
+// spawnLeave records the exit of a goroutine spawned by [task.start].
+func (e *Executor) spawnLeave() { e.spawnLive.Add(-1) }
 
 // getTask returns a task pointer for the given key and whether it was found.
 // The returned task is nil if found is false.
