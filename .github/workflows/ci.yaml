@@ -36,39 +36,31 @@ permissions:
   contents: read
 jobs:
   test:
-    name: test (go:${{ matrix.go-version.name }}, ${{ matrix.goarch }})
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        go-version:
-          - name: latest
-            version: 1.26.x
-          - name: previous
-            version: 1.25.x
-        goarch: [amd64, 386]
+    runs-on: [self-hosted, macOS, ARM64]
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version: ${{ matrix.go-version.version }}
+      - name: Assert go-plus toolchain
+        run: |
+          go version
+          go version | grep -q '(plus)' || { echo "::error::runner go is not the go-plus fork"; exit 1; }
       - run: make test
-        env:
-          GOARCH: ${{ matrix.goarch }}
   benchmarks:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64]
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version: 1.26.x
+      - name: Assert go-plus toolchain
+        run: |
+          go version
+          go version | grep -q '(plus)' || { echo "::error::runner go is not the go-plus fork"; exit 1; }
       - run: make benchmarks
   lint:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64]
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version: 1.26.x
+      - name: Assert go-plus toolchain
+        run: |
+          go version
+          go version | grep -q '(plus)' || { echo "::error::runner go is not the go-plus fork"; exit 1; }
       - run: make generate
       - run: make checkgenerate
       # Often, lint & gofmt guidelines depend on the Go version. To prevent
