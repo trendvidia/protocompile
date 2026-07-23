@@ -334,7 +334,8 @@ func emitFileAnnotationDecls(file *ir.File, target *descriptorpb.FileOptions) bo
 // [pwsv1.AnnotationDecl] descriptor form.
 func buildAnnotationDecl(ann ir.Annotation) *pwsv1.AnnotationDecl {
 	out := &pwsv1.AnnotationDecl{
-		Name: string(ann.FullName()),
+		Name:     string(ann.FullName()),
+		Location: locationOf(ann.AST().Name()),
 	}
 	for p := range seq.Values(ann.Params()) {
 		out.Params = append(out.Params, buildAnnotationParamDecl(p))
@@ -467,7 +468,8 @@ func emitFileFunctions(file *ir.File, target *descriptorpb.FileOptions) bool {
 // type references.
 func buildFunctionDecl(fn ir.Function) *pwsv1.FunctionDecl {
 	out := &pwsv1.FunctionDecl{
-		Name: string(fn.FullName()),
+		Name:     string(fn.FullName()),
+		Location: locationOf(fn.AST().Name()),
 	}
 	for p := range seq.Values(fn.Params()) {
 		out.Params = append(out.Params, &pwsv1.FunctionParam{
@@ -507,6 +509,7 @@ func buildTypeDecl(a ir.TypeAlias) *pwsv1.TypeDecl {
 	out := &pwsv1.TypeDecl{
 		Name:        string(a.FullName()),
 		BaseTypeFqn: a.BaseTypeName(),
+		Location:    locationOf(a.AST().Name()),
 	}
 	uses := a.Annotations()
 	if uses.Len() == 0 {

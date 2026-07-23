@@ -696,6 +696,54 @@ message M {
 	assert.Equal(t, int32(15), expr.Location.GetColumn())
 }
 
+// TestAnnotationEmissionDeclLocations verifies the file-scope
+// declaration carriers record each declaration's source location,
+// anchored at the declaration-name token (matching the use-site
+// convention of pointing at the name).
+func TestAnnotationEmissionDeclLocations(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+annotation since(when: string);
+
+function is_e164();
+
+type Email = string;
+`
+
+	f := compileForFDPTest(t, src)
+	require.NotNil(t, f.Options)
+
+	anns, ok := proto.GetExtension(f.Options, pwsv1.E_AnnotationDecls).(*pwsv1.FileAnnotationDecls)
+	require.True(t, ok)
+	require.Len(t, anns.Declarations, 1)
+	loc := anns.Declarations[0].Location
+	require.NotNil(t, loc, "AnnotationDecl.location should be populated")
+	assert.Equal(t, "x.proto", loc.GetFile())
+	assert.Equal(t, int32(4), loc.GetLine())
+	assert.Equal(t, int32(12), loc.GetColumn(), "anchored at the `since` name token")
+
+	fns, ok := proto.GetExtension(f.Options, pwsv1.E_Functions).(*pwsv1.FileFunctions)
+	require.True(t, ok)
+	require.Len(t, fns.Declarations, 1)
+	loc = fns.Declarations[0].Location
+	require.NotNil(t, loc, "FunctionDecl.location should be populated")
+	assert.Equal(t, "x.proto", loc.GetFile())
+	assert.Equal(t, int32(6), loc.GetLine())
+	assert.Equal(t, int32(10), loc.GetColumn(), "anchored at the `is_e164` name token")
+
+	types, ok := proto.GetExtension(f.Options, pwsv1.E_TypeDecls).(*pwsv1.FileTypeDecls)
+	require.True(t, ok)
+	require.Len(t, types.Declarations, 1)
+	loc = types.Declarations[0].Location
+	require.NotNil(t, loc, "TypeDecl.location should be populated")
+	assert.Equal(t, "x.proto", loc.GetFile())
+	assert.Equal(t, int32(8), loc.GetLine())
+	assert.Equal(t, int32(6), loc.GetColumn(), "anchored at the `Email` name token")
+}
+
 // TestAnnotationEmissionLocationCrossFile verifies an
 // alias-propagated use's location points into the alias's defining
 // file, not the consuming one.
