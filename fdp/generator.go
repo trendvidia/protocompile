@@ -343,7 +343,18 @@ func (g *generator) message(ty ir.Type, mdp *descriptorpb.DescriptorProto) {
 
 	optionsValue := ty.Options()
 	annUses := ty.Annotations()
-	if !optionsValue.IsEmpty() || annUses.Len() > 0 {
+	switch {
+	case ty.IsMapEntry():
+		// The only option a synthetic map entry carries is the
+		// map_entry marker built by [generateMapEntries]. Emit it as
+		// the typed field instead of through [generator.options]'s
+		// unknown-bytes path: map_entry is semantic — protoreflect's
+		// map accessors and [protodesc.NewFile]'s IsMap classification
+		// read the typed field, and unknown-byte options only
+		// materialize after a wire round-trip. The wire encoding is
+		// identical either way.
+		mdp.Options = &descriptorpb.MessageOptions{MapEntry: addr(true)}
+	case !optionsValue.IsEmpty() || annUses.Len() > 0:
 		mdp.Options = new(descriptorpb.MessageOptions)
 		var hadAny bool
 		if !optionsValue.IsEmpty() {
