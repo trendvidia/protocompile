@@ -17,12 +17,19 @@
 // Vendored from `trendvidia/protowire` (`proto/schema/v1/report.proto`)
 // at commit 2fcc2181a9d8b6f3cf420b67980864fdbc0d33d1. The vendored copy
 // and the upstream are byte-identical (modulo this header) from
-// `syntax = "proto3"` down. Vendored because
+// `syntax = "proto3"` down.
+//
+// Protocompile itself never emits or consumes reports — they are a
+// runtime artifact of validation engines (protocheck and per-port
+// equivalents), never of the compiler. The file lives in the public
+// proto module anyway (issue #108) because engines and tooling need
+// Go bindings for the wire Report — RFC-001 goal-5 report equality,
+// §6.6 rule 6 gRPC adapters embedding `Report` in
+// `google.rpc.Status.details`, protolsp's runtime-violation overlay —
+// and `SourceLocation`'s only bindings live in this package.
 // `protowire/schema/config/v1/config.proto` (the §9.4 engine-config
-// schema behind the `engineconfig` loader package) needs this file's
-// `ExecutionMode` enum; protocompile itself never emits or consumes
-// reports — they are a runtime artifact of validation engines
-// (protocheck and per-port equivalents), never of the compiler.
+// schema behind the `engineconfig` loader package) also needs this
+// file's `ExecutionMode` enum.
 
 syntax = "proto3";
 

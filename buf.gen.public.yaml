@@ -1,15 +1,18 @@
 version: v2
 # Generates the RFC-001 protowire.schema.v1 carrier types (SourceMap,
 # Annotation, AnnotationList, the descriptor.proto Options extensions,
-# ...) to the public import path
+# ...) and the runtime Report types to the public import path
 # github.com/trendvidia/protocompile/gen/protowire/schema/v1 so that
-# external consumers (protolsp, protocheck, codegen tools) can read the
-# carriers off compiled descriptors. Everything else in the workspace
-# stays under internal/gen — see buf.gen.yaml.
+# external consumers (protolsp, protocheck, codegen tools, gRPC
+# adapters embedding Report in google.rpc.Status.details) can read the
+# carriers off compiled descriptors and exchange wire reports.
+# Everything else in the workspace stays under internal/gen — see
+# buf.gen.yaml.
 inputs:
   - directory: .
     paths:
       - proto/protowire/schema/v1/descriptor.proto
+      - proto/protowire/schema/v1/report.proto
 managed:
   enabled: true
   override:
