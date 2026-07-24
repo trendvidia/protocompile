@@ -13,6 +13,27 @@
 // limitations under the License.
 
 // Package fdp provides functionality for lowering the IR to a FileDescriptorSet.
+//
+// # Options encoding on in-memory descriptors
+//
+// User-written options — `deprecated`, features, custom options — are
+// serialized into their options message's unknown-field bytes, not its
+// typed fields. This keeps the output byte-exact with protoc for
+// arbitrary options without resolving option descriptors, but it means
+// typed accessors on the descriptors returned by [DescriptorProto]
+// read as unset (`GetOptions().GetDeprecated()` is false even when set
+// in source, and [proto.GetExtension] misses custom options) until the
+// descriptor round-trips through [proto.Marshal]/[proto.Unmarshal],
+// which folds the bytes into typed fields. [DescriptorSetBytes] and
+// [DescriptorProtoBytes] output is unaffected: parsing it performs
+// that fold.
+//
+// Two categories are exempt and always typed in memory: the
+// protowire.schema.v1 carrier extensions (AnnotationList, SourceMap,
+// file-scope declaration lists), and `options.map_entry` on synthetic
+// map-entry messages, which reflection consumers such as
+// [google.golang.org/protobuf/reflect/protodesc.NewFile] need for map
+// classification.
 package fdp
 
 import (
@@ -24,6 +45,11 @@ import (
 
 // DescriptorProto generates a single [*descriptorpb.FileDescriptorProto] for the given
 // [*ir.File].
+//
+// User-written options on the result are encoded in unknown-field
+// bytes rather than typed fields; round-trip through
+// [proto.Marshal]/[proto.Unmarshal] before reading them reflectively.
+// See the package documentation for the exact contract.
 func DescriptorProto(file *ir.File, options ...DescriptorOption) (*descriptorpb.FileDescriptorProto, error) {
 	var g generator
 	g.init(options...)
