@@ -184,7 +184,8 @@ message User {
 
 // TestSourceMapTypeRefinementChain verifies a multi-link alias
 // chain produces one TYPE_REFINEMENT entry whose type_chain has
-// one link per alias, in chain order (head first).
+// one link per alias, in base-to-derived order (the alias the
+// field was declared with last).
 func TestSourceMapTypeRefinementChain(t *testing.T) {
 	t.Parallel()
 
@@ -213,10 +214,10 @@ message M {
 	require.NotNil(t, refinement)
 	require.Len(t, refinement.GetTypeChain(), 2,
 		"both A and B should appear as separate links")
-	assert.Equal(t, "test.A", refinement.GetTypeChain()[0].GetTypeFqn(),
-		"chain head (A) appears first")
-	assert.Equal(t, "test.B", refinement.GetTypeChain()[1].GetTypeFqn(),
-		"chain tail (B) follows")
+	assert.Equal(t, "test.B", refinement.GetTypeChain()[0].GetTypeFqn(),
+		"base-most alias (B) appears first")
+	assert.Equal(t, "test.A", refinement.GetTypeChain()[1].GetTypeFqn(),
+		"the alias the field was declared with (A) follows")
 }
 
 // TestSourceMapTypeRefinementNoEntryForConcreteType verifies that
@@ -312,14 +313,15 @@ message M {
 		"the use site of the alias name lives in the consuming file")
 
 	require.Len(t, refinement.GetTypeChain(), 2)
-	assert.Equal(t, "app.A", refinement.GetTypeChain()[0].GetTypeFqn())
-	assert.Equal(t, "user.proto",
-		refinement.GetTypeChain()[0].GetDeclarationLocation().GetFile(),
-		"app.A is declared in user.proto")
-	assert.Equal(t, "types.B", refinement.GetTypeChain()[1].GetTypeFqn())
+	assert.Equal(t, "types.B", refinement.GetTypeChain()[0].GetTypeFqn(),
+		"base-most alias appears first")
 	assert.Equal(t, "types.proto",
-		refinement.GetTypeChain()[1].GetDeclarationLocation().GetFile(),
+		refinement.GetTypeChain()[0].GetDeclarationLocation().GetFile(),
 		"types.B is declared in types.proto")
+	assert.Equal(t, "app.A", refinement.GetTypeChain()[1].GetTypeFqn())
+	assert.Equal(t, "user.proto",
+		refinement.GetTypeChain()[1].GetDeclarationLocation().GetFile(),
+		"app.A is declared in user.proto")
 }
 
 // TestSourceMapCrossFileAliasPropagation verifies that an

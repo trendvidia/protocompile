@@ -16,6 +16,7 @@ package ir
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/trendvidia/protocompile/ast"
 	"github.com/trendvidia/protocompile/ast/predeclared"
@@ -233,14 +234,16 @@ func isTypeOrAlias(k SymbolKind) bool {
 // pass relies on this when it re-walks a chain whose diagnostics were
 // already emitted during field-type resolution.
 //
-// The returned slices hold, in chain order (head first), each
-// alias link's annotation use sites and the link's own [TypeAlias]
-// reference. Each [Ref.file] is set relative to `field.Context()`,
-// so the results can be stored directly on a [rawMember].
+// The returned slices hold, in base-to-derived order (RFC-001 §6.4:
+// rules evaluate base → derived → field-level), each alias link's
+// annotation use sites and the link's own [TypeAlias] reference.
+// Within one link, uses keep their source order. Each [Ref.file] is
+// set relative to `field.Context()`, so the results can be stored
+// directly on a [rawMember].
 func unwrapTypeAlias(field Member, alias TypeAlias, refSpan source.Spanner, r *report.Report) (Symbol, []Ref[AnnotationUse], []Ref[TypeAlias]) {
 	var (
 		seen          = map[FullName]bool{}
-		uses          []Ref[AnnotationUse]
+		linkUses      [][]Ref[AnnotationUse]
 		chain         []Ref[TypeAlias]
 		current       = alias
 		fieldFile     = field.Context()
@@ -272,9 +275,11 @@ func unwrapTypeAlias(field Member, alias TypeAlias, refSpan source.Spanner, r *r
 
 		chain = append(chain, Ref[TypeAlias]{file: fileIdx, id: current.ID()})
 
+		var linkUse []Ref[AnnotationUse]
 		for _, useID := range current.Raw().annotationUses {
-			uses = append(uses, Ref[AnnotationUse]{file: fileIdx, id: useID})
+			linkUse = append(linkUse, Ref[AnnotationUse]{file: fileIdx, id: useID})
 		}
+		linkUses = append(linkUses, linkUse)
 
 		baseSym := symbolRef{
 			File:   aliasFile,
@@ -296,6 +301,14 @@ func unwrapTypeAlias(field Member, alias TypeAlias, refSpan source.Spanner, r *r
 			continue
 		}
 
+		// The walk visits links derived-first (from the name the field
+		// was declared with down to the base); flip to base-first,
+		// keeping each link's own uses in source order.
+		slices.Reverse(chain)
+		var uses []Ref[AnnotationUse]
+		for i := len(linkUses) - 1; i >= 0; i-- {
+			uses = append(uses, linkUses[i]...)
+		}
 		return baseSym, uses, chain
 	}
 }
@@ -324,7 +337,8 @@ func fieldTypePath(ty ast.TypeAny) ast.Path {
 // `Email email = 1;` is equivalent to
 // `string email = 1 @validate(...);`, so the alias chain's
 // annotation list appears on the field's annotation list ahead of
-// any field-site annotations.
+// any field-site annotations, in base-to-derived order (RFC-001
+// §6.4 evaluation order: base → derived → field-level).
 //
 // Chains spanning multiple files are supported: alias-side uses
 // are stored on the field as cross-file [Ref]s into their defining
