@@ -1,10 +1,12 @@
 version: v2
 inputs:
   - directory: .
-    # protowire/schema/v1/descriptor.proto is generated to the public
-    # gen/ tree instead — see buf.gen.public.yaml.
+    # protowire/schema/v1/descriptor.proto and report.proto are
+    # generated to the public gen/ tree instead — see
+    # buf.gen.public.yaml.
     exclude_paths:
       - proto/protowire/schema/v1/descriptor.proto
+      - proto/protowire/schema/v1/report.proto
 managed:
   enabled: true
   override:
@@ -13,10 +15,13 @@ managed:
    - path: internal/proto
      file_option: go_package_prefix
      value: 'github.com/trendvidia/protocompile/internal/gen/internal_'
-   # The RFC-001 carrier types are public API (issue #92): generated
-   # files that import them (report.pb.go) must reference the public
-   # import path.
+   # The RFC-001 carrier and report types are public API (issues #92,
+   # #108): generated files that import them (config.pb.go) must
+   # reference the public import path.
    - path: protowire/schema/v1/descriptor.proto
+     file_option: go_package_prefix
+     value: 'github.com/trendvidia/protocompile/gen'
+   - path: protowire/schema/v1/report.proto
      file_option: go_package_prefix
      value: 'github.com/trendvidia/protocompile/gen'
 plugins:

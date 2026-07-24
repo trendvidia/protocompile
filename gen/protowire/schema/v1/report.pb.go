@@ -33,7 +33,6 @@
 package schemav1
 
 import (
-	v1 "github.com/trendvidia/protocompile/gen/protowire/schema/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	anypb "google.golang.org/protobuf/types/known/anypb"
@@ -425,8 +424,8 @@ type EnrichedViolation struct {
 	// or redacted; see value_redacted.
 	ActualValue *Value `protobuf:"bytes,4,opt,name=actual_value,json=actualValue,proto3" json:"actual_value,omitempty"`
 	// From the embedded source map (50404), when available.
-	Source   *v1.SourceLocation `protobuf:"bytes,5,opt,name=source,proto3" json:"source,omitempty"`
-	RuleKind RuleKind           `protobuf:"varint,6,opt,name=rule_kind,json=ruleKind,proto3,enum=protowire.schema.v1.RuleKind" json:"rule_kind,omitempty"`
+	Source   *SourceLocation `protobuf:"bytes,5,opt,name=source,proto3" json:"source,omitempty"`
+	RuleKind RuleKind        `protobuf:"varint,6,opt,name=rule_kind,json=ruleKind,proto3,enum=protowire.schema.v1.RuleKind" json:"rule_kind,omitempty"`
 	// True when the violated field is @sensitive (RFC-001 §6.7): the
 	// engine withheld the offending value, leaving actual_value unset.
 	// Distinguishes redaction from genuine absence.
@@ -493,7 +492,7 @@ func (x *EnrichedViolation) GetActualValue() *Value {
 	return nil
 }
 
-func (x *EnrichedViolation) GetSource() *v1.SourceLocation {
+func (x *EnrichedViolation) GetSource() *SourceLocation {
 	if x != nil {
 		return x.Source
 	}
@@ -1047,8 +1046,8 @@ const file_protowire_schema_v1_report_proto_rawDesc = "" +
 	"\x19RULE_KIND_TYPE_REFINEMENT\x10\x04*\x1b\n" +
 	"\tNullValue\x12\x0e\n" +
 	"\n" +
-	"NULL_VALUE\x10\x00B\xe2\x01\n" +
-	"\x17com.protowire.schema.v1B\vReportProtoP\x01ZLgithub.com/trendvidia/protocompile/internal/gen/protowire/schema/v1;schemav1\xa2\x02\x03PSX\xaa\x02\x13Protowire.Schema.V1\xca\x02\x13Protowire\\Schema\\V1\xe2\x02\x1fProtowire\\Schema\\V1\\GPBMetadata\xea\x02\x15Protowire::Schema::V1b\x06proto3"
+	"NULL_VALUE\x10\x00B\xd9\x01\n" +
+	"\x17com.protowire.schema.v1B\vReportProtoP\x01ZCgithub.com/trendvidia/protocompile/gen/protowire/schema/v1;schemav1\xa2\x02\x03PSX\xaa\x02\x13Protowire.Schema.V1\xca\x02\x13Protowire\\Schema\\V1\xe2\x02\x1fProtowire\\Schema\\V1\\GPBMetadata\xea\x02\x15Protowire::Schema::V1b\x06proto3"
 
 var (
 	file_protowire_schema_v1_report_proto_rawDescOnce sync.Once
@@ -1077,7 +1076,7 @@ var file_protowire_schema_v1_report_proto_goTypes = []any{
 	(*Value)(nil),             // 9: protowire.schema.v1.Value
 	(*ListValue)(nil),         // 10: protowire.schema.v1.ListValue
 	nil,                       // 11: protowire.schema.v1.Violation.ParamsEntry
-	(*v1.SourceLocation)(nil), // 12: protowire.schema.v1.SourceLocation
+	(*SourceLocation)(nil),    // 12: protowire.schema.v1.SourceLocation
 	(*anypb.Any)(nil),         // 13: google.protobuf.Any
 }
 var file_protowire_schema_v1_report_proto_depIdxs = []int32{
@@ -1108,6 +1107,7 @@ func file_protowire_schema_v1_report_proto_init() {
 	if File_protowire_schema_v1_report_proto != nil {
 		return
 	}
+	file_protowire_schema_v1_descriptor_proto_init()
 	file_protowire_schema_v1_report_proto_msgTypes[5].OneofWrappers = []any{
 		(*FieldPathSegment_Index)(nil),
 		(*FieldPathSegment_StringKey)(nil),
