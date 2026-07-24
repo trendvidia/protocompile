@@ -15,9 +15,10 @@
 // Protowire Schema Extensions — validation report wire shape (RFC-001 §7).
 //
 // Vendored from `trendvidia/protowire` (`proto/schema/v1/report.proto`)
-// at commit 2fcc2181a9d8b6f3cf420b67980864fdbc0d33d1. The vendored copy
-// and the upstream are byte-identical (modulo this header) from
-// `syntax = "proto3"` down.
+// at commit 053722095f0e76b73c884d9ecee00e691530f8c3 (post-v1.4.0: adds
+// `EnrichedViolation.for_key` from v1.3.0 and the v1.4.0/§7 report-
+// semantics comment pins). The vendored copy and the upstream are
+// byte-identical (modulo this header) from `syntax = "proto3"` down.
 //
 // Protocompile itself never emits or consumes reports — they are a
 // runtime artifact of validation engines (protocheck and per-port
@@ -82,10 +83,15 @@ message Violation {
   string code = 1;
 
   // Structured parameters for locale-catalog interpolation
-  // ({pattern, min, max, ...}).
+  // ({pattern, min, max, ...}). Populated only by function
+  // implementations (RFC-001 §6.5) and spec-defined synthetic
+  // violations; violations from inline expression rules carry no
+  // params (RFC-001 §7, params provenance).
   map<string, Value> params = 2;
 
-  // Engine-author default message, used on catalog miss.
+  // Engine-author default message, used on catalog miss. For the
+  // reserved protowire.* codes the string is spec-pinned, not
+  // engine-authored (RFC-001 §7, reserved-code fallback messages).
   string fallback_message = 3;
 }
 
@@ -112,6 +118,13 @@ message EnrichedViolation {
   // engine withheld the offending value, leaving actual_value unset.
   // Distinguishes redaction from genuine absence.
   bool value_redacted = 7;
+
+  // True when the violated rule applies to the map key itself rather than
+  // the value the final path segment's subscript addresses. A subscripted
+  // map segment always addresses the entry's *value*; without this flag a
+  // key violation and a value violation on the same entry would serialize
+  // to identical paths.
+  bool for_key = 8;
 }
 
 // Values are prefixed: descriptor.proto's EntryKind already claims
@@ -120,6 +133,11 @@ enum RuleKind {
   RULE_KIND_UNSPECIFIED     = 0;
   RULE_KIND_VALIDATE        = 1;
   RULE_KIND_REQUIRED        = 2;
+  // A rule failed against a @default-substituted value (RFC-001 §6.4):
+  // the schema's declared default itself violates the field's rules — a
+  // schema-authoring error, not an instance error. Supersedes VALIDATE /
+  // TYPE_REFINEMENT whenever the validated value came from @default
+  // substitution; actual_value carries the substituted default.
   RULE_KIND_DEFAULT         = 3;
   RULE_KIND_TYPE_REFINEMENT = 4;
 }
@@ -137,6 +155,8 @@ message FieldPathSegment {
 
   // Set when the segment addresses one element of a repeated field or map.
   // Map keys are typed — protowire never coerces keys through strings.
+  // A map subscript addresses the entry's *value*; a violation against the
+  // key itself is flagged by EnrichedViolation.for_key.
   oneof subscript {
     uint64 index      = 3; // repeated element
     string string_key = 4; // map<string, V>
