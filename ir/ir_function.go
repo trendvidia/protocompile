@@ -108,6 +108,38 @@ func (f Function) Params() seq.Indexer[FunctionParam] {
 	)
 }
 
+// FunctionOption is one bracket-form option attached to a [Function]
+// declaration site, e.g. `error_code = "common.matches.failed"` in
+// `function matches(...) [error_code = "..."];`.
+type FunctionOption struct {
+	// Name is the unqualified option name: the last component of the
+	// path the option was written with. The FunctionDecl descriptor
+	// carrier keys its options map by this name.
+	Name string
+	// Value is the option's value expression, as written.
+	Value ast.ExprAny
+}
+
+// Options returns the bracket-form options attached to this function
+// declaration, in declaration order.
+//
+// Like parameter types, option values are recorded without
+// classification: the descriptor surface carries them
+// AnnotationArg-shaped and consumers interpret them at use time.
+func (f Function) Options() seq.Indexer[FunctionOption] {
+	entries := f.AST().Options().Entries()
+	return seq.NewFunc(entries.Len(), func(i int) FunctionOption {
+		opt := entries.At(i)
+		var name string
+		for c := range opt.Path.Components() {
+			if tok := c.AsIdent(); !tok.IsZero() {
+				name = tok.Text()
+			}
+		}
+		return FunctionOption{Name: name, Value: opt.Value}
+	})
+}
+
 // Annotations returns the annotation use sites attached to this
 // function declaration (trailing form: `function foo() @bar;`).
 func (f Function) Annotations() seq.Indexer[AnnotationUse] {

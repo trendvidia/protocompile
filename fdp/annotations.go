@@ -266,7 +266,10 @@ func buildListElement(u ir.AnnotationUse, elem ast.ExprAny, param ir.AnnotationP
 // buildLiteralArg lowers a string-or-number literal into the
 // appropriate AnnotationArg oneof variant. The parameter drives
 // whether a string literal becomes string_value vs bytes_value, and
-// whether a numeric literal becomes int_value vs double_value.
+// whether a numeric literal becomes int_value vs double_value. With
+// a zero param (function options, which have no declared parameter
+// to type against), the numeric routing follows the literal's own
+// spelling instead.
 func buildLiteralArg(lit ast.ExprLiteral, param ir.AnnotationParam) *pwsv1.AnnotationArg {
 	tok := lit.Token
 	switch tok.Kind() {
@@ -283,7 +286,8 @@ func buildLiteralArg(lit ast.ExprLiteral, param ir.AnnotationParam) *pwsv1.Annot
 
 	case token.Number:
 		num := tok.AsNumber()
-		if param.IsScalar() && isFloatScalar(param.Scalar()) {
+		if param.IsScalar() && isFloatScalar(param.Scalar()) ||
+			param.IsZero() && num.IsFloat() {
 			f, _ := num.Float()
 			return &pwsv1.AnnotationArg{
 				Value: &pwsv1.AnnotationArg_DoubleValue{DoubleValue: f},
@@ -476,6 +480,24 @@ func buildFunctionDecl(fn ir.Function) *pwsv1.FunctionDecl {
 			Name: p.Name(),
 			Type: p.TypeName(),
 		})
+	}
+	// Bracket-form options lower AnnotationArg-shaped, keyed by the
+	// unqualified option name. There is no declared parameter to type
+	// against, so the zero param routes buildArgValue by the value's
+	// own spelling, and the zero use leaves enum-value references
+	// unresolved (carried verbatim in value_name).
+	for opt := range seq.Values(fn.Options()) {
+		if opt.Name == "" {
+			continue
+		}
+		arg := buildArgValue(ir.AnnotationUse{}, opt.Value, ir.AnnotationParam{})
+		if arg == nil {
+			continue
+		}
+		if out.Options == nil {
+			out.Options = make(map[string]*pwsv1.AnnotationArg)
+		}
+		out.Options[opt.Name] = arg
 	}
 	return out
 }
