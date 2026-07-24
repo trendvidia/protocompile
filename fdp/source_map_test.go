@@ -220,6 +220,48 @@ message M {
 		"the alias the field was declared with (A) follows")
 }
 
+// TestSourceMapTypeRefinementMapValue verifies that a map field
+// whose value type is an alias gets the field's own bare-path
+// TYPE_REFINEMENT entry (issue #109): the chain is the value type's,
+// and the source_location points at the value-type name inside
+// `map<K, V>` — not at the whole map type, and not at a synthetic
+// entry member.
+func TestSourceMapTypeRefinementMapValue(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+type Email = string;
+
+message Book {
+  map<string, Email> contacts = 1;
+}
+`
+	f := compileForFDPTest(t, src)
+	sm, ok := proto.GetExtension(f.Options, pwsv1.E_SourceMap).(*pwsv1.SourceMap)
+	require.True(t, ok)
+	require.NotNil(t, sm)
+
+	var refinements []*pwsv1.SourceEntry
+	for _, e := range sm.GetEntries() {
+		if e.GetKind() == pwsv1.EntryKind_TYPE_REFINEMENT {
+			refinements = append(refinements, e)
+		}
+	}
+	require.Len(t, refinements, 1,
+		"one entry for the map field; none for synthetic entry members")
+	r := refinements[0]
+	assert.Equal(t, "test.Book.contacts", r.GetDescriptorPath())
+	require.NotNil(t, r.GetSourceLocation())
+	assert.Equal(t, int32(7), r.GetSourceLocation().GetLine())
+	assert.Equal(t, int32(15), r.GetSourceLocation().GetColumn(),
+		"points at `Email` inside map<string, Email>")
+
+	require.Len(t, r.GetTypeChain(), 1)
+	assert.Equal(t, "test.Email", r.GetTypeChain()[0].GetTypeFqn())
+}
+
 // TestSourceMapTypeRefinementNoEntryForConcreteType verifies that
 // a field declared with a concrete (non-alias) type does not
 // produce a TYPE_REFINEMENT entry. Only fields whose declared type
