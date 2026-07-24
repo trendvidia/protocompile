@@ -274,6 +274,101 @@ message M {
 		"derived alias (A) annotation should follow")
 }
 
+// TestTypeAliasFieldMapValuePropagatesAnnotations verifies the map
+// per-element contract (RFC-001 §6.4, issue #109): a map field whose
+// *value* type is an alias expands the alias's rules onto the map
+// field's own annotation list — ahead of field-site annotations,
+// exactly like a repeated element alias — and the synthetic map-entry
+// value field carries nothing, so the rules lower exactly once.
+func TestTypeAliasFieldMapValuePropagatesAnnotations(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+annotation validate(rule: string);
+annotation doc(text: string);
+
+type Email = string @validate("matches(this, '@')");
+
+message Book {
+  @doc("by address")
+  map<string, Email> contacts = 1;
+}
+`
+	f := compileForFDPTest(t, src)
+	require.Len(t, f.GetMessageType(), 1)
+	book := f.GetMessageType()[0]
+	require.Len(t, book.GetField(), 1)
+	field := book.GetField()[0]
+	assert.Equal(t, descriptorpb.FieldDescriptorProto_TYPE_MESSAGE, field.GetType(),
+		"the map field still lowers to its synthetic entry type")
+
+	require.NotNil(t, field.Options)
+	list, ok := proto.GetExtension(field.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+	require.True(t, ok)
+	require.Len(t, list.Entries, 2,
+		"value-alias @validate plus field-level @doc")
+	assert.Equal(t, "test.validate", list.Entries[0].Name,
+		"value-alias rule comes first")
+	assert.Equal(t, "test.doc", list.Entries[1].Name,
+		"field-site annotation follows")
+
+	require.Len(t, book.GetNestedType(), 1)
+	entry := book.GetNestedType()[0]
+	for _, ef := range entry.GetField() {
+		if ef.Options == nil {
+			continue
+		}
+		el, _ := proto.GetExtension(ef.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+		assert.Empty(t, el.GetEntries(),
+			"synthetic entry field %s must not duplicate the value-alias rule", ef.GetName())
+	}
+}
+
+// TestTypeAliasFieldMapKeyStaysOnEntryField pins the key-type
+// counterpart of issue #109: a *key* alias's rules stay on the
+// synthetic map-entry key field rather than expanding onto the map
+// field, where they would be indistinguishable from per-value rules
+// and misapply to values.
+func TestTypeAliasFieldMapKeyStaysOnEntryField(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+annotation validate(rule: string);
+
+type Email = string @validate("matches(this, '@')");
+
+message Book {
+  map<Email, int32> senders = 1;
+}
+`
+	f := compileForFDPTest(t, src)
+	book := f.GetMessageType()[0]
+	field := book.GetField()[0]
+	if field.Options != nil {
+		list, _ := proto.GetExtension(field.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+		assert.Empty(t, list.GetEntries(),
+			"key-alias rules must not expand onto the map field")
+	}
+
+	require.Len(t, book.GetNestedType(), 1)
+	var keyField *descriptorpb.FieldDescriptorProto
+	for _, ef := range book.GetNestedType()[0].GetField() {
+		if ef.GetName() == "key" {
+			keyField = ef
+		}
+	}
+	require.NotNil(t, keyField)
+	require.NotNil(t, keyField.Options, "key-alias rule lowers onto the entry's key field")
+	list, ok := proto.GetExtension(keyField.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+	require.True(t, ok)
+	require.Len(t, list.GetEntries(), 1)
+	assert.Equal(t, "test.validate", list.GetEntries()[0].Name)
+}
+
 // TestTypeAliasFieldCycleDiagnostic verifies a cyclic alias chain
 // (A → B → A) emits a diagnostic and the field's type ends up
 // unresolved rather than infinite-looping.

@@ -327,6 +327,14 @@ func fieldTypePath(ty ast.TypeAny) ast.Path {
 	return ast.Path{}
 }
 
+// mapValueTypePath extracts the path of a map-typed field's declared
+// value type, if any. Returns a zero path for non-map types and for
+// value types that are not plain paths.
+func mapValueTypePath(ty ast.TypeAny) ast.Path {
+	_, value := ty.RemovePrefixes().AsGeneric().AsMap()
+	return fieldTypePath(value)
+}
+
 // propagateTypeAliasAnnotations runs after [resolveAnnotationUses]
 // and expands a type-alias chain's trailing annotations onto each
 // field whose declared type referenced the alias. Per RFC-001 §5,
@@ -343,6 +351,15 @@ func fieldTypePath(ty ast.TypeAny) ast.Path {
 // file's context so [AnnotationUse.AST] and [AnnotationUse.Target]
 // stay coherent.
 //
+// Map fields expand their *value* type's alias chain onto the map
+// field itself (issue #109) — per RFC-001 §6.4, `map<K,V>` validates
+// per-element using the element's type rules, and engines attribute
+// alias-attributed entries as per-element the same way they do for
+// `repeated`. The synthetic map-entry value member is skipped so the
+// rules lower exactly once. A *key* type's alias chain stays on the
+// synthetic key member: expanding it onto the map field would be
+// indistinguishable from value rules there and misapply to values.
+//
 // Cycle and missing-base diagnostics were already emitted during
 // [resolveFieldType]; this pass re-walks the chain silently
 // (`r == nil`) to collect the now-resolved annotation use IDs.
@@ -351,7 +368,13 @@ func propagateTypeAliasAnnotations(file *File) {
 		if !ty.IsMessage() {
 			continue
 		}
+		isMapEntry := !ty.MapField().IsZero()
 		for field := range seq.Values(ty.Members()) {
+			if isMapEntry && field.Number() == tags.MapEntry_Value {
+				// The value type's rules expand on the map field
+				// itself; see above.
+				continue
+			}
 			propagateAliasAnnotationsOn(file, field)
 		}
 	}
@@ -362,6 +385,9 @@ func propagateTypeAliasAnnotations(file *File) {
 
 func propagateAliasAnnotationsOn(file *File, field Member) {
 	path := fieldTypePath(field.TypeAST())
+	if path.IsZero() {
+		path = mapValueTypePath(field.TypeAST())
+	}
 	if path.IsZero() {
 		return
 	}

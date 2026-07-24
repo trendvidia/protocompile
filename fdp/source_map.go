@@ -204,6 +204,9 @@ func buildAnnotationUseEntry(anchor DescriptorPath, kind pwsv1.EntryKind, use ir
 // `declaration_location` is the position of that alias's
 // declaration (in the alias's defining file — possibly cross-file
 // for an imported alias).
+//
+// For a map field the chain is the *value* type's (issue #109), so
+// the location points at the value-type name inside `map<K, V>`.
 func buildTypeRefinementEntry(field ir.Member) *pwsv1.SourceEntry {
 	chain := field.TypeAliasChain()
 	if chain.Len() == 0 {
@@ -214,7 +217,11 @@ func buildTypeRefinementEntry(field ir.Member) *pwsv1.SourceEntry {
 		Kind:           pwsv1.EntryKind_TYPE_REFINEMENT,
 		DescriptorPath: string(field.FullName()),
 	}
-	if typeAST := field.TypeAST(); !typeAST.IsZero() {
+	typeAST := field.TypeAST()
+	if _, value := typeAST.RemovePrefixes().AsGeneric().AsMap(); !value.IsZero() {
+		typeAST = value
+	}
+	if !typeAST.IsZero() {
 		span := typeAST.Span()
 		if !span.IsZero() {
 			entry.SourceLocation = sourceLocation(span, span.StartLoc())
