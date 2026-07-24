@@ -271,12 +271,18 @@ message SourceEntry {
 
   SourceLocation source_location = 3;
 
-  // Type-refinement provenance: ordered chain from base to derived. Only
-  // populated for entries with kind == TYPE_REFINEMENT.
+  // Type-refinement provenance: the type-alias links the field's declared
+  // type resolved through, ordered base to derived — the alias the field
+  // was declared with comes last. Only populated for entries with
+  // kind == TYPE_REFINEMENT.
   //
-  // Example for a field declared `CompanyEmail email = 1;`:
-  //   [{type_fqn: "string"},
-  //    {type_fqn: "myco.commons.Email"},
+  // Links are aliases only; the underlying concrete type (primitive,
+  // enum, or message) is never a link. Recover it from the first link's
+  // TypeDecl.base_type_fqn in FileTypeDecls (50403).
+  //
+  // Example for a field declared `CompanyEmail email = 1;`, given
+  // `type Email = string` and `type CompanyEmail = Email`:
+  //   [{type_fqn: "myco.commons.Email"},
   //    {type_fqn: "myco.commons.CompanyEmail"}]
   repeated TypeChainLink type_chain = 4;
 }
