@@ -449,6 +449,54 @@ function matches(value: string, pattern: string);
 	assert.Equal(t, "string", fns.Declarations[1].Params[1].Type)
 }
 
+// TestAnnotationEmissionFunctionOptions verifies that bracket-form
+// options on `function` declarations land in FunctionDecl.options,
+// keyed by the unqualified option name with AnnotationArg-shaped
+// values routed by the value's own spelling (issue #118).
+func TestAnnotationEmissionFunctionOptions(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+function matches(value: string, pattern: string)
+  [error_code = "common.matches.failed"];
+
+function tuned()
+  [threshold = 0.5, max_items = 3, offset = -2, strict = true, lax = false, mode = LENIENT];
+
+function plain();
+`
+
+	f := compileForFDPTest(t, src)
+	require.NotNil(t, f.Options)
+	fns, ok := proto.GetExtension(f.Options, pwsv1.E_Functions).(*pwsv1.FileFunctions)
+	require.True(t, ok)
+	require.Len(t, fns.Declarations, 3)
+
+	matches := fns.Declarations[0]
+	require.Len(t, matches.Options, 1)
+	assert.Equal(t, "common.matches.failed", matches.Options["error_code"].GetStringValue())
+
+	tuned := fns.Declarations[1]
+	require.Len(t, tuned.Options, 6)
+	assert.InDelta(t, 0.5, tuned.Options["threshold"].GetDoubleValue(), 1e-9)
+	assert.Equal(t, int64(3), tuned.Options["max_items"].GetIntValue())
+	assert.Equal(t, int64(-2), tuned.Options["offset"].GetIntValue())
+	assert.True(t, tuned.Options["strict"].GetBoolValue())
+	if lax, ok := tuned.Options["lax"]; assert.True(t, ok) {
+		assert.False(t, lax.GetBoolValue())
+	}
+	// No annotation scope exists to resolve enum-value references
+	// against, so the reference is carried verbatim.
+	mode := tuned.Options["mode"].GetLiteral().GetEnumValue()
+	require.NotNil(t, mode)
+	assert.Equal(t, "LENIENT", mode.GetValueName())
+	assert.Empty(t, mode.GetEnumType())
+
+	assert.Empty(t, fns.Declarations[2].Options)
+}
+
 // TestAnnotationEmissionFileTypeDecls verifies that `type` alias
 // declarations land in the FileTypeDecls extension on FileOptions,
 // preserving the base-type text and any trailing annotations.
