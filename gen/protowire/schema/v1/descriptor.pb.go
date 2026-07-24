@@ -1510,13 +1510,19 @@ type SourceEntry struct {
 	// exported helper in protocompile fdp/descriptor_path.go.
 	DescriptorPath string          `protobuf:"bytes,2,opt,name=descriptor_path,json=descriptorPath,proto3" json:"descriptor_path,omitempty"`
 	SourceLocation *SourceLocation `protobuf:"bytes,3,opt,name=source_location,json=sourceLocation,proto3" json:"source_location,omitempty"`
-	// Type-refinement provenance: ordered chain from base to derived. Only
-	// populated for entries with kind == TYPE_REFINEMENT.
+	// Type-refinement provenance: the type-alias links the field's declared
+	// type resolved through, ordered base to derived — the alias the field
+	// was declared with comes last. Only populated for entries with
+	// kind == TYPE_REFINEMENT.
 	//
-	// Example for a field declared `CompanyEmail email = 1;`:
+	// Links are aliases only; the underlying concrete type (primitive,
+	// enum, or message) is never a link. Recover it from the first link's
+	// TypeDecl.base_type_fqn in FileTypeDecls (50403).
 	//
-	//	[{type_fqn: "string"},
-	//	 {type_fqn: "myco.commons.Email"},
+	// Example for a field declared `CompanyEmail email = 1;`, given
+	// `type Email = string` and `type CompanyEmail = Email`:
+	//
+	//	[{type_fqn: "myco.commons.Email"},
 	//	 {type_fqn: "myco.commons.CompanyEmail"}]
 	TypeChain     []*TypeChainLink `protobuf:"bytes,4,rep,name=type_chain,json=typeChain,proto3" json:"type_chain,omitempty"`
 	unknownFields protoimpl.UnknownFields
