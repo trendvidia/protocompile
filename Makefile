@@ -63,8 +63,10 @@ ci-local: ## Run the gates that CI's lint+test jobs run (no Docker, no GitHub mi
 	@echo "ci-local: all gates passed."
 
 .PHONY: ci-local-full
-ci-local-full: ci-local ## Run ci-local plus benchmarks (slow; mirrors the full CI matrix)
-	@echo "==> [5/5] make benchmarks"
+ci-local-full: ci-local ## Run ci-local plus spec-drift check and benchmarks (slow; mirrors the full CI matrix)
+	@echo "==> [5/6] make checkspecdrift"
+	@$(MAKE) --no-print-directory checkspecdrift
+	@echo "==> [6/6] make benchmarks"
 	@$(MAKE) --no-print-directory benchmarks
 	@echo "ci-local-full: all gates passed."
 
@@ -137,6 +139,39 @@ generate-golden: generate
 .PHONY: upgrade
 upgrade: ## Upgrade dependencies
 	go get -u -t ./... && go mod tidy -v
+
+# The vendored copies of the protowire spec repo's schema files must stay
+# byte-identical to upstream from `syntax = "proto3"` down (everything above
+# that line is a protocompile-authored vendor header). v0.19.0 shipped stale
+# report.pb.go bindings because nothing verified this (issue #116), so
+# checkspecdrift gates ci-local-full: it diffs each vendored file against a
+# sibling checkout of trendvidia/protowire (override with PROTOWIRE_DIR=...)
+# and is skipped with a notice when no checkout is present. On drift, either
+# re-vendor from upstream and run `make generate-protos`, or — when the
+# vendored copy is the newer one — upstream the change to protowire first.
+PROTOWIRE_DIR ?= ../protowire
+SPEC_VENDORED := \
+	proto/protowire/schema/v1/report.proto:proto/schema/v1/report.proto \
+	proto/protowire/schema/v1/descriptor.proto:proto/schema/v1/descriptor.proto \
+	internal/proto/protowire/schema/config/v1/config.proto:proto/schema/config/v1/config.proto
+
+.PHONY: checkspecdrift
+checkspecdrift: ## Diff vendored protowire schema files against a local spec-repo checkout (PROTOWIRE_DIR)
+	@if [[ ! -d "$(PROTOWIRE_DIR)/proto/schema" ]]; then \
+		echo "checkspecdrift: no protowire checkout at $(PROTOWIRE_DIR); skipping (set PROTOWIRE_DIR to run)"; \
+	else \
+		fail=0; \
+		for pair in $(SPEC_VENDORED); do \
+			vendored="$${pair%%:*}"; upstream="$(PROTOWIRE_DIR)/$${pair##*:}"; \
+			if ! diff -u \
+				<(sed -n '/^syntax = "proto3";$$/,$$p' "$$vendored") \
+				<(sed -n '/^syntax = "proto3";$$/,$$p' "$$upstream"); then \
+				echo "checkspecdrift: $$vendored drifted from $$upstream"; fail=1; \
+			fi; \
+		done; \
+		if [[ $$fail -ne 0 ]]; then exit 1; fi; \
+		echo "checkspecdrift: vendored spec files match $(PROTOWIRE_DIR)"; \
+	fi
 
 .PHONY: checkgenerate
 checkgenerate:
