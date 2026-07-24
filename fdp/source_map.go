@@ -193,7 +193,9 @@ func buildAnnotationUseEntry(anchor DescriptorPath, kind pwsv1.EntryKind, use ir
 
 // buildTypeRefinementEntry lowers the type-alias chain a field's
 // declared type resolved through into a [pwsv1.EntryKind_TYPE_REFINEMENT]
-// SourceEntry.
+// SourceEntry. Links are emitted in base-to-derived order (the alias
+// the field was declared with last), matching the carrier proto's
+// type_chain contract.
 //
 // Returns nil when the field's declared type was concrete (no alias
 // chain) or no usable source spans are available. The

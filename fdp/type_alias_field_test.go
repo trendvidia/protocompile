@@ -216,8 +216,8 @@ message User {
 
 // TestTypeAliasFieldCrossFileChain verifies a mixed chain where one
 // link lives in another file and another link is local. Both
-// annotations propagate in chain order (head first), independent of
-// which file each link lives in.
+// annotations propagate in base-to-derived order (RFC-001 §6.4),
+// independent of which file each link lives in.
 func TestTypeAliasFieldCrossFileChain(t *testing.T) {
 	t.Parallel()
 
@@ -267,11 +267,11 @@ message M {
 	require.True(t, ok)
 	require.Len(t, list.Entries, 2,
 		"both local @a and cross-file @b should be propagated")
-	// Chain head (A) first, then B.
-	assert.Equal(t, "app.a", list.Entries[0].Name,
-		"chain head (A) annotation should appear first")
-	assert.Equal(t, "types.b", list.Entries[1].Name,
-		"chain tail (B) annotation should appear after head's")
+	// Base-most link (B) first, then A.
+	assert.Equal(t, "types.b", list.Entries[0].Name,
+		"base-most alias (B) annotation should appear first")
+	assert.Equal(t, "app.a", list.Entries[1].Name,
+		"derived alias (A) annotation should follow")
 }
 
 // TestTypeAliasFieldCycleDiagnostic verifies a cyclic alias chain
@@ -318,7 +318,8 @@ message M {
 }
 
 // TestTypeAliasFieldChainPropagatesAnnotations verifies annotation
-// accumulation across the full chain: every link contributes.
+// accumulation across the full chain: every link contributes, in
+// base-to-derived order per RFC-001 §6.4.
 func TestTypeAliasFieldChainPropagatesAnnotations(t *testing.T) {
 	t.Parallel()
 
@@ -343,6 +344,48 @@ message M {
 	require.True(t, ok)
 	require.Len(t, list.Entries, 2)
 	names := []string{list.Entries[0].Name, list.Entries[1].Name}
-	assert.ElementsMatch(t, []string{"test.a", "test.b"}, names,
-		"both alias-chain annotations should be propagated to the field")
+	assert.Equal(t, []string{"test.b", "test.a"}, names,
+		"both alias-chain annotations should be propagated, base-most first")
+}
+
+// TestTypeAliasFieldAnnotationEvaluationOrder pins the full RFC-001
+// §6.4 evaluation order on the lowered AnnotationList: base alias
+// rule, then derived alias rule, then field-level rules — so engines
+// that evaluate entries in list order match the spec (and the
+// fixture-07 violation-order golden) without reordering.
+func TestTypeAliasFieldAnnotationEvaluationOrder(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package dump;
+
+annotation validate(rule: expression, code: string = "");
+function matches(value: string, pattern: string);
+
+type Email = string @validate(matches(this, "a"));
+type CompanyEmail = Email @validate(this.size() > 5, code = "too.short");
+
+message User {
+  CompanyEmail email = 1 @validate(this.size() < 100, code = "too.long");
+}
+`
+	f := compileForFDPTest(t, src)
+	require.Len(t, f.GetMessageType(), 1)
+	field := f.GetMessageType()[0].GetField()[0]
+	require.NotNil(t, field.Options)
+	list, ok := proto.GetExtension(field.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+	require.True(t, ok)
+	require.Len(t, list.Entries, 3)
+
+	codes := make([]string, len(list.Entries))
+	for i, e := range list.Entries {
+		assert.Equal(t, "dump.validate", e.Name, "entry %d", i)
+		for _, arg := range e.Args {
+			if arg.GetName() == "code" {
+				codes[i] = arg.GetStringValue()
+			}
+		}
+	}
+	assert.Equal(t, []string{"", "too.short", "too.long"}, codes,
+		"§6.4 order: base alias rule, derived alias rule, field-level rule")
 }

@@ -64,17 +64,19 @@ type rawMember struct {
 	annotationUses     []id.ID[AnnotationUse]
 	// aliasChainUses holds annotation use sites accumulated from the
 	// type-alias chain that this field's declared type resolved
-	// through (see [propagateTypeAliasAnnotations]). Stored in chain
-	// order, head first; an entry whose [Ref.file] is non-zero
-	// references a use in another file, so [Member.Annotations]
-	// yields it under that use's defining file context.
+	// through (see [propagateTypeAliasAnnotations]). Stored in
+	// base-to-derived order per RFC-001 §6.4, each link's uses in
+	// source order; an entry whose [Ref.file] is non-zero references
+	// a use in another file, so [Member.Annotations] yields it under
+	// that use's defining file context.
 	aliasChainUses []Ref[AnnotationUse]
 	// aliasChain holds the type-alias chain itself that this field's
-	// declared type resolved through, in chain order (head first).
-	// Empty for fields whose declared type was a concrete message /
-	// enum / scalar. Populated by [propagateTypeAliasAnnotations]
-	// alongside `aliasChainUses` and consumed by FDP's SourceMap
-	// emission to lower TYPE_REFINEMENT entries.
+	// declared type resolved through, in base-to-derived order (the
+	// alias the field was declared with last). Empty for fields whose
+	// declared type was a concrete message / enum / scalar. Populated
+	// by [propagateTypeAliasAnnotations] alongside `aliasChainUses`
+	// and consumed by FDP's SourceMap emission to lower
+	// TYPE_REFINEMENT entries.
 	aliasChain    []Ref[TypeAlias]
 	oneof         int32
 	optionTargets uint32
@@ -399,11 +401,10 @@ func (m Member) Options() MessageValue {
 }
 
 // TypeAliasChain returns the type-alias chain this member's
-// declared type resolved through, in chain order — head (the name
-// the field was declared with) first, then any further aliases the
-// head expanded to before reaching a concrete message / enum /
-// scalar. Returns an empty indexer for members whose declared type
-// was not an alias.
+// declared type resolved through, in base-to-derived order — the
+// alias closest to the concrete message / enum / scalar base first,
+// ending with the name the field was declared with. Returns an
+// empty indexer for members whose declared type was not an alias.
 //
 // Yielded [TypeAlias] values stay in their defining file's context,
 // so [TypeAlias.AST] and [TypeAlias.FullName] resolve correctly
@@ -427,8 +428,10 @@ func (m Member) TypeAliasChain() seq.Indexer[TypeAlias] {
 //
 // When the field's declared type referenced a type-alias chain
 // (PSE v1), the chain's trailing annotations appear ahead of any
-// field-site annotations — the alias acts as a macro expansion
-// per RFC-001 §5. See [propagateTypeAliasAnnotations]. A chain
+// field-site annotations, in base-to-derived order — the alias
+// acts as a macro expansion per RFC-001 §5, and the resulting list
+// matches §6.4 evaluation order (base → derived → field-level).
+// See [propagateTypeAliasAnnotations]. A chain
 // link living in another file is yielded under that file's
 // context, so callers reading [AnnotationUse.AST] and
 // [AnnotationUse.Target] still get coherent results.
