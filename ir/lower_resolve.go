@@ -221,13 +221,10 @@ func isTypeOrAlias(k SymbolKind) bool {
 // type lowers to a field of the underlying type, with the alias's
 // trailing annotations expanded onto the field's annotation list.
 //
-// Annotation propagation is currently scoped to same-file alias
-// chains: the use IDs live in the alias's file arena, so carrying
-// them across files would require allocating new uses in the
-// destination arena and remapping [Ref][Symbol] file indices. Cross-
-// file alias type substitution still works for the base type
-// (handled by the [symbolRef] lookup below); only annotation
-// propagation is deferred.
+// Chains spanning multiple files are fully supported: each link's
+// use IDs stay in the alias's own file arena and are returned as
+// [Ref]s relative to `field.Context()`, so [Member.Annotations]
+// yields them under their defining file's context.
 //
 // On cycle, emits a diagnostic via `r` and returns a zero Symbol.
 // `r` may be nil to suppress diagnostics — the annotation-propagation
