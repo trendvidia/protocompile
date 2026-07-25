@@ -105,8 +105,8 @@ func (t TypeAlias) BaseTypeName() string {
 // base is returned, itself fully qualified.
 //
 // Falls back to [TypeAlias.BaseTypeName]'s as-written text when the
-// base did not resolve; field-type resolution diagnoses broken bases
-// at their use sites.
+// base did not resolve; broken bases are diagnosed at the alias
+// declaration site by the base-resolution pass.
 func (t TypeAlias) BaseTypeFQN() string {
 	if t.IsZero() {
 		return ""
