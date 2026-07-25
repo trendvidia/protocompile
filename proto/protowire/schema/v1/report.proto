@@ -15,9 +15,10 @@
 // Protowire Schema Extensions — validation report wire shape (RFC-001 §7).
 //
 // Vendored from `trendvidia/protowire` (`proto/schema/v1/report.proto`)
-// at commit 053722095f0e76b73c884d9ecee00e691530f8c3 (post-v1.4.0: adds
-// `EnrichedViolation.for_key` from v1.3.0 and the v1.4.0/§7 report-
-// semantics comment pins). The vendored copy and the upstream are
+// at commit ad3bf9e51fabb69c20695dd8ed34ef526ba14509 (post-v1.4.0: adds
+// `EnrichedViolation.source_ref` and the `SourceRef` message — the
+// §8.3.1 rule join key, protowire#161 — on top of the earlier
+// `for_key` re-sync). The vendored copy and the upstream are
 // byte-identical (modulo this header) from `syntax = "proto3"` down.
 //
 // Protocompile itself never emits or consumes reports — they are a
@@ -125,6 +126,24 @@ message EnrichedViolation {
   // key violation and a value violation on the same entry would serialize
   // to identical paths.
   bool for_key = 8;
+
+  // The violated rule's source-map join key (RFC-001 §8.3.1): the
+  // originating file plus the canonical descriptor path, exactly as the
+  // shared formatter renders it. Engines populate it whenever the rule
+  // resolved through an embedded source map (50404) and leave it unset
+  // otherwise. Wire consumers join violations back to lowered rules —
+  // and through the source map to editor ranges — by this key instead of
+  // fuzzy-matching `source` positions.
+  SourceRef source_ref = 9;
+}
+
+// The §8.3.1 rule identity: unique within a SourceMap; the cross-file
+// key is (file, descriptor_path).
+message SourceRef {
+  // SourceMap.file of the map that resolved the rule.
+  string file = 1;
+  // Canonical §8.3.1 grammar: elementPath [annotationAnchor [callAnchor]].
+  string descriptor_path = 2;
 }
 
 // Values are prefixed: descriptor.proto's EntryKind already claims

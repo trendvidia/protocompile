@@ -15,9 +15,10 @@
 // Protowire Schema Extensions — validation report wire shape (RFC-001 §7).
 //
 // Vendored from `trendvidia/protowire` (`proto/schema/v1/report.proto`)
-// at commit 053722095f0e76b73c884d9ecee00e691530f8c3 (post-v1.4.0: adds
-// `EnrichedViolation.for_key` from v1.3.0 and the v1.4.0/§7 report-
-// semantics comment pins). The vendored copy and the upstream are
+// at commit ad3bf9e51fabb69c20695dd8ed34ef526ba14509 (post-v1.4.0: adds
+// `EnrichedViolation.source_ref` and the `SourceRef` message — the
+// §8.3.1 rule join key, protowire#161 — on top of the earlier
+// `for_key` re-sync). The vendored copy and the upstream are
 // byte-identical (modulo this header) from `syntax = "proto3"` down.
 //
 // Protocompile itself never emits or consumes reports — they are a
@@ -453,7 +454,15 @@ type EnrichedViolation struct {
 	// map segment always addresses the entry's *value*; without this flag a
 	// key violation and a value violation on the same entry would serialize
 	// to identical paths.
-	ForKey        bool `protobuf:"varint,8,opt,name=for_key,json=forKey,proto3" json:"for_key,omitempty"`
+	ForKey bool `protobuf:"varint,8,opt,name=for_key,json=forKey,proto3" json:"for_key,omitempty"`
+	// The violated rule's source-map join key (RFC-001 §8.3.1): the
+	// originating file plus the canonical descriptor path, exactly as the
+	// shared formatter renders it. Engines populate it whenever the rule
+	// resolved through an embedded source map (50404) and leave it unset
+	// otherwise. Wire consumers join violations back to lowered rules —
+	// and through the source map to editor ranges — by this key instead of
+	// fuzzy-matching `source` positions.
+	SourceRef     *SourceRef `protobuf:"bytes,9,opt,name=source_ref,json=sourceRef,proto3" json:"source_ref,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -544,6 +553,69 @@ func (x *EnrichedViolation) GetForKey() bool {
 	return false
 }
 
+func (x *EnrichedViolation) GetSourceRef() *SourceRef {
+	if x != nil {
+		return x.SourceRef
+	}
+	return nil
+}
+
+// The §8.3.1 rule identity: unique within a SourceMap; the cross-file
+// key is (file, descriptor_path).
+type SourceRef struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// SourceMap.file of the map that resolved the rule.
+	File string `protobuf:"bytes,1,opt,name=file,proto3" json:"file,omitempty"`
+	// Canonical §8.3.1 grammar: elementPath [annotationAnchor [callAnchor]].
+	DescriptorPath string `protobuf:"bytes,2,opt,name=descriptor_path,json=descriptorPath,proto3" json:"descriptor_path,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *SourceRef) Reset() {
+	*x = SourceRef{}
+	mi := &file_protowire_schema_v1_report_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SourceRef) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SourceRef) ProtoMessage() {}
+
+func (x *SourceRef) ProtoReflect() protoreflect.Message {
+	mi := &file_protowire_schema_v1_report_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SourceRef.ProtoReflect.Descriptor instead.
+func (*SourceRef) Descriptor() ([]byte, []int) {
+	return file_protowire_schema_v1_report_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *SourceRef) GetFile() string {
+	if x != nil {
+		return x.File
+	}
+	return ""
+}
+
+func (x *SourceRef) GetDescriptorPath() string {
+	if x != nil {
+		return x.DescriptorPath
+	}
+	return ""
+}
+
 // FieldPath addresses a value inside a message instance. Structured — not a
 // dotted string — so map keys and repeated indices are unambiguous; the
 // human-readable dotted rendering is derived, never parsed back.
@@ -556,7 +628,7 @@ type FieldPath struct {
 
 func (x *FieldPath) Reset() {
 	*x = FieldPath{}
-	mi := &file_protowire_schema_v1_report_proto_msgTypes[4]
+	mi := &file_protowire_schema_v1_report_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -568,7 +640,7 @@ func (x *FieldPath) String() string {
 func (*FieldPath) ProtoMessage() {}
 
 func (x *FieldPath) ProtoReflect() protoreflect.Message {
-	mi := &file_protowire_schema_v1_report_proto_msgTypes[4]
+	mi := &file_protowire_schema_v1_report_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -581,7 +653,7 @@ func (x *FieldPath) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FieldPath.ProtoReflect.Descriptor instead.
 func (*FieldPath) Descriptor() ([]byte, []int) {
-	return file_protowire_schema_v1_report_proto_rawDescGZIP(), []int{4}
+	return file_protowire_schema_v1_report_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *FieldPath) GetSegments() []*FieldPathSegment {
@@ -614,7 +686,7 @@ type FieldPathSegment struct {
 
 func (x *FieldPathSegment) Reset() {
 	*x = FieldPathSegment{}
-	mi := &file_protowire_schema_v1_report_proto_msgTypes[5]
+	mi := &file_protowire_schema_v1_report_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -626,7 +698,7 @@ func (x *FieldPathSegment) String() string {
 func (*FieldPathSegment) ProtoMessage() {}
 
 func (x *FieldPathSegment) ProtoReflect() protoreflect.Message {
-	mi := &file_protowire_schema_v1_report_proto_msgTypes[5]
+	mi := &file_protowire_schema_v1_report_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -639,7 +711,7 @@ func (x *FieldPathSegment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FieldPathSegment.ProtoReflect.Descriptor instead.
 func (*FieldPathSegment) Descriptor() ([]byte, []int) {
-	return file_protowire_schema_v1_report_proto_rawDescGZIP(), []int{5}
+	return file_protowire_schema_v1_report_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *FieldPathSegment) GetFieldName() string {
@@ -767,7 +839,7 @@ type Value struct {
 
 func (x *Value) Reset() {
 	*x = Value{}
-	mi := &file_protowire_schema_v1_report_proto_msgTypes[6]
+	mi := &file_protowire_schema_v1_report_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -779,7 +851,7 @@ func (x *Value) String() string {
 func (*Value) ProtoMessage() {}
 
 func (x *Value) ProtoReflect() protoreflect.Message {
-	mi := &file_protowire_schema_v1_report_proto_msgTypes[6]
+	mi := &file_protowire_schema_v1_report_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -792,7 +864,7 @@ func (x *Value) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Value.ProtoReflect.Descriptor instead.
 func (*Value) Descriptor() ([]byte, []int) {
-	return file_protowire_schema_v1_report_proto_rawDescGZIP(), []int{6}
+	return file_protowire_schema_v1_report_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Value) GetKind() isValue_Kind {
@@ -965,7 +1037,7 @@ type ListValue struct {
 
 func (x *ListValue) Reset() {
 	*x = ListValue{}
-	mi := &file_protowire_schema_v1_report_proto_msgTypes[7]
+	mi := &file_protowire_schema_v1_report_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -977,7 +1049,7 @@ func (x *ListValue) String() string {
 func (*ListValue) ProtoMessage() {}
 
 func (x *ListValue) ProtoReflect() protoreflect.Message {
-	mi := &file_protowire_schema_v1_report_proto_msgTypes[7]
+	mi := &file_protowire_schema_v1_report_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -990,7 +1062,7 @@ func (x *ListValue) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListValue.ProtoReflect.Descriptor instead.
 func (*ListValue) Descriptor() ([]byte, []int) {
-	return file_protowire_schema_v1_report_proto_rawDescGZIP(), []int{7}
+	return file_protowire_schema_v1_report_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ListValue) GetValues() []*Value {
@@ -1024,7 +1096,7 @@ const file_protowire_schema_v1_report_proto_rawDesc = "" +
 	"\x10fallback_message\x18\x03 \x01(\tR\x0ffallbackMessage\x1aU\n" +
 	"\vParamsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x120\n" +
-	"\x05value\x18\x02 \x01(\v2\x1a.protowire.schema.v1.ValueR\x05value:\x028\x01\"\x94\x03\n" +
+	"\x05value\x18\x02 \x01(\v2\x1a.protowire.schema.v1.ValueR\x05value:\x028\x01\"\xd3\x03\n" +
 	"\x11EnrichedViolation\x124\n" +
 	"\x05cause\x18\x01 \x01(\v2\x1e.protowire.schema.v1.ViolationR\x05cause\x122\n" +
 	"\x04path\x18\x02 \x01(\v2\x1e.protowire.schema.v1.FieldPathR\x04path\x12\x1d\n" +
@@ -1034,7 +1106,12 @@ const file_protowire_schema_v1_report_proto_rawDesc = "" +
 	"\x06source\x18\x05 \x01(\v2#.protowire.schema.v1.SourceLocationR\x06source\x12:\n" +
 	"\trule_kind\x18\x06 \x01(\x0e2\x1d.protowire.schema.v1.RuleKindR\bruleKind\x12%\n" +
 	"\x0evalue_redacted\x18\a \x01(\bR\rvalueRedacted\x12\x17\n" +
-	"\afor_key\x18\b \x01(\bR\x06forKey\"N\n" +
+	"\afor_key\x18\b \x01(\bR\x06forKey\x12=\n" +
+	"\n" +
+	"source_ref\x18\t \x01(\v2\x1e.protowire.schema.v1.SourceRefR\tsourceRef\"H\n" +
+	"\tSourceRef\x12\x12\n" +
+	"\x04file\x18\x01 \x01(\tR\x04file\x12'\n" +
+	"\x0fdescriptor_path\x18\x02 \x01(\tR\x0edescriptorPath\"N\n" +
 	"\tFieldPath\x12A\n" +
 	"\bsegments\x18\x01 \x03(\v2%.protowire.schema.v1.FieldPathSegmentR\bsegments\"\xef\x01\n" +
 	"\x10FieldPathSegment\x12\x1d\n" +
@@ -1096,7 +1173,7 @@ func file_protowire_schema_v1_report_proto_rawDescGZIP() []byte {
 }
 
 var file_protowire_schema_v1_report_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_protowire_schema_v1_report_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_protowire_schema_v1_report_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_protowire_schema_v1_report_proto_goTypes = []any{
 	(ExecutionMode)(0),        // 0: protowire.schema.v1.ExecutionMode
 	(RuleKind)(0),             // 1: protowire.schema.v1.RuleKind
@@ -1105,35 +1182,37 @@ var file_protowire_schema_v1_report_proto_goTypes = []any{
 	(*EngineInfo)(nil),        // 4: protowire.schema.v1.EngineInfo
 	(*Violation)(nil),         // 5: protowire.schema.v1.Violation
 	(*EnrichedViolation)(nil), // 6: protowire.schema.v1.EnrichedViolation
-	(*FieldPath)(nil),         // 7: protowire.schema.v1.FieldPath
-	(*FieldPathSegment)(nil),  // 8: protowire.schema.v1.FieldPathSegment
-	(*Value)(nil),             // 9: protowire.schema.v1.Value
-	(*ListValue)(nil),         // 10: protowire.schema.v1.ListValue
-	nil,                       // 11: protowire.schema.v1.Violation.ParamsEntry
-	(*SourceLocation)(nil),    // 12: protowire.schema.v1.SourceLocation
-	(*anypb.Any)(nil),         // 13: google.protobuf.Any
+	(*SourceRef)(nil),         // 7: protowire.schema.v1.SourceRef
+	(*FieldPath)(nil),         // 8: protowire.schema.v1.FieldPath
+	(*FieldPathSegment)(nil),  // 9: protowire.schema.v1.FieldPathSegment
+	(*Value)(nil),             // 10: protowire.schema.v1.Value
+	(*ListValue)(nil),         // 11: protowire.schema.v1.ListValue
+	nil,                       // 12: protowire.schema.v1.Violation.ParamsEntry
+	(*SourceLocation)(nil),    // 13: protowire.schema.v1.SourceLocation
+	(*anypb.Any)(nil),         // 14: google.protobuf.Any
 }
 var file_protowire_schema_v1_report_proto_depIdxs = []int32{
 	6,  // 0: protowire.schema.v1.Report.violations:type_name -> protowire.schema.v1.EnrichedViolation
 	0,  // 1: protowire.schema.v1.Report.mode:type_name -> protowire.schema.v1.ExecutionMode
 	4,  // 2: protowire.schema.v1.Report.engine:type_name -> protowire.schema.v1.EngineInfo
-	11, // 3: protowire.schema.v1.Violation.params:type_name -> protowire.schema.v1.Violation.ParamsEntry
+	12, // 3: protowire.schema.v1.Violation.params:type_name -> protowire.schema.v1.Violation.ParamsEntry
 	5,  // 4: protowire.schema.v1.EnrichedViolation.cause:type_name -> protowire.schema.v1.Violation
-	7,  // 5: protowire.schema.v1.EnrichedViolation.path:type_name -> protowire.schema.v1.FieldPath
-	9,  // 6: protowire.schema.v1.EnrichedViolation.actual_value:type_name -> protowire.schema.v1.Value
-	12, // 7: protowire.schema.v1.EnrichedViolation.source:type_name -> protowire.schema.v1.SourceLocation
+	8,  // 5: protowire.schema.v1.EnrichedViolation.path:type_name -> protowire.schema.v1.FieldPath
+	10, // 6: protowire.schema.v1.EnrichedViolation.actual_value:type_name -> protowire.schema.v1.Value
+	13, // 7: protowire.schema.v1.EnrichedViolation.source:type_name -> protowire.schema.v1.SourceLocation
 	1,  // 8: protowire.schema.v1.EnrichedViolation.rule_kind:type_name -> protowire.schema.v1.RuleKind
-	8,  // 9: protowire.schema.v1.FieldPath.segments:type_name -> protowire.schema.v1.FieldPathSegment
-	2,  // 10: protowire.schema.v1.Value.null_value:type_name -> protowire.schema.v1.NullValue
-	13, // 11: protowire.schema.v1.Value.message_value:type_name -> google.protobuf.Any
-	10, // 12: protowire.schema.v1.Value.list_value:type_name -> protowire.schema.v1.ListValue
-	9,  // 13: protowire.schema.v1.ListValue.values:type_name -> protowire.schema.v1.Value
-	9,  // 14: protowire.schema.v1.Violation.ParamsEntry.value:type_name -> protowire.schema.v1.Value
-	15, // [15:15] is the sub-list for method output_type
-	15, // [15:15] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	7,  // 9: protowire.schema.v1.EnrichedViolation.source_ref:type_name -> protowire.schema.v1.SourceRef
+	9,  // 10: protowire.schema.v1.FieldPath.segments:type_name -> protowire.schema.v1.FieldPathSegment
+	2,  // 11: protowire.schema.v1.Value.null_value:type_name -> protowire.schema.v1.NullValue
+	14, // 12: protowire.schema.v1.Value.message_value:type_name -> google.protobuf.Any
+	11, // 13: protowire.schema.v1.Value.list_value:type_name -> protowire.schema.v1.ListValue
+	10, // 14: protowire.schema.v1.ListValue.values:type_name -> protowire.schema.v1.Value
+	10, // 15: protowire.schema.v1.Violation.ParamsEntry.value:type_name -> protowire.schema.v1.Value
+	16, // [16:16] is the sub-list for method output_type
+	16, // [16:16] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_protowire_schema_v1_report_proto_init() }
@@ -1142,14 +1221,14 @@ func file_protowire_schema_v1_report_proto_init() {
 		return
 	}
 	file_protowire_schema_v1_descriptor_proto_init()
-	file_protowire_schema_v1_report_proto_msgTypes[5].OneofWrappers = []any{
+	file_protowire_schema_v1_report_proto_msgTypes[6].OneofWrappers = []any{
 		(*FieldPathSegment_Index)(nil),
 		(*FieldPathSegment_StringKey)(nil),
 		(*FieldPathSegment_IntKey)(nil),
 		(*FieldPathSegment_UintKey)(nil),
 		(*FieldPathSegment_BoolKey)(nil),
 	}
-	file_protowire_schema_v1_report_proto_msgTypes[6].OneofWrappers = []any{
+	file_protowire_schema_v1_report_proto_msgTypes[7].OneofWrappers = []any{
 		(*Value_NullValue)(nil),
 		(*Value_StringValue)(nil),
 		(*Value_IntValue)(nil),
@@ -1167,7 +1246,7 @@ func file_protowire_schema_v1_report_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_protowire_schema_v1_report_proto_rawDesc), len(file_protowire_schema_v1_report_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   9,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
