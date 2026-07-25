@@ -1310,3 +1310,75 @@ service S {
 		}
 	})
 }
+
+// TestAnnotationSensitiveReservedClass verifies RFC-001 §6.7 rule 1:
+// a `class` value on the canonical `@sensitive` annotation that sits
+// in the reserved `protowire.` namespace is rejected — for the named,
+// positional, and exact-namespace spellings alike — while org-defined
+// class names and lookalike prefixes compile clean.
+func TestAnnotationSensitiveReservedClass(t *testing.T) {
+	t.Parallel()
+
+	const lib = `syntax = "proto3";
+package protowire.schema.v1;
+
+annotation sensitive(class: string = "");
+`
+	const main = `syntax = "proto3";
+package fixtures.badclass;
+
+import "lib.proto";
+
+message Config {
+  string token = 1 @sensitive(class = "protowire.secret");
+  string named = 2 @sensitive("protowire.pii");
+  string root = 3 @sensitive(class = "protowire");
+  string fine = 4 @sensitive(class = "credentials");
+  string bare = 5 @sensitive;
+  string similar = 6 @sensitive(class = "protowirex.pii");
+  string empty = 7 @sensitive(class = "");
+}
+`
+
+	_, rep := compileTwoForAnnotationTest(t, main, lib)
+
+	for _, reserved := range []string{"protowire.secret", "protowire.pii", "protowire"} {
+		assert.True(t,
+			hasErrorContaining(rep, "sensitivity class", reserved, "reserved"),
+			"expected reserved-class diagnostic for %q, got: %v", reserved, rep.Diagnostics)
+	}
+
+	var count int
+	for _, d := range rep.Diagnostics {
+		if d.Level() >= report.Error {
+			count++
+			assert.Contains(t, d.Message(), "is reserved", "unexpected diagnostic: %s", d.Message())
+		}
+	}
+	assert.Equal(t, 3, count, "org-defined, bare, lookalike, and empty uses must compile clean")
+}
+
+// TestAnnotationSensitiveReservedClassNonCanonical verifies the
+// reserved-class check keys on the resolved FQN
+// `protowire.schema.v1.sensitive`: a user annotation that happens to
+// be named `sensitive` accepts any class value.
+func TestAnnotationSensitiveReservedClassNonCanonical(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package myco;
+
+annotation sensitive(class: string = "");
+
+message Config {
+  string token = 1 @sensitive(class = "protowire.secret");
+}
+`
+
+	_, rep := compileForAnnotationTest(t, src)
+	for _, d := range rep.Diagnostics {
+		if d.Level() >= report.Error {
+			t.Errorf("unexpected diagnostic: %s", d.Message())
+		}
+	}
+}
