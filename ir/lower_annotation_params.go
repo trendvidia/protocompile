@@ -578,17 +578,39 @@ func classifyListElement(r *report.Report, u AnnotationUse, target Annotation, p
 		validateListLiteralArg(r, u, target, param, elem.AsArray())
 		return "a list", Type{}
 	case ast.ExprKindDict:
-		// A message literal inside a list under an `any`-typed
-		// context has no declared element type, and the parser's
-		// classifier keeps element-level type names out of the value
-		// grammar — so the explicit-typing rule (RFC-001 §5.1 rule 1)
-		// cannot be satisfied here.
-		r.Errorf("message literal is not allowed as a list element here").Apply(
-			report.Snippet(elem),
-			report.Notef("the element's message type cannot be named in this position; "+
-				"the enclosing context is `any`-typed"),
-		)
-		return "", Type{}
+		// Message-literal elements follow the same explicit-typing
+		// rule as argument-level literals under an `any`-typed
+		// context (RFC-001 §5.1 rule 1): the element's message type
+		// cannot come from the declaration, so the literal must name
+		// it. The parser's classifier carries the name on the dict
+		// itself — see [ast.ExprDict.TypeName].
+		dict := elem.AsDict()
+		typeName := dict.TypeName()
+		if typeName.IsZero() {
+			r.Errorf("message-literal list element in argument %q for `%s` requires an explicit type name",
+				param.Name(), target.FullName(),
+			).Apply(
+				report.Snippet(elem),
+				report.Snippetf(param.AST(), "parameter declared here"),
+				report.Notef("the enclosing context is `any`-typed, so the element's message type "+
+					"cannot come from the declaration; write `SomeType{...}`"),
+			)
+			return "", Type{}
+		}
+		sym := symbolRef{
+			File:   u.Context(),
+			Report: r,
+			scope:  u.scopeName(),
+			name:   FullName(typeName.Canonicalized()),
+			span:   typeName,
+			accept: func(k SymbolKind) bool { return k == SymbolKindMessage },
+			want:   taxa.MessageType,
+		}.resolve()
+		if sym.Kind() != SymbolKindMessage {
+			return "", Type{} // Already diagnosed.
+		}
+		u.evaluateMessageLiteralElem(r, sym.AsType(), dict)
+		return "a message", Type{}
 	}
 	return "", Type{}
 }

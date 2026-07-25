@@ -33,8 +33,9 @@ import (
 type ExprDict id.Node[ExprDict, *File, *rawExprDict]
 
 type rawExprDict struct {
-	braces token.ID
-	fields []withComma[id.ID[ExprField]]
+	fields   []withComma[id.ID[ExprField]]
+	typeName PathID
+	braces   token.ID
 }
 
 // AsAny type-erases this expression value.
@@ -46,6 +47,22 @@ func (e ExprDict) AsAny() ExprAny {
 	}
 
 	return id.WrapDyn(e.Context(), id.NewDyn(ExprKindDict, id.ID[ExprAny](e.ID())))
+}
+
+// TypeName returns the leading type name of a typed message literal
+// (the `Money` of `Money{currency: "USD"}`).
+//
+// Only the RFC-001 §5.1 annotation-argument classifier attaches type
+// names, wherever the literal is written typed — at argument level
+// (where [DeclAnnotationUse] arguments also expose it as
+// [AnnotationUseArg.MessageType]) and in list-element position,
+// where this accessor is the only carrier. Zero for dicts from every
+// other grammar position (standard option values, text format).
+func (e ExprDict) TypeName() Path {
+	if e.IsZero() {
+		return Path{}
+	}
+	return e.Raw().typeName.In(e.Context())
 }
 
 // Braces returns the token tree corresponding to the whole {...}.
