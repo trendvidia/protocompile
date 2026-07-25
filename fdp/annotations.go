@@ -523,14 +523,17 @@ func emitFileTypeDecls(file *ir.File, target *descriptorpb.FileOptions) bool {
 }
 
 // buildTypeDecl lowers one [ir.TypeAlias] into the [pwsv1.TypeDecl]
-// descriptor form. The alias's annotation list (the
-// `type Email = string @validate(...)` trailing-annotation form) is
-// preserved verbatim so downstream tools can attach the validation
-// rules at every use site without re-walking the IR.
+// descriptor form. The base type lowers resolved — base_type_fqn is
+// normatively fully qualified, so consumers get resolution-free
+// reads even for bases written bare in source. The alias's
+// annotation list (the `type Email = string @validate(...)`
+// trailing-annotation form) is preserved verbatim so downstream
+// tools can attach the validation rules at every use site without
+// re-walking the IR.
 func buildTypeDecl(a ir.TypeAlias) *pwsv1.TypeDecl {
 	out := &pwsv1.TypeDecl{
 		Name:        string(a.FullName()),
-		BaseTypeFqn: a.BaseTypeName(),
+		BaseTypeFqn: a.BaseTypeFQN(),
 		Location:    locationOf(a.AST().Name()),
 	}
 	uses := a.Annotations()

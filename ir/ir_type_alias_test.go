@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/trendvidia/protocompile/ir"
+	"github.com/trendvidia/protocompile/report"
 	"github.com/trendvidia/protocompile/seq"
 )
 
@@ -70,4 +71,91 @@ type Contact = test.Address;
 		assert.Equal(t, ir.SymbolKindTypeAlias, sym.Kind(), "symbol kind for %s", fqn)
 		assert.Equal(t, aliases[i], sym.AsTypeAlias(), "AsTypeAlias round-trip for %s", fqn)
 	}
+}
+
+// TestTypeAliasBaseFQN verifies base-type resolution for the FDP
+// carrier: [ir.TypeAlias.BaseTypeFQN] returns the fully-qualified
+// name of the resolved base — including for bare in-package
+// spellings and chained aliases — while primitives keep their
+// predeclared name and [ir.TypeAlias.BaseTypeName] keeps the
+// as-written text. Unresolved bases fall back to the as-written
+// text.
+func TestTypeAliasBaseFQN(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+message Address {}
+
+enum Status {
+  STATUS_UNSPECIFIED = 0;
+}
+
+type Email    = string;
+type Loc      = Address;
+type Contact  = test.Address;
+type Settled  = Status;
+type Chain    = Email;
+type Broken   = DoesNotExist;
+`
+
+	file, _ := compileForAnnotationTest(t, src)
+	require.NotNil(t, file)
+
+	wantFQN := map[string]string{
+		"test.Email":   "string",
+		"test.Loc":     "test.Address",
+		"test.Contact": "test.Address",
+		"test.Settled": "test.Status",
+		"test.Chain":   "test.Email",
+		"test.Broken":  "DoesNotExist",
+	}
+	wantWritten := map[string]string{
+		"test.Email":   "string",
+		"test.Loc":     "Address",
+		"test.Contact": "test.Address",
+		"test.Settled": "Status",
+		"test.Chain":   "Email",
+		"test.Broken":  "DoesNotExist",
+	}
+
+	require.Equal(t, len(wantFQN), file.TypeAliases().Len())
+	for a := range seq.Values(file.TypeAliases()) {
+		fqn := string(a.FullName())
+		assert.Equal(t, wantFQN[fqn], a.BaseTypeFQN(), "%s resolved base", fqn)
+		assert.Equal(t, wantWritten[fqn], a.BaseTypeName(), "%s as-written base", fqn)
+	}
+}
+
+// TestTypeAliasBaseFQNCrossFile verifies that an alias whose base
+// lives in an imported file resolves to the base's FQN in the
+// defining file's package.
+func TestTypeAliasBaseFQNCrossFile(t *testing.T) {
+	t.Parallel()
+
+	const lib = `syntax = "proto3";
+package fixtures.lib;
+
+type Email = string;
+`
+	const main = `syntax = "proto3";
+package fixtures.main;
+
+import "lib.proto";
+
+type CompanyEmail = fixtures.lib.Email;
+`
+
+	file, rep := compileTwoForAnnotationTest(t, main, lib)
+	for _, d := range rep.Diagnostics {
+		if d.Level() >= report.Error {
+			t.Errorf("unexpected diagnostic: %s", d.Message())
+		}
+	}
+
+	require.Equal(t, 1, file.TypeAliases().Len())
+	a := file.TypeAliases().At(0)
+	assert.Equal(t, "fixtures.main.CompanyEmail", string(a.FullName()))
+	assert.Equal(t, "fixtures.lib.Email", a.BaseTypeFQN())
 }

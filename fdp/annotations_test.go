@@ -499,7 +499,9 @@ function plain();
 
 // TestAnnotationEmissionFileTypeDecls verifies that `type` alias
 // declarations land in the FileTypeDecls extension on FileOptions,
-// preserving the base-type text and any trailing annotations.
+// with the base type fully qualified (the base_type_fqn contract:
+// consumers get resolution-free reads even for bases written bare
+// in source) and any trailing annotations preserved.
 func TestAnnotationEmissionFileTypeDecls(t *testing.T) {
 	t.Parallel()
 
@@ -508,15 +510,24 @@ package test;
 
 annotation since(when: string);
 
+message Address {}
+
+enum Status {
+  STATUS_UNSPECIFIED = 0;
+}
+
 type Email = string;
 type Phone = string @since("2026-06-01");
+type Loc = Address;
+type Settled = Status;
+type Chain = Email;
 `
 
 	f := compileForFDPTest(t, src)
 	require.NotNil(t, f.Options)
 	decls, ok := proto.GetExtension(f.Options, pwsv1.E_TypeDecls).(*pwsv1.FileTypeDecls)
 	require.True(t, ok)
-	require.Len(t, decls.Declarations, 2)
+	require.Len(t, decls.Declarations, 5)
 
 	byName := map[string]*pwsv1.TypeDecl{}
 	for _, d := range decls.Declarations {
@@ -526,6 +537,18 @@ type Phone = string @since("2026-06-01");
 	if d, ok := byName["test.Email"]; assert.True(t, ok) {
 		assert.Equal(t, "string", d.BaseTypeFqn)
 		assert.Nil(t, d.Annotations, "Email has no trailing annotations")
+	}
+	if d, ok := byName["test.Loc"]; assert.True(t, ok) {
+		assert.Equal(t, "test.Address", d.BaseTypeFqn,
+			"bare in-package message base must lower fully qualified")
+	}
+	if d, ok := byName["test.Settled"]; assert.True(t, ok) {
+		assert.Equal(t, "test.Status", d.BaseTypeFqn,
+			"bare in-package enum base must lower fully qualified")
+	}
+	if d, ok := byName["test.Chain"]; assert.True(t, ok) {
+		assert.Equal(t, "test.Email", d.BaseTypeFqn,
+			"chained alias base must lower fully qualified")
 	}
 	if d, ok := byName["test.Phone"]; assert.True(t, ok) {
 		assert.Equal(t, "string", d.BaseTypeFqn)
