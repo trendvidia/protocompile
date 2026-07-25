@@ -15,6 +15,8 @@
 package ir
 
 import (
+	"strings"
+
 	"github.com/trendvidia/protocompile/ast"
 	"github.com/trendvidia/protocompile/ast/predeclared"
 	"github.com/trendvidia/protocompile/internal/taxa"
@@ -259,9 +261,53 @@ func validateAnnotationUseArgs(file *File, r *report.Report) {
 		for _, b := range bindings {
 			if !b.Param.IsZero() {
 				validateAnnotationUseArg(r, u, target, b)
+				validateReservedSensitiveClass(r, target, b)
 			}
 		}
 	}
+}
+
+// canonicalSensitiveFQN is the canonical `@sensitive` annotation
+// declared in protowire/schema/v1/annotations.proto. Canonical-
+// annotation semantic checks key on this resolved FQN, so a user
+// annotation that happens to be named `sensitive` is unaffected.
+const canonicalSensitiveFQN FullName = "protowire.schema.v1.sensitive"
+
+// reservedClassNamespace is the class-name namespace RFC-001 §6.7
+// rule 1 reserves for future spec-defined sensitivity classes,
+// mirroring the §7 violation-code reservation.
+const reservedClassNamespace = "protowire"
+
+// validateReservedSensitiveClass rejects a `class` argument on the
+// canonical `@sensitive` annotation whose value sits in the reserved
+// `protowire.` namespace — an exact `"protowire"` or any dotted
+// extension of it.
+func validateReservedSensitiveClass(r *report.Report, target Annotation, b AnnotationArgBinding) {
+	if target.FullName() != canonicalSensitiveFQN || b.Param.Name() != "class" {
+		return
+	}
+
+	value := b.Arg.Value()
+	if value.Kind() != ast.ExprKindLiteral {
+		return // Non-string shapes get the standard type diagnostics.
+	}
+	tok := value.AsLiteral().Token
+	if tok.Kind() != token.String {
+		return
+	}
+
+	class := tok.AsString().Text()
+	if class != reservedClassNamespace &&
+		!strings.HasPrefix(class, reservedClassNamespace+".") {
+		return
+	}
+
+	r.Errorf("sensitivity class %q is reserved", class).Apply(
+		report.Snippet(value),
+		report.Snippetf(b.Param.AST(), "parameter declared here"),
+		report.Notef("class names beginning with `protowire.` are reserved "+
+			"for future spec-defined classes; pick an org-defined class name"),
+	)
 }
 
 // validateAnnotationUseArg classifies one bound use-site argument
