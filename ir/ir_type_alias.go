@@ -43,6 +43,7 @@ type rawTypeAlias struct {
 	def          id.ID[ast.DeclType]
 	fqn, name    intern.ID
 	baseTypeName intern.ID // canonical text of the base-type expression.
+	baseTypeFQN  intern.ID // FQN of the resolved base type; 0 when unresolved.
 
 	annotationUses []id.ID[AnnotationUse]
 }
@@ -95,6 +96,25 @@ func (t TypeAlias) BaseTypeName() string {
 		return ""
 	}
 	return t.Context().session.intern.Value(t.Raw().baseTypeName)
+}
+
+// BaseTypeFQN returns the fully-qualified name of the alias's
+// resolved base type — `type CompanyEmail = Email` written bare
+// in-package yields "fixtures.lib.Email" — or the predeclared name
+// ("string") for primitive bases. For a chained alias the immediate
+// base is returned, itself fully qualified.
+//
+// Falls back to [TypeAlias.BaseTypeName]'s as-written text when the
+// base did not resolve; field-type resolution diagnoses broken bases
+// at their use sites.
+func (t TypeAlias) BaseTypeFQN() string {
+	if t.IsZero() {
+		return ""
+	}
+	if t.Raw().baseTypeFQN != 0 {
+		return t.Context().session.intern.Value(t.Raw().baseTypeFQN)
+	}
+	return t.BaseTypeName()
 }
 
 // Annotations returns the annotation use sites attached to this

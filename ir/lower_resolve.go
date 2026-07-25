@@ -75,6 +75,48 @@ func resolveNames(file *File, r *report.Report) {
 			resolveMethodTypes(method, r)
 		}
 	}
+
+	resolveTypeAliasBases(file)
+}
+
+// resolveTypeAliasBases resolves each `type` alias's base-type
+// expression against the file's symbol table and records the
+// resolved FQN. The FDP carrier pins TypeDecl.base_type_fqn as
+// fully qualified (protowire descriptor.proto contract), so bare
+// in-package spellings like `type CompanyEmail = Email` must not
+// lower as written.
+//
+// Resolution is quiet: broken bases are diagnosed at field use
+// sites by [unwrapTypeAlias], and an alias nobody references stays
+// undiagnosed as before. An unresolved base leaves the recorded FQN
+// zero and [TypeAlias.BaseTypeFQN] falls back to the as-written
+// text.
+func resolveTypeAliasBases(file *File) {
+	for ta := range seq.Values(file.TypeAliases()) {
+		base := ta.BaseTypeName()
+		if base == "" {
+			continue
+		}
+
+		sym := symbolRef{
+			File: file,
+
+			span:  ta.AST().Value(),
+			scope: ta.FullName().Parent(),
+			name:  FullName(base),
+
+			skipIfNot: isTypeOrAlias,
+			accept:    isTypeOrAlias,
+			want:      taxa.Type,
+
+			allowScalars: true,
+		}.resolve()
+
+		if sym.IsZero() || !isTypeOrAlias(sym.Kind()) {
+			continue
+		}
+		ta.Raw().baseTypeFQN = file.session.intern.Intern(string(sym.FullName()))
+	}
 }
 
 // resolveFieldType fully resolves the type of a field (extension or otherwise).
