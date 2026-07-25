@@ -15,6 +15,7 @@
 package ir_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -158,4 +159,154 @@ type CompanyEmail = fixtures.lib.Email;
 	a := file.TypeAliases().At(0)
 	assert.Equal(t, "fixtures.main.CompanyEmail", string(a.FullName()))
 	assert.Equal(t, "fixtures.lib.Email", a.BaseTypeFQN())
+}
+
+// countErrorsContaining tallies error-level diagnostics whose message
+// contains all needles. (Errors are Level <= report.Error; comparing
+// >= would also match warnings.)
+func countErrorsContaining(rep *report.Report, needles ...string) int {
+	var n int
+outer:
+	for _, d := range rep.Diagnostics {
+		if d.Level() > report.Error {
+			continue
+		}
+		for _, needle := range needles {
+			if !strings.Contains(d.Message(), needle) {
+				continue outer
+			}
+		}
+		n++
+	}
+	return n
+}
+
+// TestTypeAliasBrokenBaseDiagnosedAtDeclaration verifies issue #129:
+// an alias whose base does not resolve is diagnosed at the
+// declaration site — exactly once — whether or not any field
+// references it.
+func TestTypeAliasBrokenBaseDiagnosedAtDeclaration(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unreferenced", func(t *testing.T) {
+		t.Parallel()
+		const src = `syntax = "proto3";
+package test;
+
+type Broken = DoesNotExist;
+`
+		_, rep := compileForAnnotationTest(t, src)
+		assert.Equal(t, 1, countErrorsContaining(rep, "DoesNotExist"),
+			"want exactly one declaration-site error, got: %v", rep.Diagnostics)
+	})
+
+	t.Run("referenced", func(t *testing.T) {
+		t.Parallel()
+		const src = `syntax = "proto3";
+package test;
+
+type Broken = DoesNotExist;
+
+message M {
+  Broken a = 1;
+  Broken b = 2;
+}
+`
+		_, rep := compileForAnnotationTest(t, src)
+		assert.Equal(t, 1, countErrorsContaining(rep, "DoesNotExist"),
+			"multiple use sites must not multiply the diagnostic, got: %v", rep.Diagnostics)
+	})
+}
+
+// TestTypeAliasCycleDiagnosedAtDeclaration verifies issue #129 for
+// cycles: a cyclic alias chain is diagnosed at the declaration site,
+// exactly once per cycle, referenced or not. Self-cycles count.
+func TestTypeAliasCycleDiagnosedAtDeclaration(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unreferenced pair", func(t *testing.T) {
+		t.Parallel()
+		const src = `syntax = "proto3";
+package test;
+
+type A = B;
+type B = A;
+`
+		_, rep := compileForAnnotationTest(t, src)
+		assert.Equal(t, 1, countErrorsContaining(rep, "is cyclic"),
+			"want exactly one cycle error, got: %v", rep.Diagnostics)
+	})
+
+	t.Run("self", func(t *testing.T) {
+		t.Parallel()
+		const src = `syntax = "proto3";
+package test;
+
+type Selfish = Selfish;
+`
+		_, rep := compileForAnnotationTest(t, src)
+		assert.Equal(t, 1, countErrorsContaining(rep, "is cyclic"),
+			"want exactly one cycle error, got: %v", rep.Diagnostics)
+	})
+
+	t.Run("referenced", func(t *testing.T) {
+		t.Parallel()
+		const src = `syntax = "proto3";
+package test;
+
+type A = test.B;
+type B = test.A;
+
+message M {
+  A a = 1;
+  B b = 2;
+}
+`
+		_, rep := compileForAnnotationTest(t, src)
+		assert.Equal(t, 1, countErrorsContaining(rep, "is cyclic"),
+			"use sites must not multiply the cycle error, got: %v", rep.Diagnostics)
+	})
+
+	t.Run("tail into cycle", func(t *testing.T) {
+		t.Parallel()
+		// C drains into the A<->B cycle but is not part of it; the
+		// cycle reports once and C itself is not called cyclic.
+		const src = `syntax = "proto3";
+package test;
+
+type A = B;
+type B = A;
+type C = A;
+`
+		_, rep := compileForAnnotationTest(t, src)
+		assert.Equal(t, 1, countErrorsContaining(rep, "is cyclic"),
+			"want exactly one cycle error, got: %v", rep.Diagnostics)
+	})
+}
+
+// TestTypeAliasBrokenBaseCrossFile verifies the declaration-site
+// diagnostic surfaces when the broken alias lives in an imported
+// file: the dependency's compile reports it, and the importing
+// file's use sites do not duplicate it.
+func TestTypeAliasBrokenBaseCrossFile(t *testing.T) {
+	t.Parallel()
+
+	const lib = `syntax = "proto3";
+package fixtures.lib;
+
+type Broken = DoesNotExist;
+`
+	const main = `syntax = "proto3";
+package fixtures.main;
+
+import "lib.proto";
+
+message M {
+  fixtures.lib.Broken a = 1;
+}
+`
+
+	_, rep := compileTwoForAnnotationTest(t, main, lib)
+	assert.Equal(t, 1, countErrorsContaining(rep, "DoesNotExist"),
+		"want exactly one error from the declaring file's compile, got: %v", rep.Diagnostics)
 }

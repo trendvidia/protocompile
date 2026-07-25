@@ -76,46 +76,125 @@ func resolveNames(file *File, r *report.Report) {
 		}
 	}
 
-	resolveTypeAliasBases(file)
+	resolveTypeAliasBases(file, r)
 }
 
 // resolveTypeAliasBases resolves each `type` alias's base-type
-// expression against the file's symbol table and records the
-// resolved FQN. The FDP carrier pins TypeDecl.base_type_fqn as
-// fully qualified (protowire descriptor.proto contract), so bare
-// in-package spellings like `type CompanyEmail = Email` must not
-// lower as written.
+// expression against the file's symbol table, records the resolved
+// FQN, and diagnoses broken bases and cyclic chains at the
+// declaration site (issue #129).
 //
-// Resolution is quiet: broken bases are diagnosed at field use
-// sites by [unwrapTypeAlias], and an alias nobody references stays
-// undiagnosed as before. An unresolved base leaves the recorded FQN
+// The recorded FQN feeds the FDP carrier: TypeDecl.base_type_fqn is
+// normatively fully qualified (protowire descriptor.proto contract),
+// so bare in-package spellings like `type CompanyEmail = Email` must
+// not lower as written. An unresolved base leaves the recorded FQN
 // zero and [TypeAlias.BaseTypeFQN] falls back to the as-written
 // text.
-func resolveTypeAliasBases(file *File) {
-	for ta := range seq.Values(file.TypeAliases()) {
+//
+// This pass is the single reporting site for alias-base problems:
+// [unwrapTypeAlias] re-walks chains at field use sites quietly, so a
+// broken alias is reported exactly once whether it is referenced by
+// twenty fields or none.
+func resolveTypeAliasBases(file *File, r *report.Report) {
+	aliases := file.TypeAliases()
+	n := aliases.Len()
+	if n == 0 {
+		return
+	}
+
+	indexOf := make(map[id.ID[TypeAlias]]int, n)
+	for i := range n {
+		indexOf[aliases.At(i).ID()] = i
+	}
+
+	// next[i] is the index of alias i's base when that base is
+	// another alias in this file; -1 otherwise. Cross-file bases
+	// cannot close a cycle — that would need a cyclic import — so
+	// the cycle walk below stays local.
+	next := make([]int, n)
+	for i := range n {
+		next[i] = -1
+		ta := aliases.At(i)
 		base := ta.BaseTypeName()
 		if base == "" {
 			continue
 		}
 
 		sym := symbolRef{
-			File: file,
+			File:   file,
+			Report: r,
 
 			span:  ta.AST().Value(),
 			scope: ta.FullName().Parent(),
 			name:  FullName(base),
 
-			skipIfNot: isTypeOrAlias,
-			accept:    isTypeOrAlias,
-			want:      taxa.Type,
+			accept: isTypeOrAlias,
+			want:   taxa.Type,
 
-			allowScalars: true,
+			allowScalars:  true,
+			suggestImport: true,
 		}.resolve()
 
 		if sym.IsZero() || !isTypeOrAlias(sym.Kind()) {
 			continue
 		}
 		ta.Raw().baseTypeFQN = file.session.intern.Intern(string(sym.FullName()))
+
+		if sym.Kind() == SymbolKindTypeAlias && sym.Context() == file {
+			if j, ok := indexOf[sym.AsTypeAlias().ID()]; ok {
+				next[i] = j
+			}
+		}
+	}
+
+	diagnoseAliasCycles(file, r, next)
+}
+
+// diagnoseAliasCycles reports each cycle in the local alias graph
+// exactly once, with a snippet on every participating link's
+// base-type expression. next[i] is alias i's base when that base is
+// a local alias, -1 otherwise.
+func diagnoseAliasCycles(file *File, r *report.Report, next []int) {
+	aliases := file.TypeAliases()
+
+	const (
+		white = byte(iota) // Unvisited.
+		gray               // On the current walk.
+		black              // Fully processed.
+	)
+	state := make([]byte, len(next))
+	for i := range next {
+		if state[i] != white {
+			continue
+		}
+
+		var path []int
+		j := i
+		for j >= 0 && state[j] == white {
+			state[j] = gray
+			path = append(path, j)
+			j = next[j]
+		}
+
+		// Hitting a gray node means the walk fed back into itself:
+		// the tail of path from that node onward is a cycle. Hitting
+		// black (or a terminal base) means the walk drained into an
+		// already-processed chain.
+		if j >= 0 && state[j] == gray {
+			cycle := path[slices.Index(path, j):]
+			head := aliases.At(cycle[0])
+			d := r.Errorf("type alias `%s` is cyclic", head.FullName())
+			for k, idx := range cycle {
+				link := aliases.At(idx)
+				to := aliases.At(cycle[(k+1)%len(cycle)])
+				d.Apply(report.Snippetf(link.AST().Value(),
+					"`%s` refers to `%s` here", link.Name(), to.Name()))
+			}
+		}
+
+		for _, idx := range path {
+			state[idx] = black
+		}
 	}
 }
 
@@ -207,7 +286,7 @@ func resolveFieldType(field Member, r *report.Report) {
 	// propagation runs later, after annotation use sites are
 	// resolved — see [propagateTypeAliasAnnotations].
 	if sym.Kind() == SymbolKindTypeAlias {
-		sym, _, _ = unwrapTypeAlias(field, sym.AsTypeAlias(), path, r)
+		sym, _, _ = unwrapTypeAlias(field, sym.AsTypeAlias())
 	}
 
 	if sym.Kind().IsType() {
@@ -268,10 +347,11 @@ func isTypeOrAlias(k SymbolKind) bool {
 // [Ref]s relative to `field.Context()`, so [Member.Annotations]
 // yields them under their defining file's context.
 //
-// On cycle, emits a diagnostic via `r` and returns a zero Symbol.
-// `r` may be nil to suppress diagnostics — the annotation-propagation
-// pass relies on this when it re-walks a chain whose diagnostics were
-// already emitted during field-type resolution.
+// The walk is quiet: broken bases and cycles are diagnosed once at
+// the declaration site by [resolveTypeAliasBases], so re-walking a
+// chain here — once per referencing field, and again during
+// annotation propagation — never re-reports them. On cycle, returns
+// a zero Symbol.
 //
 // The returned slices hold, in base-to-derived order (RFC-001 §6.4:
 // rules evaluate base → derived → field-level), each alias link's
@@ -279,7 +359,7 @@ func isTypeOrAlias(k SymbolKind) bool {
 // Within one link, uses keep their source order. Each [Ref.file] is
 // set relative to `field.Context()`, so the results can be stored
 // directly on a [rawMember].
-func unwrapTypeAlias(field Member, alias TypeAlias, refSpan source.Spanner, r *report.Report) (Symbol, []Ref[AnnotationUse], []Ref[TypeAlias]) {
+func unwrapTypeAlias(field Member, alias TypeAlias) (Symbol, []Ref[AnnotationUse], []Ref[TypeAlias]) {
 	var (
 		seen          = map[FullName]bool{}
 		linkUses      [][]Ref[AnnotationUse]
@@ -298,12 +378,8 @@ func unwrapTypeAlias(field Member, alias TypeAlias, refSpan source.Spanner, r *r
 	for {
 		fqn := current.FullName()
 		if seen[fqn] {
-			if r != nil {
-				r.Errorf("type alias `%s` is cyclic", fqn).Apply(
-					report.Snippetf(refSpan, "referenced here"),
-					report.Snippetf(current.AST().Name(), "alias defined here"),
-				)
-			}
+			// Cyclic chain; diagnosed at the declaration site by
+			// [diagnoseAliasCycles]. The seen-set only guards the walk.
 			return Symbol{}, nil, nil
 		}
 		seen[fqn] = true
@@ -322,7 +398,7 @@ func unwrapTypeAlias(field Member, alias TypeAlias, refSpan source.Spanner, r *r
 
 		baseSym := symbolRef{
 			File:   aliasFile,
-			Report: r,
+			Report: nil, // Quiet; broken bases are diagnosed by [resolveTypeAliasBases].
 
 			span:  current.AST().Value(),
 			scope: current.FullName().Parent(),
@@ -331,8 +407,7 @@ func unwrapTypeAlias(field Member, alias TypeAlias, refSpan source.Spanner, r *r
 			accept: isTypeOrAlias,
 			want:   taxa.Type,
 
-			allowScalars:  true,
-			suggestImport: true,
+			allowScalars: true,
 		}.resolve()
 
 		if baseSym.Kind() == SymbolKindTypeAlias {
@@ -402,9 +477,9 @@ func mapValueTypePath(ty ast.TypeAny) ast.Path {
 // synthetic key member: expanding it onto the map field would be
 // indistinguishable from value rules there and misapply to values.
 //
-// Cycle and missing-base diagnostics were already emitted during
-// [resolveFieldType]; this pass re-walks the chain silently
-// (`r == nil`) to collect the now-resolved annotation use IDs.
+// Cycle and missing-base diagnostics were already emitted at the
+// declaration site by [resolveTypeAliasBases]; this pass re-walks
+// the chain quietly to collect the now-resolved annotation use IDs.
 func propagateTypeAliasAnnotations(file *File) {
 	for ty := range seq.Values(file.AllTypes()) {
 		if !ty.IsMessage() {
@@ -452,7 +527,7 @@ func propagateAliasAnnotationsOn(file *File, field Member) {
 		return
 	}
 
-	_, aliasUses, aliasChain := unwrapTypeAlias(field, sym.AsTypeAlias(), path, nil)
+	_, aliasUses, aliasChain := unwrapTypeAlias(field, sym.AsTypeAlias())
 	if len(aliasChain) == 0 {
 		return
 	}
