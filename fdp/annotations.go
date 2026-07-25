@@ -124,14 +124,7 @@ func buildArg(u ir.AnnotationUse, b ir.AnnotationArgBinding) *pwsv1.AnnotationAr
 		if msg.IsZero() {
 			return nil // Evaluation failed; already diagnosed.
 		}
-		out.Value = &pwsv1.AnnotationArg_Literal{
-			Literal: &pwsv1.Literal{
-				Kind: &pwsv1.Literal_Message{Message: &anypb.Any{
-					TypeUrl: "type.googleapis.com/" + string(msg.Type().FullName()),
-					Value:   msg.Marshal(nil, nil),
-				}},
-			},
-		}
+		out.Value = &pwsv1.AnnotationArg_Literal{Literal: messageLiteral(msg)}
 		return out
 	}
 
@@ -194,13 +187,35 @@ func buildArgValue(u ir.AnnotationUse, value ast.ExprAny, param ir.AnnotationPar
 
 	case ast.ExprKindArray:
 		return &pwsv1.AnnotationArg{Value: buildListLiteral(u, value.AsArray(), param)}
+
+	case ast.ExprKindDict:
+		// A typed message-literal list element (RFC-001 §8.1,
+		// LiteralValue.literal): evaluated against its explicit type
+		// by the B3 pass and keyed by the dict's braces token.
+		// Argument-level literals never reach here — [buildArg]
+		// handles them before dispatching to this function.
+		msg := u.MessageLiteralElem(value)
+		if msg.IsZero() {
+			return nil // Evaluation failed; already diagnosed.
+		}
+		return &pwsv1.AnnotationArg{
+			Value: &pwsv1.AnnotationArg_Literal{Literal: messageLiteral(msg)},
+		}
 	}
 
-	// Message literals (ExprKindDict) are handled at the argument
-	// level in [buildArg] (they need the argument's explicit type
-	// path); as list elements they are rejected by B3. Nothing else
-	// can reach here.
 	return nil
+}
+
+// messageLiteral serializes an evaluated message literal into the
+// carrier's resolved form: a [pwsv1.Literal] holding a
+// google.protobuf.Any serialized at lowering (RFC-001 §8.1).
+func messageLiteral(msg ir.MessageValue) *pwsv1.Literal {
+	return &pwsv1.Literal{
+		Kind: &pwsv1.Literal_Message{Message: &anypb.Any{
+			TypeUrl: "type.googleapis.com/" + string(msg.Type().FullName()),
+			Value:   msg.Marshal(nil, nil),
+		}},
+	}
 }
 
 // buildEnumLiteral lowers an enum-value reference into a resolved

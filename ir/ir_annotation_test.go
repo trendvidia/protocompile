@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/trendvidia/protocompile/ast"
 	"github.com/trendvidia/protocompile/incremental"
 	"github.com/trendvidia/protocompile/incremental/queries"
 	"github.com/trendvidia/protocompile/ir"
@@ -1381,4 +1382,126 @@ message Config {
 			t.Errorf("unexpected diagnostic: %s", d.Message())
 		}
 	}
+}
+
+// TestAnnotationArgMessageListElements verifies RFC-001 §8.1 message
+// literals as list elements (the LiteralValue.literal kind): typed
+// elements compose inside lists — bare or qualified type names,
+// multi-element and nested-list forms — while untyped elements still
+// trip the explicit-typing rule and unknown type names get the
+// standard resolution diagnostics.
+func TestAnnotationArgMessageListElements(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+annotation meta(value: any);
+
+message Item { int32 status = 1; }
+
+@meta([Item{status: 1}])
+message Single {}
+
+@meta([Item{status: 1}, Item{status: 2}])
+message Multi {}
+
+@meta([test.Item{status: 1}])
+message Qualified {}
+
+@meta([[Item{status: 1}], [Item{status: 2}]])
+message Nested {}
+`
+
+	file, rep := compileForAnnotationTest(t, src)
+	for _, d := range rep.Diagnostics {
+		if d.Level() >= report.Error {
+			t.Errorf("unexpected diagnostic: %s", d.Message())
+		}
+	}
+
+	// The element literal is evaluated against its explicit type and
+	// recorded for descriptor production.
+	for ty := range seq.Values(file.AllTypes()) {
+		if ty.Name() != "Single" {
+			continue
+		}
+		uses := ty.Annotations()
+		require.Equal(t, 1, uses.Len())
+		u := uses.At(0)
+		bindings := u.ArgBindings()
+		require.Len(t, bindings, 1)
+		value := bindings[0].Arg.Value()
+		require.Equal(t, ast.ExprKindArray, value.Kind())
+		elems := value.AsArray().Elements()
+		require.Equal(t, 1, elems.Len())
+		msg := u.MessageLiteralElem(elems.At(0))
+		require.False(t, msg.IsZero(), "element literal should be evaluated and recorded")
+		assert.Equal(t, "test.Item", string(msg.Type().FullName()))
+	}
+}
+
+// TestAnnotationArgMessageListElementUntyped verifies the
+// explicit-typing rule for message-literal list elements: under an
+// `any`-typed context the element's type cannot come from the
+// declaration, so an untyped `{...}` element is diagnosed.
+func TestAnnotationArgMessageListElementUntyped(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+annotation meta(value: any);
+
+message Item { int32 status = 1; }
+
+@meta([{status: 1}])
+message Target {}
+`
+
+	_, rep := compileForAnnotationTest(t, src)
+	assert.True(t,
+		hasErrorContaining(rep, "message-literal list element", "explicit type name"),
+		"expected explicit-type-name diagnostic, got: %v", rep.Diagnostics)
+}
+
+// TestAnnotationArgMessageListElementBadType verifies that a message
+// list element whose type name does not resolve gets the standard
+// symbol-resolution diagnostics.
+func TestAnnotationArgMessageListElementBadType(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+annotation meta(value: any);
+
+@meta([Unknown{status: 1}])
+message Target {}
+`
+
+	_, rep := compileForAnnotationTest(t, src)
+	assert.True(t, hasErrorContaining(rep, "Unknown"),
+		"expected resolution diagnostic, got: %v", rep.Diagnostics)
+}
+
+// TestAnnotationArgMessageListElementHeterogeneous verifies that
+// message elements participate in the §8.1 homogeneity check.
+func TestAnnotationArgMessageListElementHeterogeneous(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+annotation meta(value: any);
+
+message Item { int32 status = 1; }
+
+@meta([Item{status: 1}, "x"])
+message Target {}
+`
+
+	_, rep := compileForAnnotationTest(t, src)
+	assert.True(t, hasErrorContaining(rep, "heterogeneous list literal"),
+		"expected homogeneity diagnostic, got: %v", rep.Diagnostics)
 }

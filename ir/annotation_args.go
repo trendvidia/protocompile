@@ -183,16 +183,35 @@ func resolveEnumValueRef(file *File, r *report.Report, scope FullName, path ast.
 }
 
 // evaluateMessageLiteralArg evaluates a message-literal argument's
-// dict expression against msgTy — a standalone evaluation, not
-// anchored to any field — and records the resulting [MessageValue]
-// on the use for descriptor production to read back via
-// [AnnotationUse.MessageLiteralArg].
+// dict expression against msgTy and records the result keyed by the
+// capture's first token, for [AnnotationUse.MessageLiteralArg].
+func (u AnnotationUse) evaluateMessageLiteralArg(r *report.Report, msgTy Type, arg ast.AnnotationUseArg) MessageValue {
+	return u.evaluateMessageLiteral(r, msgTy, arg.Value(), arg.ValueSpan(), arg.ValueStart().ID())
+}
+
+// evaluateMessageLiteralElem evaluates a typed message-literal list
+// element against msgTy and records the result keyed by the dict's
+// braces token, for [AnnotationUse.MessageLiteralElem].
+func (u AnnotationUse) evaluateMessageLiteralElem(r *report.Report, msgTy Type, elem ast.ExprDict) MessageValue {
+	return u.evaluateMessageLiteral(r, msgTy, elem.AsAny(), elem.Braces().Span(), elem.Braces().ID())
+}
+
+// evaluateMessageLiteral evaluates a message-literal dict expression
+// against msgTy — a standalone evaluation, not anchored to any field
+// — and records the resulting [MessageValue] on the use under key
+// for descriptor production to read back.
 //
 // Field-initializer diagnostics (unknown fields, duplicate settings,
 // value type mismatches) come from the shared option-value
 // evaluator. Map-typed fields are additionally rejected per RFC-001
 // §5.1 rule 3 (deferred in v1.2 message literals).
-func (u AnnotationUse) evaluateMessageLiteralArg(r *report.Report, msgTy Type, arg ast.AnnotationUseArg) MessageValue {
+func (u AnnotationUse) evaluateMessageLiteral(
+	r *report.Report,
+	msgTy Type,
+	expr ast.ExprAny,
+	span source.Span,
+	key token.ID,
+) MessageValue {
 	file := u.Context()
 
 	rawMsg := id.ID[MessageValue](file.arenas.messages.NewCompressed(rawMessageValue{
@@ -210,17 +229,17 @@ func (u AnnotationUse) evaluateMessageLiteralArg(r *report.Report, msgTy Type, a
 		scope:  u.scopeName(),
 	}
 	e.eval(evalArgs{
-		expr:       arg.Value(),
+		expr:       expr,
 		target:     msg.AsValue(),
 		literalMsg: msg,
-		annotation: arg.ValueSpan(),
+		annotation: span,
 		textFormat: true,
 	})
 
-	diagnoseMapFieldsInLiteral(r, msg, arg)
+	diagnoseMapFieldsInLiteral(r, msg, span)
 
 	u.Raw().msgLits = append(u.Raw().msgLits, evaluatedMessageLit{
-		arg: arg.ValueStart().ID(),
+		arg: key,
 		msg: rawMsg,
 	})
 	return msg
@@ -229,19 +248,19 @@ func (u AnnotationUse) evaluateMessageLiteralArg(r *report.Report, msgTy Type, a
 // diagnoseMapFieldsInLiteral rejects map-typed field initializers in
 // a message literal, recursively: RFC-001 §5.1 rule 3 defers map
 // fields from v1.2 message literals.
-func diagnoseMapFieldsInLiteral(r *report.Report, msg MessageValue, arg ast.AnnotationUseArg) {
+func diagnoseMapFieldsInLiteral(r *report.Report, msg MessageValue, span source.Span) {
 	for field := range msg.Fields() {
 		member := field.Field()
 		if elem := member.Element(); !elem.IsZero() && elem.IsMapEntry() {
 			r.Errorf("map-typed field `%s` is not allowed in a message literal", member.Name()).Apply(
-				report.Snippet(arg.ValueSpan()),
+				report.Snippet(span),
 				report.Snippetf(member.AST(), "field declared here"),
 				report.Notef("map fields in message literals are deferred in protowire v1.2"),
 			)
 			continue
 		}
 		if nested := field.AsMessage(); !nested.IsZero() {
-			diagnoseMapFieldsInLiteral(r, nested, arg)
+			diagnoseMapFieldsInLiteral(r, nested, span)
 		}
 	}
 }
@@ -254,7 +273,24 @@ func (u AnnotationUse) MessageLiteralArg(arg ast.AnnotationUseArg) MessageValue 
 	if u.IsZero() || arg.IsZero() {
 		return MessageValue{}
 	}
-	want := arg.ValueStart().ID()
+	return u.messageLiteralByKey(arg.ValueStart().ID())
+}
+
+// MessageLiteralElem returns the evaluated message value for a typed
+// message-literal list element, recorded by the B3 validation pass.
+// Returns a zero [MessageValue] when the element is not a message
+// literal or its evaluation failed.
+func (u AnnotationUse) MessageLiteralElem(elem ast.ExprAny) MessageValue {
+	if u.IsZero() || elem.Kind() != ast.ExprKindDict {
+		return MessageValue{}
+	}
+	return u.messageLiteralByKey(elem.AsDict().Braces().ID())
+}
+
+// messageLiteralByKey looks up an evaluated message literal by its
+// recording key: the capture's first token for argument-level
+// literals, the dict's braces token for list elements.
+func (u AnnotationUse) messageLiteralByKey(want token.ID) MessageValue {
 	for _, lit := range u.Raw().msgLits {
 		if lit.arg == want {
 			return id.Wrap(u.Context(), lit.msg)

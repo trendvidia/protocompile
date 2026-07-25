@@ -379,11 +379,7 @@ func classifyAnnotationArgValue(p *parser, tokens []token.Token) (ast.ExprAny, a
 
 	case tokens[len(tokens)-1].Keyword() == keyword.Braces &&
 		(len(tokens) == 1 || isQualifiedIdent(tokens[:len(tokens)-1])):
-		if dict, ok := classifyMessageLiteral(p, tokens[len(tokens)-1]); ok {
-			var typeName ast.Path
-			if len(tokens) > 1 {
-				typeName = pathOf(p, tokens[0])
-			}
+		if dict, typeName, ok := classifyMessageLiteral(p, tokens); ok {
 			return dict, typeName
 		}
 	}
@@ -403,15 +399,14 @@ func classifyListLiteral(p *parser, brackets token.Token) (ast.ExprAny, bool) {
 
 	exprs := make([]ast.ExprAny, len(elements))
 	for i, elem := range elements {
-		expr, typeName := classifyAnnotationArgValue(p, elem)
-		// Typed message literals are legal list elements, but the
-		// element expr loses the type path here: element-level typed
-		// messages are rare and the linker re-derives the type from
-		// the list's context. Reject for now so the S2 element-typing
-		// story stays explicit — the argument stays opaque and the
-		// link-time classifier diagnoses it if the param isn't
-		// expression-typed.
-		if expr.IsZero() || !typeName.IsZero() {
+		// Typed message-literal elements are legal (RFC-001 §8.1:
+		// lists are constrained only by homogeneity, and the carrier's
+		// LiteralValue.literal names the message kind directly). The
+		// element's type path travels on the dict itself — see
+		// [ast.ExprDict.TypeName] — since there is no argument node
+		// at element level to carry it.
+		expr, _ := classifyAnnotationArgValue(p, elem)
+		if expr.IsZero() {
 			return ast.ExprAny{}, false
 		}
 		exprs[i] = expr
@@ -424,13 +419,21 @@ func classifyListLiteral(p *parser, brackets token.Token) (ast.ExprAny, bool) {
 	return array.AsAny(), true
 }
 
-// classifyMessageLiteral re-parses a fused `{...}` token as a §5.1
-// message literal: comma-separated `Ident : literalValue` field
-// initializers. Reports false when any field fails that shape.
-func classifyMessageLiteral(p *parser, braces token.Token) (ast.ExprAny, bool) {
+// classifyMessageLiteral re-parses a captured
+// `qualifiedIdent? { ... }` token run as a §5.1 message literal:
+// comma-separated `Ident : literalValue` field initializers behind an
+// optional leading type name (the caller has already shape-checked
+// the leading tokens). Reports false when any field fails that shape.
+//
+// The type name, when present, is returned and also attached to the
+// dict itself ([ast.ExprDict.TypeName]) so list-element literals —
+// which have no [ast.AnnotationUseArg] to carry it — keep their
+// explicit type.
+func classifyMessageLiteral(p *parser, tokens []token.Token) (ast.ExprAny, ast.Path, bool) {
+	braces := tokens[len(tokens)-1]
 	fields, commas, ok := splitTopLevelCommas(braces.Children())
 	if !ok {
-		return ast.ExprAny{}, false
+		return ast.ExprAny{}, ast.Path{}, false
 	}
 
 	type fieldParts struct {
@@ -441,16 +444,24 @@ func classifyMessageLiteral(p *parser, braces token.Token) (ast.ExprAny, bool) {
 	parts := make([]fieldParts, len(fields))
 	for i, field := range fields {
 		if len(field) < 3 || field[0].Kind() != token.Ident || field[1].Keyword() != keyword.Colon {
-			return ast.ExprAny{}, false
+			return ast.ExprAny{}, ast.Path{}, false
 		}
+		// Field-initializer values keep type names out of the value
+		// grammar: nested literals type themselves from the field they
+		// initialize, so `child: Sub{...}` stays opaque.
 		value, typeName := classifyAnnotationArgValue(p, field[2:])
 		if value.IsZero() || !typeName.IsZero() {
-			return ast.ExprAny{}, false
+			return ast.ExprAny{}, ast.Path{}, false
 		}
 		parts[i] = fieldParts{name: field[0], colon: field[1], value: value}
 	}
 
-	dict := p.NewExprDict(braces)
+	var typeName ast.Path
+	if len(tokens) > 1 {
+		typeName = pathOf(p, tokens[0])
+	}
+
+	dict := p.NewTypedExprDict(typeName, braces)
 	for i, f := range parts {
 		field := p.NewExprField(ast.ExprFieldArgs{
 			Key:   ast.ExprPath{Path: pathOf(p, f.name)}.AsAny(),
@@ -459,7 +470,7 @@ func classifyMessageLiteral(p *parser, braces token.Token) (ast.ExprAny, bool) {
 		})
 		dict.Elements().AppendComma(field, commas[i])
 	}
-	return dict.AsAny(), true
+	return dict.AsAny(), typeName, true
 }
 
 // splitTopLevelCommas splits the children of a fused bracket token

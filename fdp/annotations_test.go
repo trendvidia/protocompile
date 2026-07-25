@@ -901,3 +901,62 @@ annotation plan(t: Tier = Tier.TIER_FREE);
 	assert.Equal(t, "TIER_FREE", ev.GetValueName())
 	assert.Equal(t, int32(1), ev.GetNumber())
 }
+
+// TestAnnotationEmissionMessageListElements verifies the lowered
+// carrier shape for message literals in list-element position
+// (RFC-001 §8.1, LiteralValue.literal): each element serializes as a
+// google.protobuf.Any inside ListLiteral.elements, including in
+// nested lists.
+func TestAnnotationEmissionMessageListElements(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+annotation meta(value: any);
+
+message Item { int32 status = 1; }
+
+@meta([Item{status: 1}, Item{status: 2}])
+message Flat {}
+
+@meta([[Item{status: 3}]])
+message Nested {}
+`
+
+	f := compileForFDPTest(t, src)
+
+	argOf := func(i int) *pwsv1.AnnotationArg {
+		list, ok := proto.GetExtension(f.GetMessageType()[i].Options, pwsv1.E_MessageAnnotations).(*pwsv1.AnnotationList)
+		require.True(t, ok)
+		require.Len(t, list.Entries, 1)
+		require.Len(t, list.Entries[0].Args, 1)
+		return list.Entries[0].Args[0]
+	}
+
+	// Flat: [Item{status: 1}, Item{status: 2}] — two message
+	// elements, each an Any serialized at lowering. Item{status: N}
+	// is field 1 varint: "\x08" N.
+	flat := argOf(1).GetLiteral().GetList()
+	require.NotNil(t, flat)
+	require.Len(t, flat.Elements, 2)
+	for i, elem := range flat.Elements {
+		anyMsg := elem.GetLiteral().GetMessage()
+		require.NotNil(t, anyMsg, "element %d should be a message literal", i)
+		assert.Equal(t, "type.googleapis.com/test.Item", anyMsg.GetTypeUrl())
+		assert.Equal(t, []byte{0x08, byte(i + 1)}, anyMsg.GetValue())
+	}
+
+	// Nested: [[Item{status: 3}]] — a list element that is itself a
+	// list whose single element is the message Any.
+	nested := argOf(2).GetLiteral().GetList()
+	require.NotNil(t, nested)
+	require.Len(t, nested.Elements, 1)
+	inner := nested.Elements[0].GetLiteral().GetList()
+	require.NotNil(t, inner)
+	require.Len(t, inner.Elements, 1)
+	anyMsg := inner.Elements[0].GetLiteral().GetMessage()
+	require.NotNil(t, anyMsg)
+	assert.Equal(t, "type.googleapis.com/test.Item", anyMsg.GetTypeUrl())
+	assert.Equal(t, []byte{0x08, 0x03}, anyMsg.GetValue())
+}

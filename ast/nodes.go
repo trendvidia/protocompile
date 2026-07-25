@@ -386,6 +386,20 @@ func (n *Nodes) NewExprDict(braces token.Token) ExprDict {
 	})))
 }
 
+// NewTypedExprDict creates a new ExprDict node carrying the leading
+// type name of a typed message literal (`Money{...}`) — see
+// [ExprDict.TypeName]. typeName may be zero.
+//
+// To add elements to the returned expression, use [ExprDict.Append].
+func (n *Nodes) NewTypedExprDict(typeName Path, braces token.Token) ExprDict {
+	n.panicIfNotOurs(typeName.Context(), braces.Context())
+
+	return id.Wrap(n.File(), id.ID[ExprDict](n.exprs.dicts.NewCompressed(rawExprDict{
+		typeName: typeName.ID(),
+		braces:   braces.ID(),
+	})))
+}
+
 // NewExprField creates a new ExprPrefixed node.
 func (n *Nodes) NewExprField(args ExprFieldArgs) ExprField {
 	n.panicIfNotOurs(args.Key.Context(), args.Colon.Context(), args.Value.Context())
