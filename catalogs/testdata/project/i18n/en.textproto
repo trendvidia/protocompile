@@ -1,0 +1,5 @@
+locale: "en"
+entries {
+  key: "profile.username.format"
+  value: "username must match {pattern}"
+}

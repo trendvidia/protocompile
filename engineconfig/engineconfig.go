@@ -147,8 +147,11 @@ type Config struct {
 	// of schema files whose function declarations the engine must
 	// implement (RFC-001 §9.2, §9.3).
 	FunctionLibraries []string
-	// CatalogLibraries lists locale catalog sources registered with the
-	// engine for i18n message rendering (RFC-001 §7).
+	// CatalogLibraries lists locale catalog source files registered with
+	// the engine for i18n message rendering: text-format
+	// protowire.schema.catalog.v1.Catalog files, one locale each, with
+	// relative paths resolved against the config file's directory
+	// (RFC-001 §7). The catalogs package is the reference loader.
 	CatalogLibraries []string
 	// Engine is the registered engine identifier, e.g. "cel",
 	// "starlark", "go".

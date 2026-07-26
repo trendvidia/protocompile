@@ -19,8 +19,9 @@
 //
 // Vendored from `trendvidia/protowire`
 // (`proto/schema/config/v1/config.proto`) at commit
-// 2fcc2181a9d8b6f3cf420b67980864fdbc0d33d1 — the revision that pinned the
-// engine-config format (protowire#95, spec/060-engine-config). The
+// 9320f6d0fa1f7075f7aeada4a81f81c637bf1322 — the revision that pinned the
+// catalog-library source format (protowire#195, spec-194-catalog-source-format;
+// the engine-config format itself was pinned by protowire#95). The
 // vendored copy and the upstream are byte-identical (modulo this header)
 // from `syntax = "proto3"` down. This vendor backs the public
 // `engineconfig` loader package — the reference discovery/precedence
@@ -74,8 +75,12 @@ type EngineConfig struct {
 	// `function` declarations this project's engine must implement.
 	// Used by init-time verification (§9.2) and codegen (§9.3).
 	FunctionLibraries []string `protobuf:"bytes,2,rep,name=function_libraries,json=functionLibraries,proto3" json:"function_libraries,omitempty"`
-	// Locale catalog sources registered with the engine for i18n
-	// message rendering (§7).
+	// Paths to locale catalog files registered with the engine for i18n
+	// message rendering (§7): each is a text-format
+	// `protowire.schema.catalog.v1.Catalog` message, one locale per file.
+	// Filesystem paths, resolved relative to this config file's directory
+	// (absolute paths taken as-is) — not proto import paths; catalogs are
+	// loaded at engine init, never compiled into the image.
 	CatalogLibraries []string `protobuf:"bytes,3,rep,name=catalog_libraries,json=catalogLibraries,proto3" json:"catalog_libraries,omitempty"`
 	// When true, missing function implementations fail engine startup
 	// instead of failing at first call (§9.2).

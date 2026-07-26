@@ -1,0 +1,57 @@
+// Copyright 2020-2026 Buf Technologies, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Protowire Schema Extensions — locale catalog source format (RFC-001 §7).
+// A catalog library file referenced by `EngineConfig.catalog_libraries`
+// (§9.4) is a text-format Catalog message: a data artifact loaded at
+// engine init by validator binaries and tooling, never embedded in
+// descriptors. Allocates no extension numbers.
+//
+// Vendored from `trendvidia/protowire`
+// (`proto/schema/catalog/v1/catalog.proto`) at commit
+// 9320f6d0fa1f7075f7aeada4a81f81c637bf1322 — the revision that pinned the
+// catalog-library source format (protowire#194/#195,
+// spec-194-catalog-source-format). The vendored copy and the upstream are
+// byte-identical (modulo this header) from `syntax = "proto3"` down. This
+// vendor backs the public `catalogs` loader package — the reference
+// catalog-source loader shared by protocheck, protolsp, and CLI tooling.
+
+syntax = "proto3";
+
+package protowire.schema.catalog.v1;
+
+// Catalog is one locale's message catalog: violation code → message
+// template. Localized messages are produced at format time from a
+// violation's `code` + `params` (RFC-001 §7): `{name}` placeholders in a
+// template interpolate the violation's params; a placeholder with no
+// matching param is left verbatim, so a missing translation surfaces
+// visibly rather than silently vanishing. A catalog miss (no entry for
+// the code) falls back to the violation's `fallback_message`.
+//
+// One file declares one locale. Multiple `catalog_libraries` entries MAY
+// declare the same locale (per-domain catalogs); loaders merge them into
+// the single per-locale catalog registered with the engine
+// (`Engine.RegisterCatalog`, §9.1). The same code appearing in two files
+// for one locale is a load error — never a silent override.
+message Catalog {
+  // BCP 47 language tag ("en", "de", "pt-BR"): the registration key for
+  // the engine's per-locale catalog. Must be non-empty. Locale
+  // negotiation — matching a consumer's requested locale against
+  // registered catalogs — is consumer policy, not pinned by the spec.
+  string locale = 1;
+
+  // Violation code → message template. `{name}` placeholders
+  // interpolate the violation's params.
+  map<string, string> entries = 2;
+}
