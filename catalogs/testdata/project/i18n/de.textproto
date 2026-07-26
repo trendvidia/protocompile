@@ -1,0 +1,5 @@
+locale: "de"
+entries {
+  key: "profile.username.format"
+  value: "Benutzername muss dem Muster {pattern} entsprechen"
+}

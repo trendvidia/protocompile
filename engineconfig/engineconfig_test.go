@@ -35,7 +35,7 @@ const conformanceFixture = "testdata/08_engine_config.textproto"
 func conformanceExpected(path string, source Source) *Config {
 	return &Config{
 		FunctionLibraries: []string{"myco/commons/validator.proto", "myco/commons/types.proto"},
-		CatalogLibraries:  []string{"myco/i18n/en.proto", "myco/i18n/de.proto"},
+		CatalogLibraries:  []string{"myco/i18n/en.textproto", "myco/i18n/de.textproto"},
 		Engine:            "cel",
 		Path:              path,
 		Source:            source,
@@ -203,7 +203,7 @@ func TestPerSettingOverrides(t *testing.T) {
 	writeConfig(t, root, `
 		engine: "starlark"
 		function_libraries: "a.proto"
-		catalog_libraries: "en.proto"
+		catalog_libraries: "en.textproto"
 		strict_validation: true
 		default_mode: EXECUTION_MODE_FAIL_FAST
 		max_recursion_depth: 16

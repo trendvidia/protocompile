@@ -1,0 +1,8 @@
+# Same locale as de.textproto, disjoint codes: a per-domain catalog that
+# merges into the single "de" catalog (RFC-001 §7).
+
+locale: "de"
+entries {
+  key: "billing.amount.range"
+  value: "Betrag muss zwischen {min} und {max} liegen"
+}

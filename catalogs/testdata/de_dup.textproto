@@ -1,0 +1,8 @@
+# Duplicates a code that de.textproto already declares for "de": loading
+# both is a hard error, never a silent override (RFC-001 §7).
+
+locale: "de"
+entries {
+  key: "profile.username.format"
+  value: "anderes Template"
+}

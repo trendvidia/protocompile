@@ -1,0 +1,12 @@
+# proto-file: protowire/schema/catalog/v1/catalog.proto
+# proto-message: protowire.schema.catalog.v1.Catalog
+
+locale: "de"
+entries {
+  key: "profile.username.format"
+  value: "Benutzername muss dem Muster {pattern} entsprechen"
+}
+entries {
+  key: "profile.display_name.length"
+  value: "Anzeigename ist zu lang"
+}

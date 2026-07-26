@@ -153,7 +153,8 @@ PROTOWIRE_DIR ?= ../protowire
 SPEC_VENDORED := \
 	proto/protowire/schema/v1/report.proto:proto/schema/v1/report.proto \
 	proto/protowire/schema/v1/descriptor.proto:proto/schema/v1/descriptor.proto \
-	internal/proto/protowire/schema/config/v1/config.proto:proto/schema/config/v1/config.proto
+	internal/proto/protowire/schema/config/v1/config.proto:proto/schema/config/v1/config.proto \
+	internal/proto/protowire/schema/catalog/v1/catalog.proto:proto/schema/catalog/v1/catalog.proto
 
 .PHONY: checkspecdrift
 checkspecdrift: ## Diff vendored protowire schema files against a local spec-repo checkout (PROTOWIRE_DIR)

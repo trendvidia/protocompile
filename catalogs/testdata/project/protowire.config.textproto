@@ -1,0 +1,3 @@
+engine: "cel"
+catalog_libraries: "i18n/de.textproto"
+catalog_libraries: "i18n/en.textproto"

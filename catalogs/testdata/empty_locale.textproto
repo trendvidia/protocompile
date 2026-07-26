@@ -1,0 +1,4 @@
+entries {
+  key: "profile.username.format"
+  value: "no locale declared"
+}
