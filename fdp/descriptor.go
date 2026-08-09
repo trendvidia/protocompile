@@ -153,6 +153,19 @@ func GenerateExtraOptionLocations(flag bool) DescriptorOption {
 	})
 }
 
+// EmitGoogleAPIHTTP sets whether the routing skeleton of the canonical
+// `@http` annotation is also lowered to the standard `google.api.http`
+// extension on MethodOptions (RFC-001 §5.2, protowire#213). The
+// annotation carrier is emitted either way; this only controls the
+// second, standard spelling that off-the-shelf REST binders read.
+//
+// Emission is on by default — the zero [Options] emits.
+func EmitGoogleAPIHTTP(flag bool) DescriptorOption {
+	return descriptorOption(func(o *Options) {
+		o.suppressGoogleAPIHTTP = !flag
+	})
+}
+
 // Excluder is used with [ExcludeFiles].
 //
 // This is an interface, rather than a function, so that implementations can be comparable for

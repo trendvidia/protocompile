@@ -20,6 +20,7 @@ import (
 	"strconv"
 
 	descriptorv1 "buf.build/gen/go/bufbuild/protodescriptor/protocolbuffers/go/buf/descriptor/v1"
+	"google.golang.org/genproto/googleapis/api/annotations"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 
@@ -46,7 +47,10 @@ import (
 type Options struct {
 	includeSourceCodeInfo        bool
 	generateExtraOptionLocations bool
-	exclude                      Excluder
+	// Negative sense so the zero Options emits: the §5.2 lowering is on
+	// by default, and a caller opts out with EmitGoogleAPIHTTP(false).
+	suppressGoogleAPIHTTP bool
+	exclude               Excluder
 }
 
 type generator struct {
@@ -751,8 +755,19 @@ func (g *generator) method(m ir.Method, mdp *descriptorpb.MethodDescriptorProto)
 				}
 			})
 		}
-		if emitAnnotations(annUses, mdp.Options, pwsv1.E_MethodAnnotations) {
+		if list := buildAnnotationList(annUses); list != nil {
+			proto.SetExtension(mdp.Options, pwsv1.E_MethodAnnotations, list)
 			hadAny = true
+
+			// RFC-001 §5.2: `@http`'s routing skeleton also lowers to the
+			// standard google.api.http extension, so a REST binder that
+			// knows nothing about the carrier can still bind the route
+			// (protowire#213). An author-written rule wins outright.
+			if !g.suppressGoogleAPIHTTP && !hasAuthoredHTTPRule(mdp.Options) {
+				if rule := httpRuleFor(list); rule != nil {
+					proto.SetExtension(mdp.Options, annotations.E_Http, rule)
+				}
+			}
 		}
 		if !hadAny {
 			mdp.Options = nil
