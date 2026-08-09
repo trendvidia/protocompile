@@ -210,6 +210,12 @@ func lower(file *File, r *report.Report, importer Importer) {
 	populateOptionTargets(file, r)
 	validateOptionTargets(file, r)
 
+	// An author-written `(google.api.http)` suppresses the §5.2
+	// lowering of `@http` on the same method, which is worth saying out
+	// loud. Unlike the rest of the §5.2 checks this one reads options,
+	// so it waits for them.
+	checkAuthoredHTTPRules(file, r)
+
 	// Build feature info for validating features after they are constructed.
 	// Then validate all feature settings throughout the file.
 	buildAllFeatureInfo(file, r)

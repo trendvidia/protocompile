@@ -18,16 +18,17 @@ import (
 	"strings"
 
 	"github.com/trendvidia/protocompile/ast"
+	"github.com/trendvidia/protocompile/internal"
 	"github.com/trendvidia/protocompile/report"
 	"github.com/trendvidia/protocompile/seq"
-	"github.com/trendvidia/protocompile/token"
 )
 
 // canonicalHTTPFQN is the canonical `@http` annotation declared in
 // protowire/schema/v1/annotations.proto. The §5.2 routing checks key
 // on this resolved FQN, so a user annotation that happens to be named
-// `http` is unaffected.
-const canonicalHTTPFQN FullName = "protowire.schema.v1.http"
+// `http` is unaffected. The `fdp` lowering keys on the same constant;
+// see [internal.CanonicalHTTPFQN] for why it lives outside both.
+const canonicalHTTPFQN FullName = internal.CanonicalHTTPFQN
 
 // validateHTTPUses checks the routing skeleton of every canonical
 // `@http` use site against the method it annotates (RFC-001 §5.2).
@@ -46,8 +47,7 @@ func validateHTTPUses(file *File, r *report.Report) {
 	for svc := range seq.Values(file.Services()) {
 		for m := range seq.Values(svc.Methods()) {
 			for u := range seq.Values(m.Annotations()) {
-				target := u.Target()
-				if target.IsZero() || target.FullName() != canonicalHTTPFQN {
+				if !isCanonicalHTTPUse(u) {
 					continue
 				}
 				validateHTTPUse(r, m, u)
@@ -56,9 +56,16 @@ func validateHTTPUses(file *File, r *report.Report) {
 	}
 }
 
+// isCanonicalHTTPUse reports whether a use site resolved to the
+// canonical `@http` annotation.
+func isCanonicalHTTPUse(u AnnotationUse) bool {
+	target := u.Target()
+	return !target.IsZero() && target.FullName() == canonicalHTTPFQN
+}
+
 // validateHTTPUse checks one `@http` use site: a non-empty verb, an
 // absolute path, well-formed `{name}` template segments, and a
-// same-named top-level field on the request message for each.
+// bindable field on the request message for each.
 func validateHTTPUse(r *report.Report, m Method, u AnnotationUse) {
 	if method, span, ok := httpStringArg(u, "method"); ok && strings.TrimSpace(method) == "" {
 		r.Errorf("`@http` method must not be empty").Apply(
@@ -95,16 +102,78 @@ func validateHTTPUse(r *report.Report, m Method, u AnnotationUse) {
 		return // Unresolved request type; already diagnosed.
 	}
 	for _, name := range vars {
-		if hasMemberNamed(input, name) {
+		field, repeated := resolveTemplateField(input, name)
+		switch {
+		case field.IsZero():
+			r.Errorf("`@http` path template `{%s}` binds no field of `%s`", name, input.FullName()).Apply(
+				report.Snippet(span),
+				report.Snippetf(m.AST().Name(), "on this method"),
+				report.Notef("each `{name}` segment binds to a field of the request "+
+					"message, named from its top level as a dotted path (RFC-001 §5.2); "+
+					"a segment that binds nothing makes the route unservable"),
+			)
+
+		case !repeated.IsZero():
+			r.Errorf("`@http` path template `{%s}` binds the repeated field `%s`",
+				name, repeated.FullName(),
+			).Apply(
+				report.Snippet(span),
+				report.Snippetf(m.AST().Name(), "on this method"),
+				report.Notef("a path variable expands to a single value, so it cannot "+
+					"bind a repeated or map field; `google.api.HttpRule` rejects such a "+
+					"binding outright, making the route unservable"),
+			)
+		}
+	}
+}
+
+// checkAuthoredHTTPRules warns for every method carrying both an
+// `@http` annotation and an author-written `(google.api.http)` option.
+//
+// A method carries at most one rule at field 72295728, so the fdp
+// lowering lets the authored one stand rather than emitting a second,
+// competing rule beside it. That leaves the annotation carrier
+// advertising one route to an OpenAPI renderer while the wire rule
+// binds another — the one way the two spellings of the same route can
+// disagree, and silent unless it is said out loud here.
+//
+// Runs after [resolveOptions], unlike the rest of this file: the check
+// reads the method's options, which do not exist until then.
+func checkAuthoredHTTPRules(file *File, r *report.Report) {
+	for svc := range seq.Values(file.Services()) {
+		for m := range seq.Values(svc.Methods()) {
+			for u := range seq.Values(m.Annotations()) {
+				if !isCanonicalHTTPUse(u) {
+					continue
+				}
+				checkAuthoredHTTPRule(r, m, u)
+				break // One warning per method, not per use site.
+			}
+		}
+	}
+}
+
+// checkAuthoredHTTPRule warns for one method, blaming u for the
+// annotation half of the conflict.
+func checkAuthoredHTTPRule(r *report.Report, m Method, u AnnotationUse) {
+	for v := range m.Options().Fields() {
+		if v.Field().Number() != internal.GoogleAPIHTTPField {
 			continue
 		}
-		r.Errorf("`@http` path template `{%s}` binds no field of `%s`", name, input.FullName()).Apply(
-			report.Snippet(span),
-			report.Snippetf(m.AST().Name(), "on this method"),
-			report.Notef("each `{name}` segment binds to the same-named top-level field "+
-				"of the request message (RFC-001 §5.2); a segment that binds nothing "+
-				"makes the route unservable"),
-		)
+
+		options := []report.DiagnosticOption{
+			report.Snippetf(u.AST(), "this annotation's route is not lowered"),
+			report.Notef("a method carries at most one `google.api.http` rule and the " +
+				"author-written one wins; the annotation's path still reaches the " +
+				"annotation carrier, so the two describe different routes (RFC-001 §5.2)"),
+		}
+		if span := v.OptionSpan(); span != nil {
+			options = append([]report.DiagnosticOption{
+				report.Snippetf(span, "this rule routes the method instead"),
+			}, options...)
+		}
+		r.Warnf("`@http` does not route this method").Apply(options...)
+		return
 	}
 }
 
@@ -116,15 +185,7 @@ func httpStringArg(u AnnotationUse, param string) (string, ast.ExprAny, bool) {
 		if b.Param.IsZero() || b.Param.Name() != param {
 			continue
 		}
-		value := b.Arg.Value()
-		if value.Kind() != ast.ExprKindLiteral {
-			return "", value, false
-		}
-		tok := value.AsLiteral().Token
-		if tok.Kind() != token.String {
-			return "", value, false
-		}
-		return tok.AsString().Text(), value, true
+		return stringArg(b)
 	}
 	return "", ast.ExprAny{}, false
 }
@@ -155,13 +216,29 @@ func httpTemplateVars(path string) ([]string, bool) {
 	return out, true
 }
 
-// hasMemberNamed reports whether ty declares a top-level member of
-// that name.
-func hasMemberNamed(ty Type, name string) bool {
-	for member := range seq.Values(ty.Members()) {
-		if member.Name() == name {
-			return true
+// resolveTemplateField resolves one path-template variable against the
+// request message. The variable names a field, either directly or as a
+// dotted path descending into nested messages — the form
+// `google.api.HttpRule` templates use.
+//
+// Returns the field the variable binds, plus the first component along
+// the way that is repeated or a map (zero when none is). A zero field
+// means some component named nothing.
+func resolveTemplateField(ty Type, name string) (field, repeated Member) {
+	for _, component := range strings.Split(name, ".") {
+		if !ty.IsMessage() {
+			// Descending through a scalar or an enum: the remaining
+			// components name nothing.
+			return Member{}, Member{}
 		}
+		field = ty.MemberByName(component)
+		if field.IsZero() {
+			return Member{}, Member{}
+		}
+		if repeated.IsZero() && field.IsRepeated() {
+			repeated = field
+		}
+		ty = field.Element()
 	}
-	return false
+	return field, repeated
 }

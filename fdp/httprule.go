@@ -22,13 +22,17 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 
 	pwsv1 "github.com/trendvidia/protocompile/gen/protowire/schema/v1"
+	"github.com/trendvidia/protocompile/internal"
 )
 
 // canonicalHTTPFQN is the canonical `@http` annotation declared in
 // protowire/schema/v1/annotations.proto, as its use sites appear in
 // [pwsv1.Annotation.Name] after lowering. Keying on the resolved FQN
 // leaves a user annotation that happens to be named `http` alone.
-const canonicalHTTPFQN = "protowire.schema.v1.http"
+//
+// The IR's §5.2 routing checks key on the same constant; see
+// [internal.CanonicalHTTPFQN] for why it lives outside both.
+const canonicalHTTPFQN = internal.CanonicalHTTPFQN
 
 // httpRuleFor lowers the canonical `@http` use sites of one method's
 // annotation carrier into a standard `google.api.HttpRule`, or returns
@@ -71,7 +75,13 @@ func httpRuleFor(list *pwsv1.AnnotationList) *annotations.HttpRule {
 // string-shaped — the §5.2 checks in the IR pass already diagnosed
 // that, and guessing a route here would be worse than emitting none.
 func httpRuleFromAnnotation(ann *pwsv1.Annotation) *annotations.HttpRule {
-	method := strings.ToUpper(httpStringArg(ann, "method", 0))
+	// The verb is trimmed before it is matched, the same way the IR
+	// check trims before testing it for emptiness: otherwise a padded
+	// `" GET "` clears that check and lands in the custom-pattern
+	// branch here, registering an unreachable verb. The path is *not*
+	// trimmed — the IR requires it to start with `/` verbatim, so
+	// trimming here would emit a route the IR rejected.
+	method := strings.ToUpper(strings.TrimSpace(httpStringArg(ann, "method", 0)))
 	path := httpStringArg(ann, "path", 1)
 	if method == "" || path == "" {
 		return nil

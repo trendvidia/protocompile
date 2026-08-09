@@ -28,6 +28,7 @@ import (
 	pwsv1 "github.com/trendvidia/protocompile/gen/protowire/schema/v1"
 	"github.com/trendvidia/protocompile/incremental"
 	"github.com/trendvidia/protocompile/incremental/queries"
+	"github.com/trendvidia/protocompile/internal"
 	"github.com/trendvidia/protocompile/ir"
 	"github.com/trendvidia/protocompile/report"
 	"github.com/trendvidia/protocompile/source"
@@ -84,13 +85,17 @@ func compileHTTPTestFiles(t *testing.T, files map[string]string, options ...fdp.
 }
 
 // requireNoErrors fails the test on any error-level diagnostic.
+//
+// [report.Level] counts down from [report.ICE], so error-or-worse is
+// `<= report.Error`; the other comparison quietly promotes every
+// warning and remark to a test failure.
 func requireNoErrors(t *testing.T, rep *report.Report) {
 	t.Helper()
 	if rep == nil {
 		return
 	}
 	for _, d := range rep.Diagnostics {
-		if d.Level() >= report.Error {
+		if d.Level() <= report.Error {
 			t.Fatalf("unexpected diagnostic: %s", d.Message())
 		}
 	}
@@ -140,6 +145,21 @@ service Orders {
 
   @http("WATCH", "/orders/{order_id}")
   rpc WatchOrder(GetOrderRequest) returns (Order);
+
+  @http("PUT", "/orders/{order_id}")
+  rpc ReplaceOrder(GetOrderRequest) returns (Order);
+
+  @http("PATCH", "/orders/{order_id}")
+  rpc AmendOrder(GetOrderRequest) returns (Order);
+
+  @http("HEAD", "/orders/{order_id}")
+  rpc PeekOrder(GetOrderRequest) returns (Order);
+
+  @http("OPTIONS", "/orders/{order_id}")
+  rpc OrderOptions(GetOrderRequest) returns (Order);
+
+  @http("  get  ", "/padded")
+  rpc PaddedVerb(ListOrdersRequest) returns (Order);
 }
 `
 
@@ -147,7 +167,7 @@ service Orders {
 	requireNoErrors(t, rep)
 	require.Len(t, f.GetService(), 1)
 	methods := f.GetService()[0].GetMethod()
-	require.Len(t, methods, 5)
+	require.Len(t, methods, 10)
 
 	list := methods[0].GetOptions()
 	require.NotNil(t, list)
@@ -179,6 +199,47 @@ service Orders {
 	assert.Equal(t, "WATCH", rule.GetCustom().GetKind())
 	assert.Equal(t, "/orders/{order_id}", rule.GetCustom().GetPath())
 	assert.Equal(t, "*", rule.GetBody())
+
+	rule = httpRuleOf(methods[5])
+	require.NotNil(t, rule)
+	assert.Equal(t, "/orders/{order_id}", rule.GetPut())
+	assert.Equal(t, "*", rule.GetBody())
+
+	rule = httpRuleOf(methods[6])
+	require.NotNil(t, rule)
+	assert.Equal(t, "/orders/{order_id}", rule.GetPatch())
+	assert.Equal(t, "*", rule.GetBody())
+
+	// HEAD and OPTIONS are bodyless but outside HttpRule's five named
+	// patterns, so they are custom patterns that still take no body.
+	rule = httpRuleOf(methods[7])
+	require.NotNil(t, rule)
+	assert.Equal(t, "HEAD", rule.GetCustom().GetKind())
+	assert.Empty(t, rule.GetBody(), "HEAD binds unbound fields to the query string")
+
+	rule = httpRuleOf(methods[8])
+	require.NotNil(t, rule)
+	assert.Equal(t, "OPTIONS", rule.GetCustom().GetKind())
+	assert.Empty(t, rule.GetBody(), "OPTIONS binds unbound fields to the query string")
+
+	// A padded verb clears the IR's emptiness check, so it must select
+	// the same pattern here as the unpadded spelling rather than
+	// falling through to a custom pattern nothing can route.
+	rule = httpRuleOf(methods[9])
+	require.NotNil(t, rule)
+	assert.Equal(t, "/padded", rule.GetGet(), "the verb is trimmed before it selects a pattern")
+	assert.Empty(t, rule.GetBody())
+}
+
+// TestGoogleAPIHTTPFieldNumber pins the field number the IR matches on
+// (which does not link genproto) to the generated extension descriptor
+// this package asks. They must name the same field: the IR's warning
+// about an author-written rule and the fdp guard that steps aside for
+// one are two halves of a single behaviour.
+func TestGoogleAPIHTTPFieldNumber(t *testing.T) {
+	t.Parallel()
+
+	assert.EqualValues(t, internal.GoogleAPIHTTPField, annotations.E_Http.TypeDescriptor().Number())
 }
 
 // TestHTTPRuleEmissionCarrierAlongside verifies the standard extension

@@ -762,9 +762,11 @@ func (g *generator) method(m ir.Method, mdp *descriptorpb.MethodDescriptorProto)
 			// RFC-001 §5.2: `@http`'s routing skeleton also lowers to the
 			// standard google.api.http extension, so a REST binder that
 			// knows nothing about the carrier can still bind the route
-			// (protowire#213). An author-written rule wins outright.
-			if !g.suppressGoogleAPIHTTP && !hasAuthoredHTTPRule(mdp.Options) {
-				if rule := httpRuleFor(list); rule != nil {
+			// (protowire#213). An author-written rule wins outright —
+			// checked second, so only a method that actually carries
+			// `@http` pays for the scan of its option bytes.
+			if !g.suppressGoogleAPIHTTP {
+				if rule := httpRuleFor(list); rule != nil && !hasAuthoredHTTPRule(mdp.Options) {
 					proto.SetExtension(mdp.Options, annotations.E_Http, rule)
 				}
 			}
