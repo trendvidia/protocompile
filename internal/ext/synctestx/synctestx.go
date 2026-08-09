@@ -29,11 +29,18 @@ func Hammer(count int, f func()) {
 		count = runtime.GOMAXPROCS(0)
 	}
 
+	// Both counters are raised before any goroutine exists, so every Add
+	// happens before every Wait. Adding inside the loop instead let a
+	// goroutine drain the start counter to zero and enter Wait before the
+	// next Add raised it again — a WaitGroup reuse, which panics under the
+	// race detector, and which quietly released the barrier early when it
+	// did not (#134).
 	start := new(sync.WaitGroup)
+	start.Add(count)
 	end := new(sync.WaitGroup)
+	end.Add(count)
+
 	for range count {
-		start.Add(1)
-		end.Add(1)
 		go func() {
 			defer end.Done()
 
