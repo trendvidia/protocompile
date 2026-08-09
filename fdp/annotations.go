@@ -41,8 +41,21 @@ import (
 // ensure an Options message is materialised on the descriptor when
 // it would otherwise have been nil.
 func emitAnnotations(uses seq.Indexer[ir.AnnotationUse], target proto.Message, extDesc *protoimpl.ExtensionInfo) bool {
-	if uses.Len() == 0 {
+	list := buildAnnotationList(uses)
+	if list == nil {
 		return false
+	}
+	proto.SetExtension(target, extDesc, list)
+	return true
+}
+
+// buildAnnotationList lowers a carrier's resolved annotation use sites
+// into a [pwsv1.AnnotationList], or returns nil when none survive.
+// Split out of [emitAnnotations] for the method carrier, which reads
+// the list back for the §5.2 `google.api.http` lowering.
+func buildAnnotationList(uses seq.Indexer[ir.AnnotationUse]) *pwsv1.AnnotationList {
+	if uses.Len() == 0 {
+		return nil
 	}
 
 	list := &pwsv1.AnnotationList{}
@@ -52,10 +65,9 @@ func emitAnnotations(uses seq.Indexer[ir.AnnotationUse], target proto.Message, e
 		}
 	}
 	if len(list.Entries) == 0 {
-		return false
+		return nil
 	}
-	proto.SetExtension(target, extDesc, list)
-	return true
+	return list
 }
 
 // buildAnnotation lowers one [ir.AnnotationUse] into a

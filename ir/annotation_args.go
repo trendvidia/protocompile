@@ -76,6 +76,25 @@ func (u AnnotationUse) ArgBindings() []AnnotationArgBinding {
 	return bindings
 }
 
+// stringArg returns the string value of a bound argument, together
+// with the span to blame for it.
+//
+// Reports false when the argument is not a string literal: those
+// shapes get the standard classification diagnostics from
+// [validateAnnotationUseArg], so passes that only know what to do with
+// the string form bail out silently rather than double-diagnosing.
+func stringArg(b AnnotationArgBinding) (string, ast.ExprAny, bool) {
+	value := b.Arg.Value()
+	if value.Kind() != ast.ExprKindLiteral {
+		return "", value, false
+	}
+	tok := value.AsLiteral().Token
+	if tok.Kind() != token.String {
+		return "", value, false
+	}
+	return tok.AsString().Text(), value, true
+}
+
 // scopeName returns the use site's enclosing lexical scope, recorded
 // when the use was lowered in B2.
 func (u AnnotationUse) scopeName() FullName {

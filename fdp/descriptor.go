@@ -28,12 +28,15 @@
 // [DescriptorProtoBytes] output is unaffected: parsing it performs
 // that fold.
 //
-// Two categories are exempt and always typed in memory: the
+// Three categories are exempt and always typed in memory: the
 // protowire.schema.v1 carrier extensions (AnnotationList, SourceMap,
-// file-scope declaration lists), and `options.map_entry` on synthetic
+// file-scope declaration lists); `options.map_entry` on synthetic
 // map-entry messages, which reflection consumers such as
 // [google.golang.org/protobuf/reflect/protodesc.NewFile] need for map
-// classification.
+// classification; and the `google.api.http` rule the compiler itself
+// lowers `@http` into (see [EmitGoogleAPIHTTP]). All three are
+// compiler-synthesized rather than author-written, which is why they
+// are set as typed extensions and not folded into the option bytes.
 package fdp
 
 import (
@@ -150,6 +153,19 @@ func IncludeSourceCodeInfo(flag bool) DescriptorOption {
 func GenerateExtraOptionLocations(flag bool) DescriptorOption {
 	return descriptorOption(func(o *Options) {
 		o.generateExtraOptionLocations = flag
+	})
+}
+
+// EmitGoogleAPIHTTP sets whether the routing skeleton of the canonical
+// `@http` annotation is also lowered to the standard `google.api.http`
+// extension on MethodOptions (RFC-001 §5.2, protowire#213). The
+// annotation carrier is emitted either way; this only controls the
+// second, standard spelling that off-the-shelf REST binders read.
+//
+// Emission is on by default — the zero [Options] emits.
+func EmitGoogleAPIHTTP(flag bool) DescriptorOption {
+	return descriptorOption(func(o *Options) {
+		o.suppressGoogleAPIHTTP = !flag
 	})
 }
 

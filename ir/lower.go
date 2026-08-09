@@ -190,6 +190,11 @@ func lower(file *File, r *report.Report, importer Importer) {
 	validateAnnotationParamDefaults(file, r)
 	validateAnnotationUseArgs(file, r)
 
+	// The canonical `@http` annotation's routing skeleton lowers to a
+	// standard google.api.http rule (§5.2), so a skeleton that cannot
+	// bind is rejected here rather than shipped in an image.
+	validateHTTPUses(file, r)
+
 	// Perform constant evaluation.
 	evaluateFieldNumbers(file, r)
 
@@ -204,6 +209,12 @@ func lower(file *File, r *report.Report, importer Importer) {
 	// done in two separate steps.
 	populateOptionTargets(file, r)
 	validateOptionTargets(file, r)
+
+	// An author-written `(google.api.http)` suppresses the §5.2
+	// lowering of `@http` on the same method, which is worth saying out
+	// loud. Unlike the rest of the §5.2 checks this one reads options,
+	// so it waits for them.
+	checkAuthoredHTTPRules(file, r)
 
 	// Build feature info for validating features after they are constructed.
 	// Then validate all feature settings throughout the file.

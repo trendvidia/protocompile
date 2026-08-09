@@ -287,16 +287,11 @@ func validateReservedSensitiveClass(r *report.Report, target Annotation, b Annot
 		return
 	}
 
-	value := b.Arg.Value()
-	if value.Kind() != ast.ExprKindLiteral {
+	class, value, ok := stringArg(b)
+	if !ok {
 		return // Non-string shapes get the standard type diagnostics.
 	}
-	tok := value.AsLiteral().Token
-	if tok.Kind() != token.String {
-		return
-	}
 
-	class := tok.AsString().Text()
 	if class != reservedClassNamespace &&
 		!strings.HasPrefix(class, reservedClassNamespace+".") {
 		return
