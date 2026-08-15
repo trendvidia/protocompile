@@ -15,7 +15,7 @@ require (
 	golang.org/x/exp v0.0.0-20250911091902-df9299821621
 	golang.org/x/sync v0.22.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20260807164820-c8921c73eeea
-	google.golang.org/protobuf v1.36.11
+	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v3 v3.0.1
 )
 
