@@ -110,7 +110,7 @@ message EnrichedViolation {
   // or redacted; see value_redacted.
   Value actual_value = 4;
 
-  // From the embedded source map (50404), when available.
+  // From the embedded source map (1331), when available.
   SourceLocation source = 5;
 
   RuleKind rule_kind = 6;
@@ -130,7 +130,7 @@ message EnrichedViolation {
   // The violated rule's source-map join key (RFC-001 §8.3.1): the
   // originating file plus the canonical descriptor path, exactly as the
   // shared formatter renders it. Engines populate it whenever the rule
-  // resolved through an embedded source map (50404) and leave it unset
+  // resolved through an embedded source map (1331) and leave it unset
   // otherwise. Wire consumers join violations back to lowered rules —
   // and through the source map to editor ranges — by this key instead of
   // fuzzy-matching `source` positions.

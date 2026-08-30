@@ -25,7 +25,7 @@ import (
 )
 
 // emitSourceMap populates the [pwsv1.SourceMap] extension on
-// FileOptions (50404) with [pwsv1.SourceEntry] entries covering
+// FileOptions (1331) with [pwsv1.SourceEntry] entries covering
 // every annotation lowering in `file`.
 //
 // `descriptor_path` follows the canonical RFC-001 §8.3.1 grammar,

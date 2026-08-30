@@ -41,11 +41,11 @@ import "google/protobuf/descriptor.proto";
 
 // AnnotationList carries the schema-extension annotations attached to a
 // single declaration. It is wired in as an extension on every Options
-// message at field number 50400 (see `extend` blocks below). Each extend
+// message at field number 1327 (see `extend` blocks below). Each extend
 // block gives the field a per-kind name (`file_annotations`,
 // `message_annotations`, …) so that every extension has a unique
 // fully-qualified name within this package while sharing the single wire
-// number 50400.
+// number 1327.
 message AnnotationList {
   repeated Annotation entries = 1;
 }
@@ -278,7 +278,7 @@ message SourceEntry {
   //
   // Links are aliases only; the underlying concrete type (primitive,
   // enum, or message) is never a link. Recover it from the first link's
-  // TypeDecl.base_type_fqn in FileTypeDecls (50403).
+  // TypeDecl.base_type_fqn in FileTypeDecls (1330).
   //
   // Example for a field declared `CompanyEmail email = 1;`, given
   // `type Email = string` and `type CompanyEmail = Email`:
@@ -314,12 +314,14 @@ message SourceLocation {
 // ── Options-message extensions ────────────────────────────────────────────
 //
 // Extension numbers live in protowire's reserved 50000–59999 family range
-// (see STABILITY.md). The schema-extensions sub-range is 50400–50499;
-// 50400–50404 are allocated by this revision.
+// (see STABILITY.md). The schema-extensions sub-range is 1327–1346;
+// 1327–1331 are allocated by this revision.
 //
-// The numbers moved from the original 50100-104 draft because 50100 and
-// 50101 are taken by SBE's `schema_id` / `version` on FileOptions
-// (see proto/sbe/annotations.proto). Sharing wire-format number 50400
+// Before the registered block existed these carriers sat at 50400–50404,
+// inside an unregistered 50000–59999 squat; that range and the earlier
+// 50100–50104 draft (retired because 50100/50101 are SBE's `schema_id` /
+// `version` on FileOptions, see proto/sbe/annotations.proto) are both
+// dead and must never be reused. Sharing wire-format number 1327
 // across every Options message kind is legal (extension numbers are
 // per-extended-message in protobuf), but each extension field needs a
 // distinct fully-qualified name in this file's package scope, hence
@@ -327,18 +329,18 @@ message SourceLocation {
 // `field_annotations`, …) instead of a single `annotations` token.
 
 extend google.protobuf.FileOptions {
-  AnnotationList file_annotations = 50400;
+  AnnotationList file_annotations = 1327;
 
-  FileFunctions       functions        = 50401;
-  FileAnnotationDecls annotation_decls = 50402;
-  FileTypeDecls       type_decls       = 50403;
-  SourceMap           source_map       = 50404;
+  FileFunctions       functions        = 1328;
+  FileAnnotationDecls annotation_decls = 1329;
+  FileTypeDecls       type_decls       = 1330;
+  SourceMap           source_map       = 1331;
 }
 
-extend google.protobuf.MessageOptions   { AnnotationList message_annotations    = 50400; }
-extend google.protobuf.FieldOptions     { AnnotationList field_annotations      = 50400; }
-extend google.protobuf.EnumOptions      { AnnotationList enum_annotations       = 50400; }
-extend google.protobuf.EnumValueOptions { AnnotationList enum_value_annotations = 50400; }
-extend google.protobuf.ServiceOptions   { AnnotationList service_annotations    = 50400; }
-extend google.protobuf.MethodOptions    { AnnotationList method_annotations     = 50400; }
-extend google.protobuf.OneofOptions     { AnnotationList oneof_annotations      = 50400; }
+extend google.protobuf.MessageOptions   { AnnotationList message_annotations    = 1327; }
+extend google.protobuf.FieldOptions     { AnnotationList field_annotations      = 1327; }
+extend google.protobuf.EnumOptions      { AnnotationList enum_annotations       = 1327; }
+extend google.protobuf.EnumValueOptions { AnnotationList enum_value_annotations = 1327; }
+extend google.protobuf.ServiceOptions   { AnnotationList service_annotations    = 1327; }
+extend google.protobuf.MethodOptions    { AnnotationList method_annotations     = 1327; }
+extend google.protobuf.OneofOptions     { AnnotationList oneof_annotations      = 1327; }

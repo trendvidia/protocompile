@@ -37,7 +37,15 @@ specified in protowire's **RFC-001 — Protowire Schema Extensions**
 - `annotation` declarations — declarable metadata attachments
 - `@annotation(...)` use-site syntax with hybrid placement
 - Carrier extensions on every `*Options` message at numbers
-  `50100`–`50104`
+  `1327`–`1331`, inside protowire's registered block `1314`–`1363`
+  (granted by protocolbuffers/protobuf#28919). `1332`–`1346` are
+  reserved for future carriers.
+
+  Two earlier ranges are dead and must never be reused: `50400`–`50404`,
+  where the carriers sat while the project squatted an unregistered
+  `50000`–`59999`, and `50100`–`50104` from the pre-merge RFC draft,
+  retired because `50100`/`50101` are SBE's `schema_id` / `version` on
+  FileOptions. This document named the latter until 2026-08-30.
 
 These additions are vendor-specific and not expected to land in
 upstream `bufbuild/protocompile`, which serves the broader
