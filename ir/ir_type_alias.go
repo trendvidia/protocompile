@@ -32,7 +32,7 @@ import (
 // type with validation rules and documentation.
 //
 // Phase scope here is symbol registration plus FDP emission via the
-// [pwsv1.FileTypeDecls] file-scope carrier (50403). Field-type
+// [pwsv1.FileTypeDecls] file-scope carrier (1330). Field-type
 // resolution against type aliases (so that `Email email = 1;`
 // produces a `string` field with the alias's annotations expanded
 // on the field-level [pwsv1.AnnotationList]) lives in the broader
