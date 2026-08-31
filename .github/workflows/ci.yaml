@@ -1,36 +1,32 @@
 name: ci
-# Cost-conscious trigger policy (see CONTRIBUTING.md):
+# Trigger policy (see CONTRIBUTING.md):
 #
+#   - pull_request: EVERY pull request. This repository parses `.proto`,
+#     lowers annotations and emits the carriers the rest of the family
+#     reads, so a change to the parser, the IR or a lowering pass must not
+#     be able to merge without the suite having run against it
 #   - release / tag push: gate every release
-#   - pull_request: ONLY when CI-relevant config or dependencies change
-#     (workflow files, linter config, module files). Code-only PRs are
-#     validated locally with `make ci-local` and do not consume cloud minutes
-#   - workflow_dispatch: manual override for sanity-checking before merge
-#     (`gh workflow run ci.yaml --ref <branch>`)
+#   - workflow_dispatch: manual runs (`gh workflow run ci.yaml --ref <branch>`)
+#
+# The expensive legs stay off pull requests, each in its own workflow that
+# says so rather than being hidden behind a path filter here:
+#   - benchmarks.yaml — release, tag push, manual dispatch
+#   - windows.yaml    — release, tag push, manual dispatch
 #
 # Removed (deliberately):
-#   - push to default branch — devs run `make ci-local` before pushing;
-#     `make ci-local-full` before tagging a release
-#   - nightly schedule — Dependabot PRs already cover dep-rot via the
-#     dependency-file paths below
+#   - `pull_request.paths` — it listed only manifests and build config, so
+#     source-only PRs ran nothing at all and still showed a green tick
+#     (#146). The suite is short; filtering it saved little and cost the
+#     signal a reviewer uses to decide
+#   - push to default branch — every change arrives by pull request, which
+#     is now covered
+#   - nightly schedule — Dependabot PRs already cover dep-rot
 on:
   release:
     types: [published]
   push:
     tags: ['v*']
-  pull_request:
-    paths:
-      - '.github/workflows/**'
-      - 'Makefile'
-      - '.golangci.yml'
-      - 'go.mod'
-      - 'go.sum'
-      - 'go.work'
-      - 'go.work.sum'
-      - 'internal/benchmarks/go.mod'
-      - 'internal/benchmarks/go.sum'
-      - 'internal/tools/go.mod'
-      - 'internal/tools/go.sum'
+  pull_request: {}
   workflow_dispatch: {} # manual runs via `gh workflow run`
 permissions:
   contents: read
@@ -44,15 +40,6 @@ jobs:
           go version
           go version | grep -qE '\(plus[ )]' || { echo "::error::runner go is not the go-plus fork"; exit 1; }
       - run: make test
-  benchmarks:
-    runs-on: [self-hosted, macOS, ARM64]
-    steps:
-      - uses: actions/checkout@v7
-      - name: Assert go-plus toolchain
-        run: |
-          go version
-          go version | grep -qE '\(plus[ )]' || { echo "::error::runner go is not the go-plus fork"; exit 1; }
-      - run: make benchmarks
   lint:
     runs-on: [self-hosted, macOS, ARM64]
     steps:

@@ -43,37 +43,48 @@ which adds `make benchmarks` to confirm no perf regressions.
 
 ### When cloud CI fires automatically
 
-The `ci` workflow (`.github/workflows/ci.yaml`) is restricted to four
-event types:
+The `ci` workflow (`.github/workflows/ci.yaml`) runs on:
 
+- **every pull request** — the full `test` and `lint` legs
 - `release` (published) — gates every release end-to-end
 - `push` to a tag matching `v*` — same protection at tag time
-- `pull_request` **but only when** one of the following paths changes:
-  - `.github/workflows/**`
-  - `Makefile`
-  - `.golangci.yml`
-  - `go.mod`, `go.sum`, `go.work`, `go.work.sum`
-  - `internal/benchmarks/go.mod` / `go.sum`
-  - `internal/tools/go.mod` / `go.sum`
 - `workflow_dispatch` — manual override (see below)
 
-PRs that change only Go code, AST, parser grammar, or tests **do not**
-trigger CI in the cloud. The trust contract is: you ran `make ci-local`
-and it passed.
+There is no `paths` filter. This repository parses `.proto`, lowers
+annotations and emits the carriers the rest of the family reads, so a
+change to the parser, the IR or a lowering pass must not be able to
+merge without the suite having run against it.
 
-The `windows` workflow is even more restrictive — it fires only on
-release events, tag pushes, and manual dispatch. Windows runners are
-expensive, and platform-specific bugs in our Go code are rare; we
-catch them at release time.
+Until #146 the `pull_request` trigger listed only manifests and build
+config, so a PR that changed nothing but Go source ran no tests at all
+and still showed a green tick — nothing distinguished "tests passed"
+from "tests never ran". The suite is short; filtering it saved little
+and cost the signal a reviewer uses to decide.
+
+`make ci-local` is still the right thing to run before you push. It is
+now a fast first opinion rather than the only one.
+
+The two expensive legs stay off pull requests, each in its own workflow
+whose trigger says so:
+
+- `benchmarks` (`.github/workflows/benchmarks.yaml`) — release events,
+  tag pushes, and manual dispatch. Benchmark numbers are only actionable
+  against a release baseline.
+- `windows` (`.github/workflows/windows.yaml`) — release events, tag
+  pushes, and manual dispatch. Windows runners are expensive, and
+  platform-specific bugs in our Go code are rare; we catch them at
+  release time.
 
 ### Manual cloud CI when you want it
 
-If you want a cloud sanity-check on a code-only PR (e.g., before a
-risky merge, or to verify against a Go version you don't have
-locally), trigger CI manually:
+`ci` now runs on every pull request by itself. Dispatch a workflow by
+hand when you want one that does not — the benchmark or Windows legs
+before a risky merge or a release — or to re-run `ci` against a branch
+without pushing to it:
 
 ```bash
 gh workflow run ci.yaml --ref <your-branch>
+gh workflow run benchmarks.yaml --ref <your-branch>
 gh workflow run windows.yaml --ref <your-branch>
 ```
 
@@ -97,9 +108,11 @@ still enforces:
 - pull-request flow with code-owner review + thread resolution
 - allowed merge methods: squash, rebase
 
-Code-quality enforcement happens at the laptop level via
-`make ci-local`. If you find yourself merging without running it,
-add a pre-push hook:
+`ci` runs on every pull request, but because it is not a required
+check a red run does not block the merge button. Enforcement therefore
+still rests at the laptop level via `make ci-local` — read the PR's
+checks before you merge. If you find yourself merging without running
+it, add a pre-push hook:
 
 ```bash
 cat > .git/hooks/pre-push <<'EOF'

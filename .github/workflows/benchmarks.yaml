@@ -1,0 +1,26 @@
+name: benchmarks
+# Cost-conscious trigger policy — see ci.yaml and CONTRIBUTING.md for the
+# full rationale. The benchmark suite is the slowest leg here and its
+# numbers are only actionable against a release baseline, so it fires only
+# on release events, tag pushes, and manual dispatch. It was split out of
+# ci.yaml when that workflow started running on every pull request (#146):
+# a path filter that silenced the whole suite is a worse trade than one
+# expensive job that says plainly when it runs.
+on:
+  release:
+    types: [published]
+  push:
+    tags: ['v*']
+  workflow_dispatch: {} # manual runs via `gh workflow run`
+permissions:
+  contents: read
+jobs:
+  benchmarks:
+    runs-on: [self-hosted, macOS, ARM64]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Assert go-plus toolchain
+        run: |
+          go version
+          go version | grep -qE '\(plus[ )]' || { echo "::error::runner go is not the go-plus fork"; exit 1; }
+      - run: make benchmarks
