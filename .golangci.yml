@@ -11,7 +11,8 @@ linters:
     - errname
     - errorlint
     - exhaustive
-    - exhaustruct
+    - exhaustruct       # deprecated name, kept so older golangci-lint still parses this
+    - exhaustruct_v5    # the 2.13+ name; `default: all` enables it unless named here
     - forbidigo
     - forcetypeassert
     - funcorder
@@ -105,9 +106,11 @@ linters:
       - linters: [govet]
         path: _test\.go
         text: 'fieldalignment:'
-      # exclude fieldalignment "pointer bytes" failures
+      # Exclude fieldalignment's pointer-data diagnostic; the size diagnostic
+      # stays enabled. golangci-lint 2.13 reworded this from "N pointer bytes"
+      # to "N leading bytes of pointer data", so both spellings are matched.
       - linters: [govet]
-        text: pointer bytes
+        text: (pointer bytes|bytes of pointer data)
     paths:
       - .*\.y\.go$
 formatters:
