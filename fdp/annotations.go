@@ -293,10 +293,13 @@ func buildListElement(u ir.AnnotationUse, elem ast.ExprAny, param ir.AnnotationP
 // buildLiteralArg lowers a string-or-number literal into the
 // appropriate AnnotationArg oneof variant. The parameter drives
 // whether a string literal becomes string_value vs bytes_value, and
-// whether a numeric literal becomes int_value vs double_value. With
-// a zero param (function options, which have no declared parameter
-// to type against), the numeric routing follows the literal's own
-// spelling instead.
+// whether a numeric literal becomes int_value vs double_value.
+//
+// Numeric routing has two cases that carry no declared scalar to type
+// against: a zero param (function options, which have no declared
+// parameter at all) and an `any` param (which accepts any
+// literal-shaped argument). Both follow the literal's own spelling,
+// so `1.5` keeps its fraction instead of truncating to `1`.
 func buildLiteralArg(lit ast.ExprLiteral, param ir.AnnotationParam) *pwsv1.AnnotationArg {
 	tok := lit.Token
 	switch tok.Kind() {
@@ -313,8 +316,14 @@ func buildLiteralArg(lit ast.ExprLiteral, param ir.AnnotationParam) *pwsv1.Annot
 
 	case token.Number:
 		num := tok.AsNumber()
+		// An untyped parameter is one that declares no scalar to
+		// convert towards: no parameter at all, or `any`. Deliberately
+		// not `!param.IsScalar()` — that would also capture enum- and
+		// message-typed parameters, changing what an already-typed
+		// parameter accepts.
+		untyped := param.IsZero() || param.IsAny()
 		if param.IsScalar() && isFloatScalar(param.Scalar()) ||
-			param.IsZero() && num.IsFloat() {
+			untyped && num.IsFloat() {
 			f, _ := num.Float()
 			return &pwsv1.AnnotationArg{
 				Value: &pwsv1.AnnotationArg_DoubleValue{DoubleValue: f},

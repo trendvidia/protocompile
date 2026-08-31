@@ -15,6 +15,7 @@
 package fdp_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -959,4 +960,135 @@ message Nested {}
 	require.NotNil(t, anyMsg)
 	assert.Equal(t, "type.googleapis.com/test.Item", anyMsg.GetTypeUrl())
 	assert.Equal(t, []byte{0x08, 0x03}, anyMsg.GetValue())
+}
+
+// annotationArg compiles src and returns the single argument of the
+// single annotation on message M.
+func annotationArg(t *testing.T, src string) *pwsv1.AnnotationArg {
+	t.Helper()
+	f := compileForFDPTest(t, src)
+	require.Len(t, f.GetMessageType(), 1)
+	mdp := f.GetMessageType()[0]
+	require.NotNil(t, mdp.Options, "message M should have an Options message")
+	list, ok := proto.GetExtension(mdp.Options, pwsv1.E_MessageAnnotations).(*pwsv1.AnnotationList)
+	require.True(t, ok)
+	require.NotNil(t, list)
+	require.Len(t, list.Entries, 1)
+	require.Len(t, list.Entries[0].Args, 1)
+	return list.Entries[0].Args[0]
+}
+
+// TestAnnotationNumericRouting pins how a numeric literal is routed
+// into AnnotationArg for each kind of parameter that can receive one.
+//
+// The routes are pinned together deliberately. They are branches of a
+// single condition in buildLiteralArg, and issue #149 was one of them
+// drifting away from the others: an `any` parameter is neither a
+// declared float scalar nor a zero parameter, so a float literal fell
+// through to the integer lowering and `@default(1.5)` reached the
+// carrier as `int_value: 1` — the fraction gone, and no diagnostic to
+// tell the schema author. The canonical annotation library declares
+// `default` and `example` as `any`, so this was the common case.
+func TestAnnotationNumericRouting(t *testing.T) {
+	t.Parallel()
+
+	const tmpl = `syntax = "proto3";
+package test;
+
+enum Color { RED = 0; GREEN = 1; }
+
+annotation a(value: %s);
+
+@a(%s)
+message M {}
+`
+
+	tests := []struct {
+		name  string
+		param string // declared parameter type
+		lit   string // literal at the use site
+		// Exactly one of these is expected; isDouble selects which.
+		isDouble   bool
+		wantDouble float64
+		wantInt    int64
+	}{
+		// `any` declares no scalar to convert towards, so the
+		// literal's own spelling decides. This is #149.
+		{name: "any/float", param: "any", lit: "1.5", isDouble: true, wantDouble: 1.5},
+		{name: "any/float_whole", param: "any", lit: "2.0", isDouble: true, wantDouble: 2},
+		{name: "any/int", param: "any", lit: "3", wantInt: 3},
+
+		// A declared float scalar converts towards the declared type,
+		// so even an integer literal lands in double_value.
+		{name: "double/float", param: "double", lit: "2.25", isDouble: true, wantDouble: 2.25},
+		{name: "double/int", param: "double", lit: "7", isDouble: true, wantDouble: 7},
+		{name: "float/float", param: "float", lit: "0.5", isDouble: true, wantDouble: 0.5},
+
+		// Declared integer scalars are unaffected by #149: widening
+		// the untyped case must not change what a typed parameter
+		// accepts.
+		{name: "int32/int", param: "int32", lit: "3", wantInt: 3},
+		{name: "int32/negative", param: "int32", lit: "-2", wantInt: -2},
+		// NumberToken.Int returns a uint64 reinterpreted via int64, so
+		// the unsigned maximum is carried as two's complement. A
+		// consumer that knows the target field is unsigned recovers it
+		// exactly; this is by design, not the #149 defect.
+		{name: "uint64/max", param: "uint64", lit: "18446744073709551615", wantInt: -1},
+
+		// An enum-typed parameter still truncates a float literal.
+		// Pinned rather than fixed: #149's done-when is explicit that
+		// it must not change what a typed parameter accepts, and this
+		// wants a diagnostic rather than a different silent lowering.
+		// Tracked separately; see the issue filed alongside #149.
+		{name: "enum/float_truncates", param: "Color", lit: "1.5", wantInt: 1},
+		{name: "enum/int", param: "Color", lit: "1", wantInt: 1},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			arg := annotationArg(t, fmt.Sprintf(tmpl, tc.param, tc.lit))
+			if tc.isDouble {
+				require.IsType(t, (*pwsv1.AnnotationArg_DoubleValue)(nil), arg.Value,
+					"want double_value, got %v", arg.Value)
+				assert.InDelta(t, tc.wantDouble, arg.GetDoubleValue(), 1e-9)
+				return
+			}
+			require.IsType(t, (*pwsv1.AnnotationArg_IntValue)(nil), arg.Value,
+				"want int_value, got %v", arg.Value)
+			assert.Equal(t, tc.wantInt, arg.GetIntValue())
+		})
+	}
+}
+
+// TestAnnotationNumericRoutingNoParam covers the third route: a
+// declaration with no parameter to type against at all. Function
+// options carry AnnotationArg-shaped values with no declared
+// parameter, so like `any` they follow the literal's own spelling.
+// Kept next to TestAnnotationNumericRouting so the routes cannot
+// drift apart unnoticed.
+func TestAnnotationNumericRoutingNoParam(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+function f() [ratio = 1.5, whole = 2.0, count = 3, negative = -2];
+`
+
+	f := compileForFDPTest(t, src)
+	require.NotNil(t, f.Options)
+	fns, ok := proto.GetExtension(f.Options, pwsv1.E_Functions).(*pwsv1.FileFunctions)
+	require.True(t, ok)
+	require.Len(t, fns.Declarations, 1)
+	opts := fns.Declarations[0].Options
+
+	require.IsType(t, (*pwsv1.AnnotationArg_DoubleValue)(nil), opts["ratio"].Value)
+	assert.InDelta(t, 1.5, opts["ratio"].GetDoubleValue(), 1e-9)
+	require.IsType(t, (*pwsv1.AnnotationArg_DoubleValue)(nil), opts["whole"].Value)
+	assert.InDelta(t, 2, opts["whole"].GetDoubleValue(), 1e-9)
+	require.IsType(t, (*pwsv1.AnnotationArg_IntValue)(nil), opts["count"].Value)
+	assert.Equal(t, int64(3), opts["count"].GetIntValue())
+	require.IsType(t, (*pwsv1.AnnotationArg_IntValue)(nil), opts["negative"].Value)
+	assert.Equal(t, int64(-2), opts["negative"].GetIntValue())
 }
