@@ -45,8 +45,7 @@ annotation tag(name: string);
 
 @tag("alpha")
 message M {
-  @tag("beta")
-  string s = 1;
+  string s = 1 @tag("beta");
 }
 `
 	f := compileForFDPTest(t, src)
@@ -277,8 +276,7 @@ annotation k;
 message Inner {}
 
 message M {
-  @k
-  string s = 1;
+  string s = 1 @k;
   Inner inner = 2;
 }
 `

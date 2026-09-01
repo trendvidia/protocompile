@@ -123,8 +123,7 @@ annotation doc(text: string);
 type Email = string @validate("matches(this, '^[^@]+@[^@]+$')");
 
 message User {
-  @doc("primary contact")
-  Email email = 1;
+  Email email = 1 @doc("primary contact");
 }
 `
 	f := compileForFDPTest(t, src)
@@ -292,8 +291,7 @@ annotation doc(text: string);
 type Email = string @validate("matches(this, '@')");
 
 message Book {
-  @doc("by address")
-  map<string, Email> contacts = 1;
+  map<string, Email> contacts = 1 @doc("by address");
 }
 `
 	f := compileForFDPTest(t, src)

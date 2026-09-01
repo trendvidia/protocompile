@@ -710,7 +710,10 @@ message M {}
 // level diagnostic whose message contains every needle.
 func hasErrorContaining(rep *report.Report, needles ...string) bool {
 	for _, d := range rep.Diagnostics {
-		if d.Level() < report.Error {
+		// Severity runs most-severe-first: ICE(1), Error(2), Warning(3),
+		// Remark(4). Anything above Error is not an error; anything at or
+		// below it is one.
+		if d.Level() > report.Error {
 			continue
 		}
 		all := true
@@ -1504,4 +1507,55 @@ message Target {}
 	_, rep := compileForAnnotationTest(t, src)
 	assert.True(t, hasErrorContaining(rep, "heterogeneous list literal"),
 		"expected homogeneity diagnostic, got: %v", rep.Diagnostics)
+}
+
+// TestAnnotationUseEnumArgRejectsLiterals pins RFC-001 §5.1 rule 4: an
+// enum-typed parameter takes a `qualifiedIdent` — a bare or qualified
+// value name — which the linker resolves into an EnumLiteral. A scalar
+// literal is not a spelling for an enum value, so every one of them is a
+// compile error rather than some other lowering.
+//
+// This is the behaviour issue #153 reported as missing. It was not: the
+// diagnostic was already raised here, and the measurement behind that
+// issue was taken through a test harness that discarded the report. The
+// pin lives in ir because ir is where the diagnostic is raised.
+func TestAnnotationUseEnumArgRejectsLiterals(t *testing.T) {
+	t.Parallel()
+
+	const head = `syntax = "proto3";
+package test;
+enum Color { RED = 0; GREEN = 1; }
+annotation e(value: Color);
+`
+
+	t.Run("accepted", func(t *testing.T) {
+		t.Parallel()
+		for _, use := range []string{"@e(GREEN)", "@e(Color.GREEN)", "@e(RED)"} {
+			_, rep := compileForAnnotationTest(t, head+use+"\nmessage M {}\n")
+			for _, d := range rep.Diagnostics {
+				if d.Level() <= report.Error {
+					t.Errorf("%s: unexpected diagnostic: %s", use, d.Message())
+				}
+			}
+		}
+	})
+
+	// Each of these lowered silently to a scalar before anyone looked at
+	// the report: a float truncated to int_value, an out-of-range integer
+	// carried verbatim, a string kept as string_value.
+	for _, tc := range []struct{ name, lit string }{
+		{name: "float", lit: "1.5"},
+		{name: "in_range_int", lit: "1"},
+		{name: "out_of_range_int", lit: "999"},
+		{name: "negative_int", lit: "-3"},
+		{name: "string", lit: `"GREEN"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, rep := compileForAnnotationTest(t, head+"@e("+tc.lit+")\nmessage M {}\n")
+			assert.True(t,
+				hasErrorContaining(rep, "expects a value of enum `test.Color`"),
+				"a %s literal on an enum parameter must be diagnosed, got: %v", tc.name, rep.Diagnostics)
+		})
+	}
 }

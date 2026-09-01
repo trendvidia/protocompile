@@ -16,6 +16,7 @@ package fdp_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -28,8 +29,25 @@ import (
 	"github.com/trendvidia/protocompile/incremental"
 	"github.com/trendvidia/protocompile/incremental/queries"
 	"github.com/trendvidia/protocompile/ir"
+	"github.com/trendvidia/protocompile/report"
 	"github.com/trendvidia/protocompile/source"
 )
+
+// requireNoDiagnostics fails the test if the compiler emitted anything at
+// Error level or worse.
+func requireNoDiagnostics(t *testing.T, rep *report.Report) {
+	t.Helper()
+	if rep == nil {
+		return
+	}
+	var msgs []string
+	for _, d := range rep.Diagnostics {
+		if d.Level() <= report.Error {
+			msgs = append(msgs, d.Message())
+		}
+	}
+	require.Empty(t, msgs, "source does not compile cleanly:\n%s", strings.Join(msgs, "\n"))
+}
 
 // compileForFDPTest compiles a single .proto source and returns the
 // resulting FileDescriptorProto, ready for extension inspection.
@@ -42,12 +60,20 @@ func compileForFDPTest(t *testing.T, src string) *descriptorpb.FileDescriptorPro
 
 	exec := incremental.New()
 	sess := new(ir.Session)
-	results, _, err := incremental.Run(t.Context(), exec, queries.IR{
+	results, rep, err := incremental.Run(t.Context(), exec, queries.IR{
 		Opener:  allOpeners,
 		Session: sess,
 		Path:    "x.proto",
 	})
 	require.NoError(t, err)
+
+	// incremental.Run reports semantic errors through the report, not
+	// through err — a file the compiler rejects still yields an IR and a
+	// descriptor. Discarding the report here made every test in this
+	// package able to assert on carrier output for source that does not
+	// compile, which is how the non-bug in #153 came to be filed.
+	requireNoDiagnostics(t, rep)
+
 	require.Len(t, results, 1)
 	require.NotNil(t, results[0].Value)
 
@@ -574,8 +600,7 @@ annotation k;
 
 @k
 message M {
-  @k
-  string field_a = 1;
+  string field_a = 1 @k;
   @k
   oneof choice {
     string field_b = 2;
@@ -585,8 +610,7 @@ message M {
 @k
 enum E {
   E_UNSET = 0;
-  @k
-  E_ONE = 1;
+  E_ONE = 1 @k;
 }
 
 @k
@@ -981,6 +1005,11 @@ func annotationArg(t *testing.T, src string) *pwsv1.AnnotationArg {
 // TestAnnotationNumericRouting pins how a numeric literal is routed
 // into AnnotationArg for each kind of parameter that can receive one.
 //
+// An enum-typed parameter has no row here on purpose: RFC-001 §5.1
+// rule 4 gives it a `qualifiedIdent`, so every scalar literal on one is
+// a compile error rather than a lowering. That is pinned as a
+// diagnostic in ir, which is where it is raised.
+//
 // The routes are pinned together deliberately. They are branches of a
 // single condition in buildLiteralArg, and issue #149 was one of them
 // drifting away from the others: an `any` parameter is neither a
@@ -994,8 +1023,6 @@ func TestAnnotationNumericRouting(t *testing.T) {
 
 	const tmpl = `syntax = "proto3";
 package test;
-
-enum Color { RED = 0; GREEN = 1; }
 
 annotation a(value: %s);
 
@@ -1034,14 +1061,6 @@ message M {}
 		// consumer that knows the target field is unsigned recovers it
 		// exactly; this is by design, not the #149 defect.
 		{name: "uint64/max", param: "uint64", lit: "18446744073709551615", wantInt: -1},
-
-		// An enum-typed parameter still truncates a float literal.
-		// Pinned rather than fixed: #149's done-when is explicit that
-		// it must not change what a typed parameter accepts, and this
-		// wants a diagnostic rather than a different silent lowering.
-		// Tracked separately; see the issue filed alongside #149.
-		{name: "enum/float_truncates", param: "Color", lit: "1.5", wantInt: 1},
-		{name: "enum/int", param: "Color", lit: "1", wantInt: 1},
 	}
 
 	for _, tc := range tests {
