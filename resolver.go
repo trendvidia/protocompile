@@ -40,26 +40,33 @@ type Resolver interface {
 	FindFileByPath(path string) (SearchResult, error)
 }
 
-// SearchResult represents information about a proto source file. After
-// Track C of the M1 migration, the experimental pipeline reads source
-// bytes from `Source`; the `Proto` and `Desc` fields are preserved on
-// the struct for source-compatibility with pre-Track-C callers but are
-// currently not honoured (setting them is equivalent to returning the
-// file as not-found).
+// SearchResult represents information about a proto source file.
+//
+// A resolver answers with exactly one of the fields below; a wholly zero
+// SearchResult (with no error) means not-found.
+//
+// After Track C of the M1 migration the pipeline itself reads source bytes
+// and nothing else. `Proto` and `Desc` remain supported: a descriptor
+// supplied through either is rendered back to source and compiled. That
+// rendering is all-or-nothing — a descriptor carrying something that cannot
+// be expressed in source produces an error naming the file and the reason,
+// never a silent not-found.
 //
 // The pre-Track-C `AST` and `ParseResult` fields, which carried the
 // legacy AST and parser-result types, were removed along with the
 // legacy `ast/` and `parser/` packages.
 type SearchResult struct {
-	// Source carries the file's source bytes. The experimental
-	// pipeline reads from this and treats a nil reader (with no error)
-	// as not-found.
+	// Source carries the file's source bytes. The pipeline reads from this
+	// and treats a nil reader (with no error) as not-found.
+	//
+	// When set, Source wins: Proto and Desc are not consulted.
 	Source io.Reader
-	// Proto is currently not honoured. Preserved for source
-	// compatibility.
+	// Proto carries the file as a descriptor, which is rendered back to
+	// source and compiled. Used only when Source is nil.
 	Proto *descriptorpb.FileDescriptorProto
-	// Desc is currently not honoured. Preserved for source
-	// compatibility.
+	// Desc carries the file as a linked descriptor — the shape of the
+	// `protoregistry.GlobalFiles` pattern — which is rendered back to
+	// source and compiled. Used only when Source and Proto are nil.
 	Desc protoreflect.FileDescriptor
 }
 
