@@ -27,6 +27,7 @@ import (
 	"github.com/trendvidia/protocompile/internal/testing/googleapis"
 	"github.com/trendvidia/protocompile/internal/testing/memory"
 	"github.com/trendvidia/protocompile/ir"
+	"github.com/trendvidia/protocompile/report"
 	"github.com/trendvidia/protocompile/source"
 )
 
@@ -120,12 +121,23 @@ func TestCompileDescriptorMemory(t *testing.T) {
 func testMemory(t *testing.T, sources source.Opener, workspace source.Workspace) {
 	exec := incremental.New()
 	sess := new(ir.Session)
-	results, _, err := incremental.Run(t.Context(), exec, queries.Link{
+	results, rep, err := incremental.Run(t.Context(), exec, queries.Link{
 		Opener:    sources,
 		Session:   sess,
 		Workspace: workspace,
 	})
 	require.NoError(t, err)
+
+	// Semantic errors arrive through the report, not through err: a corpus
+	// the compiler rejects still yields results, and the memory figures
+	// below would then be measuring a compile that bailed out early.
+	// [report.Level] runs most-severe-first, so error-or-worse is
+	// `<= report.Error`.
+	for _, d := range rep.Diagnostics {
+		if d.Level() <= report.Error {
+			t.Errorf("corpus does not compile cleanly: %s", d.Message())
+		}
+	}
 
 	runtime.GC()
 	m := new(runtime.MemStats)
