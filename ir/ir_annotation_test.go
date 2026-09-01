@@ -322,7 +322,7 @@ annotation contact(via: Email);
 	file, rep := compileForAnnotationTest(t, src)
 	// No diagnostics for valid types.
 	for _, d := range rep.Diagnostics {
-		if d.Level() >= report.Error {
+		if isError(d) {
 			t.Errorf("unexpected diagnostic: %s", d.Message())
 		}
 	}
@@ -477,7 +477,7 @@ message DefaultCovers {}
 	// Both the empty-parens and the bare use site must be diagnosed.
 	var missingText int
 	for _, d := range rep.Diagnostics {
-		if d.Level() >= report.Error &&
+		if isError(d) &&
 			strings.Contains(d.Message(), "missing required argument \"text\" for `test.description`") {
 			missingText++
 		}
@@ -517,7 +517,7 @@ message M {}
 
 	_, rep := compileForAnnotationTest(t, src)
 	for _, d := range rep.Diagnostics {
-		if d.Level() >= report.Error {
+		if isError(d) {
 			t.Errorf("unexpected diagnostic: %s", d.Message())
 		}
 	}
@@ -631,7 +631,7 @@ annotation bad(name: string = 42);
 
 	// `ok` produces no diagnostics.
 	for _, d := range rep.Diagnostics {
-		if d.Level() >= report.Error && strings.Contains(d.Message(), "test.ok") {
+		if isError(d) && strings.Contains(d.Message(), "test.ok") {
 			t.Errorf("unexpected diagnostic for `test.ok`: %s", d.Message())
 		}
 	}
@@ -673,7 +673,7 @@ message M {}
 
 	_, rep := compileForAnnotationTest(t, src)
 	for _, d := range rep.Diagnostics {
-		if d.Level() >= report.Error {
+		if isError(d) {
 			t.Errorf("unexpected diagnostic: %s", d.Message())
 		}
 	}
@@ -698,7 +698,7 @@ message M {}
 	_, rep := compileForAnnotationTest(t, src)
 	var saw bool
 	for _, d := range rep.Diagnostics {
-		if d.Level() >= report.Error && strings.Contains(d.Message(), "anything.you.want") {
+		if isError(d) && strings.Contains(d.Message(), "anything.you.want") {
 			saw = true
 			break
 		}
@@ -706,14 +706,54 @@ message M {}
 	assert.True(t, saw, "expected unresolved enum-value reference diagnostic")
 }
 
+// isError reports whether d is an error or worse.
+//
+// [report.Level] runs most-severe-first — ICE(1), Error(2), Warning(3),
+// Remark(4) — so error-or-worse is `<= report.Error`. The comparison is
+// easy to write backwards, and every diagnostic loop in this package had
+// it backwards: they skipped an ICE (a recovered compiler panic on the
+// very source under test) while treating a warning as an error. Keeping
+// the ordering in one predicate is what stops it drifting back;
+// TestIsErrorSeverityOrdering pins it against every level.
+func isError(d report.Diagnostic) bool { return d.Level() <= report.Error }
+
+// TestIsErrorSeverityOrdering pins the direction of the severity
+// comparison against every level [report] defines.
+//
+// Without it, nothing in this package fails when the comparison is
+// written backwards: every fixture here produces Error-level
+// diagnostics, and `<= Error` and `>= Error` agree on those. The two
+// states that tell the comparisons apart — a diagnostic that is a
+// warning, and one that is an ICE — are not reachable from any
+// compilable fixture, so they are constructed directly.
+func TestIsErrorSeverityOrdering(t *testing.T) {
+	t.Parallel()
+
+	var rep report.Report
+	rep.Fatalf("synthetic ice")
+	rep.Errorf("synthetic error")
+	rep.Warnf("synthetic warning")
+	rep.Remarkf("synthetic remark")
+	require.Len(t, rep.Diagnostics, 4)
+
+	assert.True(t, isError(rep.Diagnostics[0]), "an ICE is worse than an error")
+	assert.True(t, isError(rep.Diagnostics[1]), "an error is an error")
+	assert.False(t, isError(rep.Diagnostics[2]), "a warning is not an error")
+	assert.False(t, isError(rep.Diagnostics[3]), "a remark is not an error")
+
+	assert.True(t, hasErrorContaining(&rep, "synthetic", "ice"),
+		"a recovered compiler panic must satisfy an error assertion")
+	assert.True(t, hasErrorContaining(&rep, "synthetic error"))
+	assert.False(t, hasErrorContaining(&rep, "synthetic warning"),
+		"a warning must not satisfy an error assertion")
+	assert.False(t, hasErrorContaining(&rep, "synthetic remark"))
+}
+
 // hasErrorContaining reports whether the report contains an error-
 // level diagnostic whose message contains every needle.
 func hasErrorContaining(rep *report.Report, needles ...string) bool {
 	for _, d := range rep.Diagnostics {
-		// Severity runs most-severe-first: ICE(1), Error(2), Warning(3),
-		// Remark(4). Anything above Error is not an error; anything at or
-		// below it is one.
-		if d.Level() > report.Error {
+		if !isError(d) {
 			continue
 		}
 		all := true
@@ -772,7 +812,7 @@ message M {}
 
 	_, rep := compileForAnnotationTest(t, src)
 	for _, d := range rep.Diagnostics {
-		if d.Level() >= report.Error {
+		if isError(d) {
 			t.Errorf("unexpected diagnostic: %s", d.Message())
 		}
 	}
@@ -829,7 +869,7 @@ annotation validate(rule: expression, code: string = "", message: string = "");
 message M {}
 `)
 		for _, d := range rep.Diagnostics {
-			if d.Level() >= report.Error {
+			if isError(d) {
 				t.Errorf("unexpected diagnostic: %s", d.Message())
 			}
 		}
@@ -900,7 +940,7 @@ annotation allowed(values: any);
 message M {}
 `)
 		for _, d := range rep.Diagnostics {
-			if d.Level() >= report.Error {
+			if isError(d) {
 				t.Errorf("unexpected diagnostic: %s", d.Message())
 			}
 		}
@@ -958,7 +998,7 @@ annotation sample(value: any);
 message M {}
 `)
 		for _, d := range rep.Diagnostics {
-			if d.Level() >= report.Error {
+			if isError(d) {
 				t.Errorf("unexpected diagnostic: %s", d.Message())
 			}
 		}
@@ -977,7 +1017,7 @@ message M {}
 `)
 		var saw bool
 		for _, d := range rep.Diagnostics {
-			if d.Level() >= report.Error {
+			if isError(d) {
 				saw = true
 				break
 			}
@@ -1047,7 +1087,7 @@ message M3 {}
 
 	_, rep := compileForAnnotationTest(t, src)
 	for _, d := range rep.Diagnostics {
-		if d.Level() >= report.Error {
+		if isError(d) {
 			t.Errorf("unexpected diagnostic: %s", d.Message())
 		}
 	}
@@ -1104,7 +1144,7 @@ message User {
 
 	file, rep := compileTwoForAnnotationTest(t, main, lib)
 	for _, d := range rep.Diagnostics {
-		if d.Level() >= report.Error {
+		if isError(d) {
 			t.Errorf("unexpected diagnostic: %s", d.Message())
 		}
 	}
@@ -1183,7 +1223,7 @@ enum Tier {
 annotation plan(t: Tier = TIER_FREE, u: Tier = Tier.TIER_FREE, free: any = TIER_FREE);
 `)
 		for _, d := range rep.Diagnostics {
-			if d.Level() >= report.Error {
+			if isError(d) {
 				t.Errorf("unexpected diagnostic: %s", d.Message())
 			}
 		}
@@ -1308,7 +1348,7 @@ service S {
 }
 `)
 		for _, d := range rep.Diagnostics {
-			if d.Level() >= report.Error {
+			if isError(d) {
 				t.Errorf("unexpected diagnostic: %s", d.Message())
 			}
 		}
@@ -1354,7 +1394,7 @@ message Config {
 
 	var count int
 	for _, d := range rep.Diagnostics {
-		if d.Level() >= report.Error {
+		if isError(d) {
 			count++
 			assert.Contains(t, d.Message(), "is reserved", "unexpected diagnostic: %s", d.Message())
 		}
@@ -1381,7 +1421,7 @@ message Config {
 
 	_, rep := compileForAnnotationTest(t, src)
 	for _, d := range rep.Diagnostics {
-		if d.Level() >= report.Error {
+		if isError(d) {
 			t.Errorf("unexpected diagnostic: %s", d.Message())
 		}
 	}
@@ -1418,7 +1458,7 @@ message Nested {}
 
 	file, rep := compileForAnnotationTest(t, src)
 	for _, d := range rep.Diagnostics {
-		if d.Level() >= report.Error {
+		if isError(d) {
 			t.Errorf("unexpected diagnostic: %s", d.Message())
 		}
 	}
@@ -1533,7 +1573,7 @@ annotation e(value: Color);
 		for _, use := range []string{"@e(GREEN)", "@e(Color.GREEN)", "@e(RED)"} {
 			_, rep := compileForAnnotationTest(t, head+use+"\nmessage M {}\n")
 			for _, d := range rep.Diagnostics {
-				if d.Level() <= report.Error {
+				if isError(d) {
 					t.Errorf("%s: unexpected diagnostic: %s", use, d.Message())
 				}
 			}

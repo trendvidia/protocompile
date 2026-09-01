@@ -324,12 +324,13 @@ message M {
 
 	exec := incremental.New()
 	sess := new(ir.Session)
-	results, _, err := incremental.Run(t.Context(), exec, queries.IR{
+	results, rep, err := incremental.Run(t.Context(), exec, queries.IR{
 		Opener:  allOpeners,
 		Session: sess,
 		Path:    "user.proto",
 	})
 	require.NoError(t, err)
+	requireNoErrors(t, rep)
 	require.NotNil(t, results[0].Value)
 
 	out, err := fdp.DescriptorProto(results[0].Value)
@@ -399,12 +400,13 @@ message User {
 
 	exec := incremental.New()
 	sess := new(ir.Session)
-	results, _, err := incremental.Run(t.Context(), exec, queries.IR{
+	results, rep, err := incremental.Run(t.Context(), exec, queries.IR{
 		Opener:  allOpeners,
 		Session: sess,
 		Path:    "user.proto",
 	})
 	require.NoError(t, err)
+	requireNoErrors(t, rep)
 	require.Len(t, results, 1)
 	require.NotNil(t, results[0].Value)
 

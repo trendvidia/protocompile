@@ -33,13 +33,18 @@ import (
 	"github.com/trendvidia/protocompile/source"
 )
 
-// requireNoDiagnostics fails the test if the compiler emitted anything at
+// requireNoErrors fails the test if the compiler emitted anything at
 // Error level or worse.
-func requireNoDiagnostics(t *testing.T, rep *report.Report) {
+//
+// [report.Level] counts down from [report.ICE], so error-or-worse is
+// `<= report.Error`; the other comparison quietly promotes every warning
+// and remark to a test failure while letting an ICE through. A nil
+// report is a failure, not a pass: it is the one state indistinguishable
+// from a clean compile, and treating it as one silently restores the
+// hole this helper exists to close.
+func requireNoErrors(t *testing.T, rep *report.Report) {
 	t.Helper()
-	if rep == nil {
-		return
-	}
+	require.NotNil(t, rep, "incremental.Run returned no report")
 	var msgs []string
 	for _, d := range rep.Diagnostics {
 		if d.Level() <= report.Error {
@@ -72,7 +77,7 @@ func compileForFDPTest(t *testing.T, src string) *descriptorpb.FileDescriptorPro
 	// descriptor. Discarding the report here made every test in this
 	// package able to assert on carrier output for source that does not
 	// compile, which is how the non-bug in #153 came to be filed.
-	requireNoDiagnostics(t, rep)
+	requireNoErrors(t, rep)
 
 	require.Len(t, results, 1)
 	require.NotNil(t, results[0].Value)
@@ -870,12 +875,13 @@ message User {
 
 	exec := incremental.New()
 	sess := new(ir.Session)
-	results, _, err := incremental.Run(t.Context(), exec, queries.IR{
+	results, rep, err := incremental.Run(t.Context(), exec, queries.IR{
 		Opener:  allOpeners,
 		Session: sess,
 		Path:    "user.proto",
 	})
 	require.NoError(t, err)
+	requireNoErrors(t, rep)
 	require.NotNil(t, results[0].Value)
 
 	out, err := fdp.DescriptorProto(results[0].Value)
@@ -1000,6 +1006,57 @@ func annotationArg(t *testing.T, src string) *pwsv1.AnnotationArg {
 	require.Len(t, list.Entries, 1)
 	require.Len(t, list.Entries[0].Args, 1)
 	return list.Entries[0].Args[0]
+}
+
+// TestAnnotationEnumParamArgLowering pins what an *accepted* argument
+// on an enum-typed parameter lowers to.
+//
+// Removing the two enum rows from TestAnnotationNumericRouting removed
+// the only fdp coverage of that path: the replacement pin in ir asserts
+// that the rejected spellings are diagnosed, which says nothing about
+// what the accepted ones emit. A regression that made `@e(GREEN)`
+// compile cleanly but emit no arg, or an int_value, would leave both
+// packages green. Neither of the neighbouring enum pins covers it —
+// TestAnnotationEmissionPath goes through an `any` parameter and
+// TestAnnotationParamDefaultEmission through a default value, so
+// validateUseEnumArg is on neither path.
+//
+// RED is here because it is the enum's zero value: a lowering that
+// treated "no number" and "number 0" alike would still pass on GREEN.
+func TestAnnotationEnumParamArgLowering(t *testing.T) {
+	t.Parallel()
+
+	const tmpl = `syntax = "proto3";
+package test;
+
+enum Color { RED = 0; GREEN = 1; }
+
+annotation e(value: Color);
+
+@e(%s)
+message M {}
+`
+
+	for _, tc := range []struct {
+		name, use, wantValue string
+		wantNumber           int32
+	}{
+		{name: "bare", use: "GREEN", wantValue: "GREEN", wantNumber: 1},
+		{name: "qualified", use: "Color.GREEN", wantValue: "GREEN", wantNumber: 1},
+		{name: "zero_value", use: "RED", wantValue: "RED", wantNumber: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			arg := annotationArg(t, fmt.Sprintf(tmpl, tc.use))
+			lit := arg.GetLiteral()
+			require.NotNil(t, lit, "an enum argument lowers to a Literal")
+			ev := lit.GetEnumValue()
+			require.NotNil(t, ev, "an enum argument lowers to Literal.enum_value")
+			assert.Equal(t, "test.Color", ev.GetEnumType())
+			assert.Equal(t, tc.wantValue, ev.GetValueName())
+			assert.Equal(t, tc.wantNumber, ev.GetNumber())
+		})
+	}
 }
 
 // TestAnnotationNumericRouting pins how a numeric literal is routed

@@ -150,7 +150,7 @@ type CompanyEmail = fixtures.lib.Email;
 
 	file, rep := compileTwoForAnnotationTest(t, main, lib)
 	for _, d := range rep.Diagnostics {
-		if d.Level() >= report.Error {
+		if isError(d) {
 			t.Errorf("unexpected diagnostic: %s", d.Message())
 		}
 	}
@@ -162,13 +162,12 @@ type CompanyEmail = fixtures.lib.Email;
 }
 
 // countErrorsContaining tallies error-level diagnostics whose message
-// contains all needles. (Errors are Level <= report.Error; comparing
-// >= would also match warnings.)
+// contains all needles.
 func countErrorsContaining(rep *report.Report, needles ...string) int {
 	var n int
 outer:
 	for _, d := range rep.Diagnostics {
-		if d.Level() > report.Error {
+		if !isError(d) {
 			continue
 		}
 		for _, needle := range needles {
