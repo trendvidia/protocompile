@@ -1,0 +1,8 @@
+syntax = "proto3";
+
+package px;
+
+enum Beta {
+  UNSPECIFIED = 0;
+  B_ONE = 1;
+}

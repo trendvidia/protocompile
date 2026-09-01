@@ -40,6 +40,24 @@ var pointerRegex = regexp.MustCompile(`0x[0-9a-f]+`)
 
 var absPathRegex = regexp.MustCompile(`/[^ :]*/protocompile/`)
 
+// sweepRepoRoot is the checkout root, found from this package's location
+// rather than from the checkout's name. absPathRegex alone scrubs a path
+// only when the directory above it is called "protocompile", so in a git
+// worktree or any CI checkout under another name the absolute paths in
+// protoc's diagnostics survived into the report and drifted it against the
+// golden — a failure that says nothing about the compiler.
+var sweepRepoRoot = func() string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	// This package sits at internal/testing/protoctest.
+	for range 3 {
+		wd = filepath.Dir(wd)
+	}
+	return wd
+}()
+
 type fixture struct {
 	Path        string
 	ImportPaths []string
@@ -136,14 +154,10 @@ func collectFixtures(t *testing.T) []fixture {
 
 func repoRoot(t *testing.T) string {
 	t.Helper()
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
+	if sweepRepoRoot == "" {
+		t.Fatal("getwd failed; cannot locate the repository root")
 	}
-	for range 3 {
-		wd = filepath.Dir(wd)
-	}
-	return wd
+	return sweepRepoRoot
 }
 
 func compileOne(ctx context.Context, c protoctest.Compiler, file string) (protoctest.CompiledFile, error) {
@@ -175,6 +189,9 @@ func stripVolatile(fdp *descriptorpb.FileDescriptorProto) *descriptorpb.FileDesc
 
 func oneLine(s string) string {
 	s = pointerRegex.ReplaceAllString(s, "<ptr>")
+	if sweepRepoRoot != "" {
+		s = strings.ReplaceAll(s, sweepRepoRoot+string(filepath.Separator), "<repo>/")
+	}
 	s = absPathRegex.ReplaceAllString(s, "<repo>/")
 	s = strings.ReplaceAll(s, "\n", " ")
 	s = strings.ReplaceAll(s, "\t", " ")

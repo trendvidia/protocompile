@@ -70,6 +70,54 @@ order):
     hierarchy.
   * [`protoutil`](https://pkg.go.dev/github.com/trendvidia/protocompile/protoutil):
     This package contains some other useful functions for interacting with Protobuf descriptors.
+  * [`collide`](https://pkg.go.dev/github.com/trendvidia/protocompile/collide):
+    This package detects Protobuf namespace collisions between modules. See below.
+
+### Detecting cross-module namespace collisions
+
+Two Go modules that each vendor a copy of the same `.proto` produce two generated packages that both register the same
+file path and the same fully-qualified names into the process-global registry from `init()`. Any binary linking both
+panics before `main` runs.
+
+Per-module linting cannot see this. Each module is individually clean; the collision exists only in the link graph,
+which no Protobuf tool looks at. Worse, the documented escape hatch
+(`GOLANG_PROTOBUF_REGISTRATION_CONFLICT=warn`) drops the second registration instead, turning a loud startup crash into
+a silent wrong answer.
+
+`cmd/protocollide` checks a set of modules for this before anything links them:
+
+```bash
+go install github.com/trendvidia/protocompile/cmd/protocollide@latest
+
+protocollide chameleon=../chameleon/proto voya=./proto
+```
+
+Each argument is `<name>=<dir>`, where `<dir>` is an import root — a file at `<dir>/pxf/annotations.proto` is imported
+as `pxf/annotations.proto`. It exits 0 when no name is claimed twice, 1 when any is (listing every claimant), and 2 when
+the arguments were invalid or a module could not be read or compiled, so it drops into CI as a gate:
+
+```
+file "pxf/annotations.proto" claimed by 2 modules
+    chameleon (pxf/annotations.proto)
+    voya (pxf/annotations.proto)
+symbol "pxf.Constraint" claimed by 2 modules
+    chameleon (pxf/annotations.proto)
+    voya (pxf/annotations.proto)
+symbol "pxf.required" claimed by 2 modules
+    chameleon (pxf/annotations.proto)
+    voya (pxf/annotations.proto)
+
+protocollide: 3 collisions (1 file path, 2 symbols); linking these modules together would panic in protoregistry at init
+```
+
+This replaces the usual mitigation, which is a comment in a `buf.yaml` explaining that one repository must not vendor a
+copy of what another already registers — a constraint a human has to read and remember.
+
+The same check is available as a Go API through the [`collide`](https://pkg.go.dev/github.com/trendvidia/protocompile/collide)
+package. It mirrors what `protoregistry.RegisterFile` rejects, which is the function that panics: the file's import
+path, each of its top-level declarations by fully-qualified name, the values of its top-level enums (which the registry
+scopes to the package, not to the enum), and its Protobuf package where that meets another module's declaration. It is
+detection only — nothing in it changes how generated code registers itself, or how `protoregistry` behaves.
 
 ### Migrating from `protoparse`
 
