@@ -141,18 +141,21 @@ type extendBlock struct {
 // A descriptor does not record block boundaries — three `extend Foo` blocks
 // and one holding the same three extensions produce an identical extension
 // list. What does distinguish them is nested_type: a block declaring a
-// group puts that group's body at the block's own position, so a field's
-// entry appearing between two group bodies proves a block boundary there.
+// group puts that group's body there at the block's own position.
 //
-// splitAt reports whether a new block must start before the extension whose
-// group body sits at the given nested_type position, given the previous
-// one's. It is nil at file scope and wherever no such evidence exists, in
-// which case consecutive same-extendee extensions fold into one block —
-// which round-trips identically, since the difference is unobservable.
+// Two group bodies written by one block are always *adjacent* there, because
+// an `extend` block can hold nothing but extension fields — no nested
+// message, no map field, nothing else that lands in nested_type. So a gap
+// between two group bodies is proof of a boundary, whatever fills it: a map
+// entry, a group body from a field, or an explicitly declared message.
+//
+// bodyPos gives a group extension's position, and is nil where none is
+// known. Without it, and between extensions that declare no group,
+// consecutive same-extendee extensions fold into one block — which
+// round-trips identically, since nothing observes the difference.
 func extendBlocks(
 	exts []*descriptorpb.FieldDescriptorProto,
 	bodyPos func(*descriptorpb.FieldDescriptorProto) (int, bool),
-	fieldBetween func(prev, cur int) bool,
 ) ([]extendBlock, error) {
 	var out []extendBlock
 	prevBody := -1
@@ -162,14 +165,11 @@ func extendBlocks(
 			return nil, malformedf("extension %s has no extendee", f.GetName())
 		}
 
-		split := false
-		cur := -1
+		split, cur := false, -1
 		if bodyPos != nil {
 			if pos, ok := bodyPos(f); ok {
 				cur = pos
-				if prevBody >= 0 && fieldBetween(prevBody, pos) {
-					split = true
-				}
+				split = prevBody >= 0 && pos != prevBody+1
 			}
 		}
 

@@ -20,6 +20,8 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/testing/protocmp"
 	"google.golang.org/protobuf/types/descriptorpb"
@@ -294,4 +296,82 @@ message M {
   extend Foo { optional group G = 3 { optional int32 x = 1; } }
 }
 `)
+}
+
+// TestDeclaredMessageBetweenExtendBlocks covers the boundary evidence that
+// is not a field: a nested message declared between two `extend` blocks.
+//
+// nested_type is [A, N, B], and the two group bodies are not adjacent, so
+// the blocks that wrote them are distinct. Splitting only on field-produced
+// entries missed this and folded them into one block, which then claimed
+// two nested_type entries for a single anchor.
+//
+// On the branch point this rendered a silently different descriptor.
+func TestDeclaredMessageBetweenExtendBlocks(t *testing.T) {
+	t.Parallel()
+
+	requireRoundTrip(t, `syntax = "proto2";
+message Foo { extensions 1 to 100; }
+message M {
+  extend Foo { optional group A = 1 { optional int32 a = 1; } }
+  message N { optional int32 n = 1; }
+  extend Foo { optional group B = 2 { optional int32 b = 1; } }
+}
+`)
+}
+
+// TestDeclaredMessageBetweenFileScopeExtendBlocks is the same at file
+// scope, where message_type carries the evidence and block splitting was
+// not applied at all.
+func TestDeclaredMessageBetweenFileScopeExtendBlocks(t *testing.T) {
+	t.Parallel()
+
+	requireRoundTrip(t, `syntax = "proto2";
+message Foo { extensions 1 to 100; }
+extend Foo { optional group A = 1 { optional int32 a = 1; } }
+message N { optional int32 n = 1; }
+extend Foo { optional group B = 2 { optional int32 b = 1; } }
+`)
+}
+
+// TestAdjacentGroupsStayInOneBlock pins the other side of the adjacency
+// rule — and does it by reading the rendered text, because the descriptor
+// cannot tell the two apart.
+//
+// Splitting `extend Foo { group A; group B }` into two blocks produces an
+// identical descriptor: the extension list keeps its order and the two group
+// bodies keep theirs in nested_type. So a round-trip assertion passes
+// whether the rule splits here or not — mutation-checked, "always split"
+// leaves every round-trip test green.
+//
+// What it changes is the source a reader sees. Preserving the block the
+// author wrote is the point of the rule, so the assertion is on the text.
+func TestAdjacentGroupsStayInOneBlock(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto2";
+message Foo { extensions 1 to 100; }
+message M {
+  extend Foo {
+    optional group A = 1 { optional int32 a = 1; }
+    optional group B = 2 { optional int32 b = 1; }
+  }
+  map<int32, string> m = 3;
+}
+`
+	opener := &source.Openers{
+		source.NewMap(map[string]*source.File{"t.proto": source.NewFile("t.proto", src)}),
+		source.WKTs(),
+	}
+	fdp, err := compile(t, opener, "t.proto")
+	require.NoError(t, err)
+
+	rendered, err := descsrc.Render(fdp)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, strings.Count(rendered, "extend .Foo {"),
+		"two groups written by one block must stay in one block:\n%s", rendered)
+
+	// And it still has to round-trip.
+	requireRoundTrip(t, src)
 }

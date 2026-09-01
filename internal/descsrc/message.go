@@ -87,32 +87,9 @@ func (r *renderer) messageBody(m *descriptorpb.DescriptorProto, scope string) er
 	if err != nil {
 		return err
 	}
-	fieldPositions := make([]int, 0, len(fieldProduced))
-	for name := range fieldProduced {
-		if i, ok := nestedIndex[name]; ok {
-			fieldPositions = append(fieldPositions, i)
-		}
-	}
-
 	blocks, err := extendBlocks(m.GetExtension(),
 		func(f *descriptorpb.FieldDescriptorProto) (int, bool) {
-			if f.GetType() != descriptorpb.FieldDescriptorProto_TYPE_GROUP {
-				return 0, false
-			}
-			name, ok := localName(scope, f.GetTypeName())
-			if !ok {
-				return 0, false
-			}
-			i, ok := nestedIndex[name]
-			return i, ok
-		},
-		func(prev, cur int) bool {
-			for _, p := range fieldPositions {
-				if p > prev && p < cur {
-					return true
-				}
-			}
-			return false
+			return groupBodyPos(scope, f, nestedIndex)
 		},
 	)
 	if err != nil {
@@ -636,11 +613,13 @@ func scheduleDeclared(
 	last := anchorStart
 	for i, n := range list {
 		if a, ok := producedBy[n.GetName()]; ok {
-			if _, seen := order[a]; seen {
-				return nil, nil, malformedf(
-					"%s has two entries synthesized by %s", what, a)
+			// One declaration can synthesize several entries — an extend
+			// block declaring two groups puts both bodies here, side by
+			// side. The first position is the one the emitter replays,
+			// since the declaration goes out as a unit starting there.
+			if _, seen := order[a]; !seen {
+				order[a] = i
 			}
-			order[a] = i
 			if a.before(last, order) {
 				return nil, nil, unsupportedf(
 					"%s has %s, synthesized by %s, after a message synthesized by %s",
@@ -657,4 +636,22 @@ func scheduleDeclared(
 		sched[last] = append(sched[last], n)
 	}
 	return sched, order, nil
+}
+
+// groupBodyPos gives the position in an index of the message holding a
+// group extension's body, or false when the extension declares no group.
+func groupBodyPos(
+	scope string,
+	f *descriptorpb.FieldDescriptorProto,
+	index map[string]int,
+) (int, bool) {
+	if f.GetType() != descriptorpb.FieldDescriptorProto_TYPE_GROUP {
+		return 0, false
+	}
+	name, ok := localName(scope, f.GetTypeName())
+	if !ok {
+		return 0, false
+	}
+	i, ok := index[name]
+	return i, ok
 }
