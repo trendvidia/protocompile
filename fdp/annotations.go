@@ -329,10 +329,34 @@ func buildLiteralArg(lit ast.ExprLiteral, param ir.AnnotationParam) *pwsv1.Annot
 				Value: &pwsv1.AnnotationArg_DoubleValue{DoubleValue: f},
 			}
 		}
+		// Int reports whether the conversion was exact, and it is false
+		// precisely when the value does not fit — the big-integer path
+		// saturates to MaxUint64 and says so. An untyped parameter has no
+		// declared type to convert towards, so a literal that is not an
+		// integer is simply not one, and follows the same spelling rule
+		// the float case above uses.
+		//
+		// Without this the saturated value is written as the author's, and
+		// `@default(1e100)` reaches the carrier as `int_value: -1` —
+		// indistinguishable from `@default(18446744073709551615)`, which
+		// means it exactly.
+		u, exact := num.Int()
+		if untyped && !exact {
+			f, _ := num.Float()
+			return &pwsv1.AnnotationArg{
+				Value: &pwsv1.AnnotationArg_DoubleValue{DoubleValue: f},
+			}
+		}
+
 		// Default integer lowering. NumberToken.Int returns a uint64;
 		// reinterpret via int64 to preserve two's-complement semantics
 		// for the AnnotationArg.int_value field.
-		u, _ := num.Int()
+		//
+		// A declared integer parameter still takes an inexact value here,
+		// wrapped. That is a narrower question — the literal does not fit
+		// the type the author asked for, which wants a diagnostic rather
+		// than a different silent lowering — and is pinned in
+		// TestAnnotationNumericRouting rather than changed here (#165).
 		return &pwsv1.AnnotationArg{
 			Value: &pwsv1.AnnotationArg_IntValue{IntValue: int64(u)},
 		}

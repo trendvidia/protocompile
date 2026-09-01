@@ -1118,6 +1118,43 @@ message M {}
 		// consumer that knows the target field is unsigned recovers it
 		// exactly; this is by design, not the #149 defect.
 		{name: "uint64/max", param: "uint64", lit: "18446744073709551615", wantInt: -1},
+
+		// #165. `Int` reports exactness, and it is false precisely when
+		// the value does not fit — the big-integer path saturates to
+		// MaxUint64 and says so. Discarding that flag wrote the saturated
+		// value as if the author had asked for it.
+		//
+		// The pair below is the whole defect: they are ONE apart, and
+		// before the fix both reached the carrier as `int_value: -1`, so
+		// a consumer could not tell a literal that means MaxUint64 from
+		// one that overflowed past it.
+		{name: "any/uint64_max_exact", param: "any", lit: "18446744073709551615", wantInt: -1},
+		{
+			name: "any/uint64_max_plus_one", param: "any", lit: "18446744073709551616",
+			isDouble: true, wantDouble: 18446744073709551616,
+		},
+
+		// An exponent with integer value takes the integer path —
+		// IsFloat is false for it, as documented ("can only be used as a
+		// float literal, even if it has integer value"). So exactness,
+		// not spelling, is what separates these two.
+		{name: "any/exponent_in_range", param: "any", lit: "1e10", wantInt: 10000000000},
+		{name: "any/exponent_out_of_range", param: "any", lit: "1e100", isDouble: true, wantDouble: 1e100},
+		// Exact, and large enough to wrap into a negative int64. Carried
+		// as two's complement by design, the same as uint64/max.
+		{name: "any/exponent_at_wrap", param: "any", lit: "1e19", wantInt: -8446744073709551616},
+		{
+			name: "any/big_int_out_of_range", param: "any", lit: "99999999999999999999999",
+			isDouble: true, wantDouble: 1e23,
+		},
+
+		// A declared integer parameter still takes an inexact value
+		// wrapped, with no diagnostic. Pinned rather than fixed: the
+		// literal does not fit the type the author asked for, which wants
+		// an error rather than a different silent lowering, and #165
+		// leaves that decision open. Rewrite this row when it is made.
+		{name: "int32/out_of_range_wraps", param: "int32", lit: "1e100", wantInt: -1},
+		{name: "uint64/out_of_range_wraps", param: "uint64", lit: "1e100", wantInt: -1},
 	}
 
 	for _, tc := range tests {
