@@ -76,6 +76,46 @@ func TestNoCollisionWhenOnlyOneDefinesIt(t *testing.T) {
 	assert.Empty(t, got)
 }
 
+// TestDependentModuleCompiles pins the configuration the check exists for
+// and which its first fixtures did not have: voya *links* chameleon, so
+// voya/service.proto imports pxf/annotations.proto, a file that is not
+// under voya's own root. That import is the whole reason voya must not
+// vendor its own copy.
+//
+// Compiling each module against only its own root fails to resolve it —
+//
+//	module voya: voya/service.proto:5:1: imported file does not exist
+//
+// — which reports the very arrangement being checked as unreadable. Every
+// module's root is on the import path, and claims are still attributed
+// only to the files a module actually contains.
+func TestDependentModuleCompiles(t *testing.T) {
+	t.Parallel()
+
+	got, err := collide.Check(t.Context(), []collide.Module{
+		{Name: "chameleon", Root: "testdata/chameleon"},
+		{Name: "voya", Root: "testdata/voya"},
+	})
+	require.NoError(t, err, "voya imports chameleon's proto and must still compile")
+	assert.Empty(t, got, "importing another module's file is not claiming it")
+}
+
+// TestVendoringWhileAlsoImportingCollides is the same link relationship
+// with voya vendoring its own copy anyway. Its own root is searched first,
+// so it resolves and therefore claims its copy — which is what makes the
+// duplicate visible instead of silently unifying the two.
+func TestVendoringWhileAlsoImportingCollides(t *testing.T) {
+	t.Parallel()
+
+	got, err := collide.Check(t.Context(), []collide.Module{
+		{Name: "chameleon", Root: "testdata/chameleon"},
+		{Name: "voya", Root: "testdata/voya_vendored"},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, got)
+	assert.Equal(t, "pxf/annotations.proto", byKind(got, collide.KindFile)[0].Name)
+}
+
 // TestWellKnownTypesAreNotClaimed guards the obvious false positive: every
 // module imports google/protobuf/descriptor.proto, and if imports counted
 // as claims then any two modules would collide on it.

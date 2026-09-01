@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package voya;
 
+import "pxf/annotations.proto";
+
 message Request {
-  string id = 1;
+  string id = 1 [(pxf.required) = true];
 }

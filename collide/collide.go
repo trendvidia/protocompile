@@ -160,7 +160,7 @@ func Check(ctx context.Context, mods []Module) ([]Collision, error) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if err := collectModule(ctx, mod, claims); err != nil {
+		if err := collectModule(ctx, mod, importPaths(mod, mods), claims); err != nil {
 			return nil, fmt.Errorf("module %s: %w", mod.Name, err)
 		}
 	}
@@ -212,8 +212,36 @@ func sortClaims(cs []Claim) {
 	})
 }
 
+// importPaths returns the roots to compile mod against: its own first,
+// then every other module's.
+//
+// A module that depends on another imports that other module's files by
+// path, and those files are not under its own root — which is the whole
+// reason it must not vendor its own copy. Compiling against only its own
+// root would fail to resolve exactly the import that makes the constraint
+// matter, and report the configuration this checks as unreadable.
+//
+// Its own root comes first so that a module which *does* vendor a copy
+// resolves its own, and therefore claims it. That is what makes the
+// duplicate visible rather than silently unifying the two.
+func importPaths(mod Module, mods []Module) []string {
+	out := make([]string, 0, len(mods))
+	out = append(out, mod.Root)
+	for _, other := range mods {
+		if other.Name != mod.Name {
+			out = append(out, other.Root)
+		}
+	}
+	return out
+}
+
 // collectModule compiles one module and records what it claims.
-func collectModule(ctx context.Context, mod Module, claims map[Kind]map[string][]Claim) error {
+func collectModule(
+	ctx context.Context,
+	mod Module,
+	roots []string,
+	claims map[Kind]map[string][]Claim,
+) error {
 	paths := mod.Paths
 	if len(paths) == 0 {
 		var err error
@@ -227,7 +255,7 @@ func collectModule(ctx context.Context, mod Module, claims map[Kind]map[string][
 	}
 
 	compiler := protocompile.Compiler{
-		Resolver: &protocompile.SourceResolver{ImportPaths: []string{mod.Root}},
+		Resolver: &protocompile.SourceResolver{ImportPaths: roots},
 	}
 	files, err := compiler.Compile(ctx, paths...)
 	if err != nil {
@@ -235,8 +263,9 @@ func collectModule(ctx context.Context, mod Module, claims map[Kind]map[string][
 	}
 
 	// Only what this module declares counts. Compile also returns the
-	// module's dependencies — the well-known types among them — and those
-	// are claimed by whoever ships them, not by this module.
+	// module's dependencies — the well-known types, and any file pulled in
+	// from another module's root — and those are claimed by whoever ships
+	// them, not by this module.
 	own := make(map[string]bool, len(paths))
 	for _, p := range paths {
 		own[p] = true
