@@ -313,8 +313,9 @@ message SourceLocation {
 
 // ── Options-message extensions ────────────────────────────────────────────
 //
-// Extension numbers live in protowire's reserved 50000–59999 family range
-// (see STABILITY.md). The schema-extensions sub-range is 1327–1346;
+// Extension numbers live in protowire's block in the global extension
+// registry, 1314–1363, granted by protocolbuffers/protobuf#28919 (see
+// STABILITY.md). The schema-extensions sub-range is 1327–1346;
 // 1327–1331 are allocated by this revision.
 //
 // Before the registered block existed these carriers sat at 50400–50404,
