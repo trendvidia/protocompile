@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package foo;
+
+// foo.Bar is a message here and a package in pkg_user. protoregistry keeps
+// packages and declarations in one namespace, so the two cannot coexist.
+message Bar {
+  string x = 1;
+}

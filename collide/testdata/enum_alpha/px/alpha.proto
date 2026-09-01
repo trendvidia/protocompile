@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package px;
+
+// UNSPECIFIED is unprefixed, so its fully-qualified name is px.UNSPECIFIED
+// — scoped to the package, not to Alpha. enum_beta spells the same value
+// under a differently-named enum, which protoregistry rejects.
+enum Alpha {
+  UNSPECIFIED = 0;
+  A_ONE = 1;
+}

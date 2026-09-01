@@ -33,13 +33,29 @@
 // [Check] mirrors what `protoregistry.RegisterFile` rejects, because that
 // is the function that panics:
 //
-//   - the file's import path, claimed by more than one module;
+//   - the file's import path;
 //   - each of the file's top-level declarations — messages, enums,
-//     extensions and services — by fully-qualified name.
+//     extensions and services — by fully-qualified name;
+//   - the values of each top-level enum. `rangeTopLevelDescriptors`
+//     enumerates them alongside the enum itself, because an enum value is
+//     scoped to the enum's parent rather than to the enum: two modules in
+//     one Protobuf package whose enums both spell a value `UNSPECIFIED`
+//     conflict over that name even though the enums are differently named;
+//   - the file's Protobuf package and every ancestor of it, against the
+//     other modules' declarations. A package entry and a descriptor cannot
+//     share a name, which `RegisterFile` reports as a "package name
+//     conflict". Two packages sharing a name is not a conflict, and is not
+//     reported.
 //
 // Nested declarations are not compared separately. A nested name can only
 // collide if the top-level name enclosing it already does, and
 // `RegisterFile` itself checks only top-level descriptors.
+//
+// A name claimed twice by a single module is reported too. Nothing else
+// catches it: the module's own build does not, because protocompile links
+// each file separately and two files in one module may declare the same
+// fully-qualified name without error, and `RegisterFile` then panics on
+// the second one just as it would across modules.
 //
 // This is detection. Nothing here changes how generated code registers
 // itself, or how `protoregistry` behaves.
@@ -117,7 +133,13 @@ type Collision struct {
 // claimant.
 func (c Collision) String() string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "%s %q claimed by %d modules", c.Kind, c.Name, len(c.modules()))
+	if mods := c.modules(); len(mods) > 1 {
+		fmt.Fprintf(&sb, "%s %q claimed by %d modules", c.Kind, c.Name, len(mods))
+	} else {
+		// One module claiming the same name from several of its own files
+		// panics just the same; saying "1 module" would read as a non-event.
+		fmt.Fprintf(&sb, "%s %q claimed by %d files in module %s", c.Kind, c.Name, len(c.Claims), mods[0])
+	}
 	for _, claim := range c.Claims {
 		fmt.Fprintf(&sb, "\n    %s (%s)", claim.Module, claim.File)
 	}
@@ -137,11 +159,14 @@ func (c Collision) modules() []string {
 }
 
 // Check compiles each module independently and reports every import path
-// and fully-qualified name claimed by more than one of them.
+// and fully-qualified name claimed more than once — by two modules, or by
+// two files of one module, both of which panic in
+// `protoregistry.RegisterFile`.
 //
-// A module that fails to compile is an error, not a collision: an
-// unreadable module cannot be cleared, and reporting it as clean would be
-// the same silent pass this package exists to remove.
+// A module that cannot be read or compiled, or that holds no `.proto` at
+// all, is an error rather than a collision: it has not been cleared, and
+// reporting it as clean would be the same silent pass this package exists
+// to remove.
 //
 // The returned collisions are ordered deterministically, so output can be
 // compared across runs.
@@ -155,23 +180,26 @@ func Check(ctx context.Context, mods []Module) ([]Collision, error) {
 		KindFile:   {},
 		KindSymbol: {},
 	}
+	// packages[name] is every claim on name as a Protobuf package. Package
+	// claims are held apart from symbol claims because two packages may
+	// share a name; only a package meeting a declaration is a conflict.
+	packages := map[string][]Claim{}
 
 	for _, mod := range mods {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if err := collectModule(ctx, mod, importPaths(mod, mods), claims); err != nil {
+		if err := collectModule(ctx, mod, importPaths(mod, mods), claims, packages); err != nil {
 			return nil, fmt.Errorf("module %s: %w", mod.Name, err)
 		}
 	}
+	mergePackageConflicts(claims[KindSymbol], packages)
 
 	var out []Collision
 	for _, kind := range []Kind{KindFile, KindSymbol} {
 		for name, cs := range claims[kind] {
 			c := Collision{Kind: kind, Name: name, Claims: cs}
-			if len(c.modules()) < 2 {
-				// One module claiming a name twice is a duplicate within
-				// that module, which its own build already rejects.
+			if len(c.Claims) < 2 {
 				continue
 			}
 			sortClaims(c.Claims)
@@ -189,6 +217,7 @@ func Check(ctx context.Context, mods []Module) ([]Collision, error) {
 
 func validate(mods []Module) error {
 	seen := make(map[string]bool, len(mods))
+	roots := make(map[string]string, len(mods))
 	for _, mod := range mods {
 		switch {
 		case mod.Name == "":
@@ -199,8 +228,43 @@ func validate(mods []Module) error {
 			return fmt.Errorf("collide: duplicate module name %q", mod.Name)
 		}
 		seen[mod.Name] = true
+
+		// Two names for one root would report every file in it as claimed
+		// twice — a collision that exists only in the arguments.
+		key, err := filepath.Abs(mod.Root)
+		if err != nil {
+			return fmt.Errorf("collide: module %s: %w", mod.Name, err)
+		}
+		if prev, ok := roots[key]; ok {
+			return fmt.Errorf("collide: modules %s and %s have the same root %s", prev, mod.Name, mod.Root)
+		}
+		roots[key] = mod.Name
 	}
 	return nil
+}
+
+// mergePackageConflicts folds package claims into the symbol claims they
+// conflict with. `RegisterFile` keeps packages and descriptors in one
+// namespace, so a package entry and a declaration cannot share a name; two
+// packages sharing a name is ordinary and stays unreported.
+func mergePackageConflicts(symbols, packages map[string][]Claim) {
+	for name, pkgClaims := range packages {
+		declared, ok := symbols[name]
+		if !ok {
+			continue
+		}
+		seen := make(map[Claim]bool, len(declared))
+		for _, c := range declared {
+			seen[c] = true
+		}
+		for _, c := range pkgClaims {
+			if !seen[c] {
+				seen[c] = true
+				declared = append(declared, c)
+			}
+		}
+		symbols[name] = declared
+	}
 }
 
 func sortClaims(cs []Claim) {
@@ -241,6 +305,7 @@ func collectModule(
 	mod Module,
 	roots []string,
 	claims map[Kind]map[string][]Claim,
+	packages map[string][]Claim,
 ) error {
 	paths := mod.Paths
 	if len(paths) == 0 {
@@ -250,9 +315,9 @@ func collectModule(
 			return err
 		}
 	}
-	if len(paths) == 0 {
-		return nil
-	}
+	// A caller-supplied Paths may repeat a file; compiling it twice would
+	// report it as claiming its own names twice.
+	paths = dedupe(paths)
 
 	compiler := protocompile.Compiler{
 		Resolver: &protocompile.SourceResolver{ImportPaths: roots},
@@ -281,12 +346,40 @@ func collectModule(
 		for _, name := range topLevelNames(f) {
 			claims[KindSymbol][name] = append(claims[KindSymbol][name], claim)
 		}
+		for _, name := range packageNames(f) {
+			packages[name] = append(packages[name], claim)
+		}
 	}
 	return nil
 }
 
+// dedupe returns paths with repeats removed, order preserved.
+func dedupe(paths []string) []string {
+	seen := make(map[string]bool, len(paths))
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// packageNames lists the file's Protobuf package and every ancestor of it,
+// which is the set `RegisterFile` walks when it reports a package name
+// conflict. A file with no package claims nothing.
+func packageNames(fd protoreflect.FileDescriptor) []string {
+	var out []string
+	for name := fd.Package(); name != ""; name = name.Parent() {
+		out = append(out, string(name))
+	}
+	return out
+}
+
 // topLevelNames lists the fully-qualified names of a file's top-level
-// declarations — the set `protoregistry.RegisterFile` checks for conflicts.
+// declarations — the set `protoregistry.RegisterFile` checks for conflicts,
+// as enumerated by its `rangeTopLevelDescriptors`.
 func topLevelNames(fd protoreflect.FileDescriptor) []string {
 	msgs := fd.Messages()
 	enums := fd.Enums()
@@ -297,7 +390,16 @@ func topLevelNames(fd protoreflect.FileDescriptor) []string {
 		out = append(out, string(msgs.Get(i).FullName()))
 	}
 	for i := range enums.Len() {
-		out = append(out, string(enums.Get(i).FullName()))
+		enum := enums.Get(i)
+		out = append(out, string(enum.FullName()))
+		// An enum value is scoped to the enum's parent, not to the enum, so
+		// `RegisterFile` registers the values of a top-level enum at the top
+		// level too. Two modules whose differently-named enums both spell a
+		// value `UNSPECIFIED` in one package conflict over that name.
+		vals := enum.Values()
+		for j := range vals.Len() {
+			out = append(out, string(vals.Get(j).FullName()))
+		}
 	}
 	for i := range exts.Len() {
 		out = append(out, string(exts.Get(i).FullName()))
@@ -310,16 +412,39 @@ func topLevelNames(fd protoreflect.FileDescriptor) []string {
 
 // discover lists every .proto beneath root, as slash-separated paths
 // relative to it.
+//
+// A root that yields nothing is an error rather than an empty result. A
+// mistyped root that happens to exist, or one that turns out to hold no
+// schema at all, has not been cleared, and reporting it as clean would be
+// the same silent pass this package exists to remove.
 func discover(root string) ([]string, error) {
+	// filepath.WalkDir lstats its root, so a symlink to a directory — an
+	// ordinary shape for a sibling checkout or a cached module directory —
+	// walks as a single non-directory entry and yields nothing at all.
+	walkRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("root %s does not exist", root)
+		}
+		return nil, err
+	}
+	info, err := os.Stat(walkRoot)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("root %s is not a directory", root)
+	}
+
 	var out []string
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(walkRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() || !strings.HasSuffix(d.Name(), ".proto") {
 			return nil
 		}
-		rel, err := filepath.Rel(root, path)
+		rel, err := filepath.Rel(walkRoot, path)
 		if err != nil {
 			return err
 		}
@@ -327,10 +452,10 @@ func discover(root string) ([]string, error) {
 		return nil
 	})
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("root %s does not exist", root)
-		}
 		return nil, err
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("root %s contains no .proto files", root)
 	}
 	sort.Strings(out)
 	return out, nil

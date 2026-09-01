@@ -23,7 +23,8 @@
 // Each argument names a module and the import root to check it under, so a
 // file at <dir>/pxf/annotations.proto is imported as
 // "pxf/annotations.proto". Exits 0 when no name is claimed twice, 1 when
-// any is, and 2 when a module could not be read or compiled.
+// any is, and 2 when the arguments were invalid or a module could not be
+// read or compiled.
 package main
 
 import (
@@ -63,6 +64,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		flags.PrintDefaults()
 	}
 	if err := flags.Parse(args); err != nil {
+		// -h is a request, not a failure; ContinueOnError reports it as one.
+		if errors.Is(err, flag.ErrHelp) {
+			return exitOK
+		}
 		return exitError
 	}
 
@@ -124,6 +129,11 @@ func parseModules(args []string) ([]collide.Module, error) {
 	}
 	mods := make([]collide.Module, 0, len(args))
 	for _, arg := range args {
+		// Go's flag package stops at the first operand, so a flag written
+		// after the modules arrives here looking like a module.
+		if strings.HasPrefix(arg, "-") {
+			return nil, fmt.Errorf("flag %q must come before the module arguments", arg)
+		}
 		name, dir, ok := strings.Cut(arg, "=")
 		if !ok || name == "" || dir == "" {
 			return nil, fmt.Errorf("argument %q is not of the form <name>=<dir>", arg)
@@ -154,7 +164,7 @@ Example:
 Exit codes:
   0  no name claimed twice
   1  at least one collision, listed on stdout
-  2  a module could not be read or compiled
+  2  bad arguments, or a module that could not be read or compiled
 
 Flags:
 `

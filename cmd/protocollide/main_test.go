@@ -29,6 +29,8 @@ const (
 	chameleon    = "chameleon=../../collide/testdata/chameleon"
 	voyaClean    = "voya=../../collide/testdata/voya"
 	voyaVendored = "voya=../../collide/testdata/voya_vendored"
+	enumAlpha    = "alpha=../../collide/testdata/enum_alpha"
+	enumBeta     = "beta=../../collide/testdata/enum_beta"
 )
 
 // TestExitsNonZeroAndNamesBothClaimants is issue #139's first acceptance
@@ -90,6 +92,33 @@ func TestUnreadableModuleIsDistinctFromACollision(t *testing.T) {
 	assert.Empty(t, stdout.String())
 }
 
+// TestSharedEnumValueExitsNonZero is the end-to-end form of the case the
+// checker used to pass: two modules whose differently-named enums share an
+// unprefixed value. Registering both panics with "name conflict over
+// px.UNSPECIFIED", and the gate must exit 1 rather than 0.
+func TestSharedEnumValueExitsNonZero(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+	code := run(t.Context(), []string{enumAlpha, enumBeta}, &stdout, &stderr)
+
+	assert.Equal(t, exitCollided, code)
+	assert.Contains(t, stdout.String(), `symbol "px.UNSPECIFIED" claimed by 2 modules`)
+	assert.Empty(t, stderr.String())
+}
+
+// TestHelpExitsZero keeps `protocollide -h` from reporting the exit code
+// that means a module could not be read.
+func TestHelpExitsZero(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+	code := run(t.Context(), []string{"-h"}, &stdout, &stderr)
+
+	assert.Equal(t, exitOK, code)
+	assert.Contains(t, stderr.String(), "Exit codes:", "asking for help prints the help")
+}
+
 func TestArgumentErrors(t *testing.T) {
 	t.Parallel()
 
@@ -103,6 +132,10 @@ func TestArgumentErrors(t *testing.T) {
 		{name: "empty name", args: []string{chameleon, "=dir"}, want: "not of the form"},
 		{name: "empty dir", args: []string{chameleon, "name="}, want: "not of the form"},
 		{name: "none", args: nil, want: "at least two modules"},
+		// flag stops at the first operand, so a trailing flag reaches
+		// parseModules; "-q is not of the form <name>=<dir>" would send an
+		// operator looking for a module that is not the problem.
+		{name: "trailing flag", args: []string{chameleon, voyaClean, "-q"}, want: `flag "-q" must come before`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

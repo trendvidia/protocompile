@@ -1,0 +1,7 @@
+syntax = "proto3";
+
+package px;
+
+message Dup {
+  string x = 1;
+}

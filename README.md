@@ -94,10 +94,13 @@ protocollide chameleon=../chameleon/proto voya=./proto
 
 Each argument is `<name>=<dir>`, where `<dir>` is an import root — a file at `<dir>/pxf/annotations.proto` is imported
 as `pxf/annotations.proto`. It exits 0 when no name is claimed twice, 1 when any is (listing every claimant), and 2 when
-a module could not be read or compiled, so it drops into CI as a gate:
+the arguments were invalid or a module could not be read or compiled, so it drops into CI as a gate:
 
 ```
 file "pxf/annotations.proto" claimed by 2 modules
+    chameleon (pxf/annotations.proto)
+    voya (pxf/annotations.proto)
+symbol "pxf.Constraint" claimed by 2 modules
     chameleon (pxf/annotations.proto)
     voya (pxf/annotations.proto)
 symbol "pxf.required" claimed by 2 modules
@@ -112,8 +115,9 @@ copy of what another already registers — a constraint a human has to read and 
 
 The same check is available as a Go API through the [`collide`](https://pkg.go.dev/github.com/trendvidia/protocompile/collide)
 package. It mirrors what `protoregistry.RegisterFile` rejects, which is the function that panics: the file's import
-path, and each of its top-level declarations by fully-qualified name. It is detection only — nothing in it changes how
-generated code registers itself, or how `protoregistry` behaves.
+path, each of its top-level declarations by fully-qualified name, the values of its top-level enums (which the registry
+scopes to the package, not to the enum), and its Protobuf package where that meets another module's declaration. It is
+detection only — nothing in it changes how generated code registers itself, or how `protoregistry` behaves.
 
 ### Migrating from `protoparse`
 
