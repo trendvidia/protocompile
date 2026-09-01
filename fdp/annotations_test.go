@@ -1148,13 +1148,15 @@ message M {}
 			isDouble: true, wantDouble: 1e23,
 		},
 
-		// A declared integer parameter still takes an inexact value
-		// wrapped, with no diagnostic. Pinned rather than fixed: the
-		// literal does not fit the type the author asked for, which wants
-		// an error rather than a different silent lowering, and #165
-		// leaves that decision open. Rewrite this row when it is made.
-		{name: "int32/out_of_range_wraps", param: "int32", lit: "1e100", wantInt: -1},
-		{name: "uint64/out_of_range_wraps", param: "uint64", lit: "1e100", wantInt: -1},
+		// A value that does not fit a declared integer parameter is now a
+		// compile error, so it has no row here — this table only covers
+		// what lowers. The diagnostic is pinned in ir, where it is raised:
+		// TestAnnotationScalarArgRange.
+		//
+		// A fractional literal that DOES fit is still lowered, truncated:
+		// `@a(1.5)` on int32 gives int_value 1. That is a different
+		// question from range and is deliberately untouched.
+		{name: "int32/fraction_truncates", param: "int32", lit: "1.5", wantInt: 1},
 	}
 
 	for _, tc := range tests {

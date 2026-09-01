@@ -1599,3 +1599,81 @@ annotation e(value: Color);
 		})
 	}
 }
+
+// TestAnnotationScalarArgRange pins the range check on a declared integer
+// parameter: a literal that cannot be represented by the type the author
+// asked for is a compile error rather than a silently wrapped value.
+//
+// Before this, none of the rejected cases below were diagnosed. `1e100`
+// saturated to MaxUint64 and reinterpreted to -1, a negative literal was
+// accepted by an unsigned parameter, and a value past the declared width
+// simply wrapped — and a consumer reading the carrier could not recover
+// any of it (#165).
+//
+// Every bound is tested from both sides, one apart, because an off-by-one
+// here is invisible: the accepted side would still compile and the
+// rejected side would still be rejected.
+func TestAnnotationScalarArgRange(t *testing.T) {
+	t.Parallel()
+
+	compile := func(t *testing.T, param, lit string) *report.Report {
+		t.Helper()
+		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+annotation a(value: `+param+`);
+@a(`+lit+`)
+message M {}
+`)
+		return rep
+	}
+
+	t.Run("accepted", func(t *testing.T) {
+		t.Parallel()
+		for _, tc := range []struct{ param, lit string }{
+			{"int32", "2147483647"},            // MaxInt32
+			{"int32", "-2147483648"},           // MinInt32
+			{"int64", "9223372036854775807"},   // MaxInt64
+			{"int64", "-9223372036854775808"},  // MinInt64
+			{"uint32", "4294967295"},           // MaxUint32
+			{"uint64", "18446744073709551615"}, // MaxUint64
+			{"uint32", "0"},
+			{"int32", "3"},
+			// A fraction that fits is not a range error; it still lowers,
+			// truncated. Different question, deliberately untouched.
+			{"int32", "1.5"},
+			// Float scalars have no integer bound to exceed.
+			{"double", "1e100"},
+			{"float", "1.5"},
+		} {
+			rep := compile(t, tc.param, tc.lit)
+			for _, d := range rep.Diagnostics {
+				if isError(d) {
+					t.Errorf("%s(%s): unexpected diagnostic: %s", tc.param, tc.lit, d.Message())
+				}
+			}
+		}
+	})
+
+	for _, tc := range []struct{ name, param, lit, want string }{
+		{"int32_above_max", "int32", "2147483648", "out of range for `int32`"},
+		{"int32_below_min", "int32", "-2147483649", "out of range for `int32`"},
+		{"int64_above_max", "int64", "9223372036854775808", "out of range for `int64`"},
+		{"int64_below_min", "int64", "-9223372036854775809", "out of range for `int64`"},
+		{"uint32_above_max", "uint32", "4294967296", "out of range for `uint32`"},
+		// One past MaxUint64. float64 rounds this and MaxUint64 to the same
+		// number, so a magnitude comparison misses it; the check tests
+		// whether the value is whole instead.
+		{"uint64_above_max", "uint64", "18446744073709551616", "out of range for `uint64`"},
+		{"int32_saturating_exponent", "int32", "1e100", "out of range for `int32`"},
+		{"uint64_saturating_exponent", "uint64", "1e100", "out of range for `uint64`"},
+		{"negative_on_uint32", "uint32", "-3", "is negative, but `uint32` is unsigned"},
+		{"negative_on_uint64", "uint64", "-1", "is negative, but `uint64` is unsigned"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			rep := compile(t, tc.param, tc.lit)
+			assert.True(t, hasErrorContaining(rep, tc.want),
+				"%s(%s) must be diagnosed, got: %v", tc.param, tc.lit, rep.Diagnostics)
+		})
+	}
+}
