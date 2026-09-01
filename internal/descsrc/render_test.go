@@ -20,6 +20,8 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/testing/protocmp"
 	"google.golang.org/protobuf/types/descriptorpb"
@@ -241,40 +243,182 @@ func TestOrphanMapEntryAtFileScopeIsRefused(t *testing.T) {
 	}
 }
 
-// TestExtendBlockBeforeAFieldIsRefused pins the boundary the schedule draws.
+// TestExtendBlockBeforeAFieldRoundTrips covers a message body whose
+// `extend` block is declared before a field that also synthesizes a nested
+// type.
 //
-// A message body emits its fields before its `extend` blocks, so a block
-// that was declared before a field cannot be put back where it was: its
-// group body sits ahead of that field's map entry in nested_type, and no
-// ordering of the emitted source reproduces that. Refusing by name is the
-// contract; before extend blocks were part of the schedule this rendered a
-// nested_type with a duplicate entry instead.
-func TestExtendBlockBeforeAFieldIsRefused(t *testing.T) {
+// Both put an entry in nested_type at their own position, so emitting every
+// field before any extend block moved the block's group body after the map
+// entry. That used to be refused by name — safe, but a construct valid
+// source can produce. Extend blocks are now emitted among the fields at the
+// position their body occupies.
+func TestExtendBlockBeforeAFieldRoundTrips(t *testing.T) {
 	t.Parallel()
 
-	opener := &source.Openers{
-		source.NewMap(map[string]*source.File{"t.proto": source.NewFile("t.proto", `syntax = "proto2";
+	requireRoundTrip(t, `syntax = "proto2";
 message Foo { extensions 1 to 100; }
 message M {
   extend Foo { optional group G = 1 { optional int32 x = 1; } }
   map<int32, string> m = 2;
 }
-`)}),
+`)
+}
+
+// TestExtendBlocksInterleavedWithFields is the general case: blocks before,
+// between and after the fields that anchor them, so a single flush point
+// would put at least one of them in the wrong place.
+func TestExtendBlocksInterleavedWithFields(t *testing.T) {
+	t.Parallel()
+
+	requireRoundTrip(t, `syntax = "proto2";
+message Foo { extensions 1 to 100; }
+message M {
+  extend Foo { optional group A = 1 { optional int32 a = 1; } }
+  map<int32, string> m1 = 2;
+  extend Foo { optional group B = 3 { optional int32 b = 1; } }
+  map<int32, string> m2 = 4;
+  extend Foo { optional group C = 5 { optional int32 c = 1; } }
+}
+`)
+}
+
+// TestExtendBlockWithoutAGroupKeepsWorking guards the unconstrained case:
+// a block declaring no group puts nothing in nested_type, so its position
+// is unobservable and it may go out with the rest at the end.
+func TestExtendBlockWithoutAGroupKeepsWorking(t *testing.T) {
+	t.Parallel()
+
+	requireRoundTrip(t, `syntax = "proto2";
+message Foo { extensions 1 to 100; }
+message M {
+  extend Foo { optional int32 plain = 1; }
+  map<int32, string> m = 2;
+  extend Foo { optional group G = 3 { optional int32 x = 1; } }
+}
+`)
+}
+
+// TestDeclaredMessageBetweenExtendBlocks covers the boundary evidence that
+// is not a field: a nested message declared between two `extend` blocks.
+//
+// nested_type is [A, N, B], and the two group bodies are not adjacent, so
+// the blocks that wrote them are distinct. Splitting only on field-produced
+// entries missed this and folded them into one block, which then claimed
+// two nested_type entries for a single anchor.
+//
+// On the branch point this rendered a silently different descriptor.
+func TestDeclaredMessageBetweenExtendBlocks(t *testing.T) {
+	t.Parallel()
+
+	requireRoundTrip(t, `syntax = "proto2";
+message Foo { extensions 1 to 100; }
+message M {
+  extend Foo { optional group A = 1 { optional int32 a = 1; } }
+  message N { optional int32 n = 1; }
+  extend Foo { optional group B = 2 { optional int32 b = 1; } }
+}
+`)
+}
+
+// TestDeclaredMessageBetweenFileScopeExtendBlocks is the same at file
+// scope, where message_type carries the evidence and block splitting was
+// not applied at all.
+func TestDeclaredMessageBetweenFileScopeExtendBlocks(t *testing.T) {
+	t.Parallel()
+
+	requireRoundTrip(t, `syntax = "proto2";
+message Foo { extensions 1 to 100; }
+extend Foo { optional group A = 1 { optional int32 a = 1; } }
+message N { optional int32 n = 1; }
+extend Foo { optional group B = 2 { optional int32 b = 1; } }
+`)
+}
+
+// TestAdjacentGroupsStayInOneBlock pins the other side of the adjacency
+// rule — and does it by reading the rendered text, because the descriptor
+// cannot tell the two apart.
+//
+// Splitting `extend Foo { group A; group B }` into two blocks produces an
+// identical descriptor: the extension list keeps its order and the two group
+// bodies keep theirs in nested_type. So a round-trip assertion passes
+// whether the rule splits here or not — mutation-checked, "always split"
+// leaves every round-trip test green.
+//
+// What it changes is the source a reader sees. Preserving the block the
+// author wrote is the point of the rule, so the assertion is on the text.
+func TestAdjacentGroupsStayInOneBlock(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto2";
+message Foo { extensions 1 to 100; }
+message M {
+  extend Foo {
+    optional group A = 1 { optional int32 a = 1; }
+    optional group B = 2 { optional int32 b = 1; }
+  }
+  map<int32, string> m = 3;
+}
+`
+	opener := &source.Openers{
+		source.NewMap(map[string]*source.File{"t.proto": source.NewFile("t.proto", src)}),
 		source.WKTs(),
 	}
 	fdp, err := compile(t, opener, "t.proto")
-	if err != nil {
-		t.Fatalf("fixture does not compile: %v", err)
-	}
+	require.NoError(t, err)
 
-	out, err := descsrc.Render(fdp)
-	if !errors.Is(err, descsrc.ErrUnsupported) {
-		t.Fatalf("want an ErrUnsupported refusal, got: %v", err)
-	}
-	if out != "" {
-		t.Errorf("a refusal must not emit partial output, got %q", out)
-	}
-	if !strings.Contains(err.Error(), "MEntry") {
-		t.Errorf("error should name the entry it could not place, got: %v", err)
-	}
+	rendered, err := descsrc.Render(fdp)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, strings.Count(rendered, "extend .Foo {"),
+		"two groups written by one block must stay in one block:\n%s", rendered)
+
+	// And it still has to round-trip.
+	requireRoundTrip(t, src)
+}
+
+// TestGrouplessBlockDoesNotStrandALaterOne pins the case a block with no
+// group body used to break: it has no position of its own, and stopping the
+// flush at it left every positioned block behind it to go out at the end —
+// after the map entry its body precedes in nested_type.
+//
+// nested_type here is [G, MEntry]; emitting the map field first renders
+// [MEntry, G], a silently different descriptor. The blocks have distinct
+// extendees so they cannot fold into one, which is what hid this from
+// [TestExtendBlockWithoutAGroupKeepsWorking].
+func TestGrouplessBlockDoesNotStrandALaterOne(t *testing.T) {
+	t.Parallel()
+
+	requireRoundTrip(t, `syntax = "proto2";
+message Foo { extensions 1 to 100; }
+message Bar { extensions 1 to 100; }
+message M {
+  extend Foo { optional int32 plain = 1; }
+  extend Bar { optional group G = 1 { optional int32 x = 1; } }
+  map<int32, string> m = 2;
+}
+`)
+}
+
+// TestGrouplessBlockBetweenTwoPositionedOnes is the same cause with the
+// position-less block in the middle, where it stranded only the block after
+// it: nested_type is [A, B, MEntry] and the naive flush renders
+// [A, MEntry, B].
+//
+// It also pins the ordering rule the fix rests on — blocks go out in their
+// own order, since the extension list is that order — by carrying the
+// position-less block out with the block that follows it rather than
+// hoisting either one past the other.
+func TestGrouplessBlockBetweenTwoPositionedOnes(t *testing.T) {
+	t.Parallel()
+
+	requireRoundTrip(t, `syntax = "proto2";
+message Foo { extensions 1 to 100; }
+message Bar { extensions 1 to 100; }
+message M {
+  extend Foo { optional group A = 1 { optional int32 a = 1; } }
+  extend Bar { optional int32 plain = 2; }
+  extend Foo { optional group B = 3 { optional int32 b = 1; } }
+  map<int32, string> m = 4;
+}
+`)
 }

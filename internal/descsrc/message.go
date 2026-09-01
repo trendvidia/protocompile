@@ -77,7 +77,21 @@ func (r *renderer) messageBody(m *descriptorpb.DescriptorProto, scope string) er
 		}
 	}
 
-	blocks, err := extendBlocks(m.GetExtension())
+	// nested_type positions, used both to split extend blocks at the
+	// boundaries the descriptor still records and to order what is emitted.
+	nestedIndex := make(map[string]int, len(m.GetNestedType()))
+	for i, n := range m.GetNestedType() {
+		nestedIndex[n.GetName()] = i
+	}
+	fieldProduced, err := fieldAnchors(scope, m.GetField(), nested)
+	if err != nil {
+		return err
+	}
+	blocks, err := extendBlocks(m.GetExtension(),
+		func(f *descriptorpb.FieldDescriptorProto) (int, bool) {
+			return groupBodyPos(scope, f, nestedIndex)
+		},
+	)
 	if err != nil {
 		return err
 	}
@@ -89,10 +103,7 @@ func (r *renderer) messageBody(m *descriptorpb.DescriptorProto, scope string) er
 	// declaration that produces it, so those declarations anchor the
 	// sequence and a nested message declared between two of them must be
 	// emitted between them.
-	producedBy, err := fieldAnchors(scope, m.GetField(), nested)
-	if err != nil {
-		return err
-	}
+	producedBy := fieldProduced
 	blockAnchors, err := groupBodyAnchors(scope, blocks)
 	if err != nil {
 		return err
@@ -100,7 +111,7 @@ func (r *renderer) messageBody(m *descriptorpb.DescriptorProto, scope string) er
 	for name, a := range blockAnchors {
 		producedBy[name] = a
 	}
-	sched, err := scheduleDeclared(m.GetNestedType(), producedBy,
+	sched, order, err := scheduleDeclared(m.GetNestedType(), producedBy,
 		fmt.Sprintf("message %s nested_type", m.GetName()))
 	if err != nil {
 		return err
@@ -113,8 +124,70 @@ func (r *renderer) messageBody(m *descriptorpb.DescriptorProto, scope string) er
 		}
 		return nil
 	}
+
+	// An extend block that declares a group puts that group's body in
+	// nested_type at the block's own position, which may be before a field
+	// that also puts one there. Emitting every field first would move it,
+	// so blocks are flushed among the fields at the point they occupy.
+	// A block that declares no group produces no entry, so its own position
+	// is unobservable; it rides along with the next block that has one.
+	nextBlock := 0
+	// flushBlocksBefore emits every remaining block whose group body sits
+	// earlier in nested_type than limit.
+	//
+	// Blocks go out in their own order whatever happens, because the
+	// extension list is that order and a consumer sees it. So a block with
+	// no body — which has no position, and could go anywhere on its own —
+	// is carried out with the next block that does have one, rather than
+	// stopping the flush: leaving it behind would strand every positioned
+	// block after it and move that block's body past this field's entry.
+	// Only what trails the last positioned block waits for the end.
+	flushBlocksBefore := func(limit int) error {
+		for nextBlock < len(blocks) {
+			// The next block whose body is due here, if any; the
+			// position-less blocks ahead of it come along.
+			due := -1
+			for i := nextBlock; i < len(blocks); i++ {
+				pos, ok := order[anchor{extend: true, index: i}]
+				if !ok {
+					continue
+				}
+				if pos < limit {
+					due = i
+				}
+				break
+			}
+			if due < 0 {
+				return nil
+			}
+			for ; nextBlock <= due; nextBlock++ {
+				a := anchor{extend: true, index: nextBlock}
+				if err := r.extendBlock(scope, blocks[nextBlock], nested); err != nil {
+					return err
+				}
+				if err := emitNested(a); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+
 	if err := emitNested(anchorStart); err != nil {
 		return err
+	}
+
+	// Before a field that synthesizes a nested type goes out, so does every
+	// extend block whose own body precedes it there.
+	emitFieldHead := func(fieldIdx int) error {
+		if pos, ok := order[anchor{index: fieldIdx}]; ok {
+			return flushBlocksBefore(pos)
+		}
+		return nil
+	}
+	// After it, the nested messages it anchors.
+	emitFieldTail := func(fieldIdx int) error {
+		return emitNested(anchor{index: fieldIdx})
 	}
 
 	// Emit fields in descriptor order, expanding each oneof in place at its
@@ -123,13 +196,16 @@ func (r *renderer) messageBody(m *descriptorpb.DescriptorProto, scope string) er
 	// the end would round-trip to a different descriptor.
 	emitted := make(map[int32]bool, len(oneofFields))
 	for fieldIdx, f := range m.GetField() {
+		if err := emitFieldHead(fieldIdx); err != nil {
+			return err
+		}
 		if f.OneofIndex != nil && !synthetic[f.GetOneofIndex()] {
 			idx := f.GetOneofIndex()
 			if emitted[idx] {
 				// The oneof already went out at its first member. This
 				// member may still be a group, and so still anchor a nested
 				// message, which is why the schedule is flushed here too.
-				if err := emitNested(anchor{index: fieldIdx}); err != nil {
+				if err := emitFieldTail(fieldIdx); err != nil {
 					return err
 				}
 				continue
@@ -157,7 +233,7 @@ func (r *renderer) messageBody(m *descriptorpb.DescriptorProto, scope string) er
 			}
 			r.indent--
 			r.linef("}")
-			if err := emitNested(anchor{index: fieldIdx}); err != nil {
+			if err := emitFieldTail(fieldIdx); err != nil {
 				return err
 			}
 			continue
@@ -165,7 +241,7 @@ func (r *renderer) messageBody(m *descriptorpb.DescriptorProto, scope string) er
 		if err := r.field(f, scope, nested); err != nil {
 			return err
 		}
-		if err := emitNested(anchor{index: fieldIdx}); err != nil {
+		if err := emitFieldTail(fieldIdx); err != nil {
 			return err
 		}
 	}
@@ -181,11 +257,14 @@ func (r *renderer) messageBody(m *descriptorpb.DescriptorProto, scope string) er
 	}
 	r.reservedRanges(m)
 
-	for i, b := range blocks {
-		if err := r.extendBlock(scope, b, nested); err != nil {
+	// Whatever is left: the blocks that sit after every field-produced
+	// entry, and any group-less blocks trailing them.
+	for ; nextBlock < len(blocks); nextBlock++ {
+		a := anchor{extend: true, index: nextBlock}
+		if err := r.extendBlock(scope, blocks[nextBlock], nested); err != nil {
 			return err
 		}
-		if err := emitNested(anchor{extend: true, index: i}); err != nil {
+		if err := emitNested(a); err != nil {
 			return err
 		}
 	}
@@ -446,8 +525,11 @@ func rangeSpec(start, end, limit int32) string {
 }
 
 // anchor names a point in the order a message body or file is emitted in:
-// after field index, or — once every field has gone out — after extend block
-// index. [anchorStart] precedes both.
+// after field index, or after extend block index. The two interleave — an
+// extend block whose group body sits in nested_type goes out among the
+// fields, at that position — so which of two anchors comes first is decided
+// by those positions, which is what [anchor.before] takes. [anchorStart]
+// precedes both.
 type anchor struct {
 	extend bool
 	index  int
@@ -455,8 +537,20 @@ type anchor struct {
 
 var anchorStart = anchor{index: -1}
 
-// before reports whether a is emitted strictly before b.
-func (a anchor) before(b anchor) bool {
+// before reports whether a is emitted strictly before b, given the
+// nested_type positions of the declarations that produce entries there.
+//
+// Emission order is no longer "every field, then every extend block": an
+// extend block that declares a group is emitted among the fields, at the
+// point its body occupies in nested_type. So the two are ordered by that
+// position, and only fall back to the phase split when neither produces
+// anything and the order between them is therefore unobservable.
+func (a anchor) before(b anchor, order map[anchor]int) bool {
+	oa, aok := order[a]
+	ob, bok := order[b]
+	if aok && bok {
+		return oa < ob
+	}
 	if a.extend != b.extend {
 		return !a.extend
 	}
@@ -534,15 +628,23 @@ func scheduleDeclared(
 	list []*descriptorpb.DescriptorProto,
 	producedBy map[string]anchor,
 	what string,
-) (map[anchor][]*descriptorpb.DescriptorProto, error) {
+) (map[anchor][]*descriptorpb.DescriptorProto, map[anchor]int, error) {
 	sched := make(map[anchor][]*descriptorpb.DescriptorProto)
+	// order records where each producing declaration's entry sits in the
+	// list, which is what the emitter replays.
+	order := make(map[anchor]int, len(list))
 	last := anchorStart
-	for _, n := range list {
+	for i, n := range list {
 		if a, ok := producedBy[n.GetName()]; ok {
-			if a.before(last) {
-				// Fields are emitted before extend blocks, so an extend
-				// block that came first in source cannot be put back there.
-				return nil, unsupportedf(
+			// One declaration can synthesize several entries — an extend
+			// block declaring two groups puts both bodies here, side by
+			// side. The first position is the one the emitter replays,
+			// since the declaration goes out as a unit starting there.
+			if _, seen := order[a]; !seen {
+				order[a] = i
+			}
+			if a.before(last, order) {
+				return nil, nil, unsupportedf(
 					"%s has %s, synthesized by %s, after a message synthesized by %s",
 					what, n.GetName(), a, last)
 			}
@@ -552,9 +654,27 @@ func scheduleDeclared(
 		if n.GetOptions().GetMapEntry() {
 			// A map-entry message no field claims cannot be written back:
 			// there is no `map<K, V>` spelling that would recreate it.
-			return nil, unsupportedf("orphan map entry message %s", n.GetName())
+			return nil, nil, unsupportedf("orphan map entry message %s", n.GetName())
 		}
 		sched[last] = append(sched[last], n)
 	}
-	return sched, nil
+	return sched, order, nil
+}
+
+// groupBodyPos gives the position in an index of the message holding a
+// group extension's body, or false when the extension declares no group.
+func groupBodyPos(
+	scope string,
+	f *descriptorpb.FieldDescriptorProto,
+	index map[string]int,
+) (int, bool) {
+	if f.GetType() != descriptorpb.FieldDescriptorProto_TYPE_GROUP {
+		return 0, false
+	}
+	name, ok := localName(scope, f.GetTypeName())
+	if !ok {
+		return 0, false
+	}
+	i, ok := index[name]
+	return i, ok
 }

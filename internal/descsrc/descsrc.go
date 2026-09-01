@@ -153,7 +153,17 @@ func (r *renderer) file(fdp *descriptorpb.FileDescriptorProto) error {
 	// emitted where their bodies appear rather than appended at the end, and
 	// the messages between two bodies are emitted between the blocks that
 	// produce them, or the recompiled message_type comes out reordered.
-	blocks, err := extendBlocks(fdp.GetExtension())
+	// message_type carries the same boundary evidence nested_type does, so
+	// file-scope blocks split on it too.
+	topIndex := make(map[string]int, len(fdp.GetMessageType()))
+	for i, m := range fdp.GetMessageType() {
+		topIndex[m.GetName()] = i
+	}
+	blocks, err := extendBlocks(fdp.GetExtension(),
+		func(f *descriptorpb.FieldDescriptorProto) (int, bool) {
+			return groupBodyPos(scope, f, topIndex)
+		},
+	)
 	if err != nil {
 		return err
 	}
@@ -165,7 +175,7 @@ func (r *renderer) file(fdp *descriptorpb.FileDescriptorProto) error {
 	if err != nil {
 		return err
 	}
-	sched, err := scheduleDeclared(fdp.GetMessageType(), producedBy,
+	sched, _, err := scheduleDeclared(fdp.GetMessageType(), producedBy,
 		fmt.Sprintf("file %q message_type", fdp.GetName()))
 	if err != nil {
 		return err
