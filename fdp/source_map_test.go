@@ -62,16 +62,26 @@ message M {
 	require.Len(t, byPath, 2,
 		"one entry per carrier (message M, field M.s) is expected")
 
+	// The locations are asserted exactly. A source map exists to point a
+	// consumer's diagnostic at the annotation the author wrote, so a
+	// wrong-but-positive line is the failure that matters, and asserting
+	// only `Positive` cannot see it.
 	if e := byPath["test.M[test.tag#0]"]; assert.NotNil(t, e, "missing entry for test.M[test.tag#0]") {
 		assert.Equal(t, pwsv1.EntryKind_MESSAGE_VALIDATE, e.GetKind())
 		require.NotNil(t, e.GetSourceLocation())
 		assert.Equal(t, "x.proto", e.GetSourceLocation().GetFile())
-		assert.Positive(t, e.GetSourceLocation().GetLine())
-		assert.Positive(t, e.GetSourceLocation().GetColumn())
+		assert.Equal(t, int32(6), e.GetSourceLocation().GetLine(),
+			"the leading `@tag(\"alpha\")` on its own line")
+		assert.Equal(t, int32(1), e.GetSourceLocation().GetColumn())
 	}
 	if e := byPath["test.M.s[test.tag#0]"]; assert.NotNil(t, e, "missing entry for test.M.s[test.tag#0]") {
 		assert.Equal(t, pwsv1.EntryKind_FIELD_VALIDATE, e.GetKind())
+		require.NotNil(t, e.GetSourceLocation())
 		assert.Equal(t, "x.proto", e.GetSourceLocation().GetFile())
+		assert.Equal(t, int32(8), e.GetSourceLocation().GetLine(),
+			"the trailing `@tag(\"beta\")` on the field")
+		assert.Equal(t, int32(16), e.GetSourceLocation().GetColumn(),
+			"points at the `@`, not at the field name")
 	}
 }
 
@@ -171,14 +181,19 @@ message User {
 	assert.Equal(t, "test.User.email", r.GetDescriptorPath())
 	require.NotNil(t, r.GetSourceLocation())
 	assert.Equal(t, "x.proto", r.GetSourceLocation().GetFile())
-	assert.Positive(t, r.GetSourceLocation().GetLine())
+	assert.Equal(t, int32(7), r.GetSourceLocation().GetLine(), "the use site: `Email email = 1;`")
+	assert.Equal(t, int32(3), r.GetSourceLocation().GetColumn(), "points at `Email`, the refined type")
 
 	require.Len(t, r.GetTypeChain(), 1)
 	link := r.GetTypeChain()[0]
 	assert.Equal(t, "test.Email", link.GetTypeFqn())
 	require.NotNil(t, link.GetDeclarationLocation())
 	assert.Equal(t, "x.proto", link.GetDeclarationLocation().GetFile())
-	assert.Positive(t, link.GetDeclarationLocation().GetLine())
+	// The declaration, not the use — the two differ, which is the point of
+	// carrying both.
+	assert.Equal(t, int32(4), link.GetDeclarationLocation().GetLine(),
+		"the alias declaration: `type Email = string;`")
+	assert.Equal(t, int32(1), link.GetDeclarationLocation().GetColumn())
 }
 
 // TestSourceMapTypeRefinementChain verifies a multi-link alias
@@ -432,8 +447,12 @@ message User {
 	require.NotNil(t, found.GetSourceLocation())
 	assert.Equal(t, "types.proto", found.GetSourceLocation().GetFile(),
 		"source location should point to the alias's defining file, not the consuming one")
-	assert.Positive(t, found.GetSourceLocation().GetLine())
-	assert.Positive(t, found.GetSourceLocation().GetColumn())
+	// And at the annotation within that file. The consuming use site is
+	// user.proto:7:3, so a location that merely looks plausible would not
+	// distinguish the two.
+	assert.Equal(t, int32(6), found.GetSourceLocation().GetLine(),
+		"the `@validate` on the alias declaration in types.proto")
+	assert.Equal(t, int32(21), found.GetSourceLocation().GetColumn())
 }
 
 // TestSourceMapFunctionCalls verifies FUNCTION_CALL entries: each
@@ -482,11 +501,21 @@ message Account {
 	assert.Equal(t, pwsv1.EntryKind_FUNCTION_CALL, call0.GetKind())
 	require.NotNil(t, call0.GetSourceLocation())
 	assert.Equal(t, "x.proto", call0.GetSourceLocation().GetFile())
-	assert.Positive(t, call0.GetSourceLocation().GetLine())
+	// A call entry points at the call, not at the anchor that contains it:
+	// the @validate anchor is at 11:5 and in_region( starts at 11:15.
+	assert.Equal(t, int32(11), call0.GetSourceLocation().GetLine())
+	assert.Equal(t, int32(15), call0.GetSourceLocation().GetColumn(), "points at `in_region`")
+	assert.Equal(t, int32(5),
+		byPath["test.Account.country[test.validate#0]"].GetSourceLocation().GetColumn(),
+		"the anchor is a different column from its call")
 
 	call1 := byPath["test.Account.country[test.validate#1]/arg#0/call#0"]
 	require.NotNil(t, call1, "is_email call entry missing")
 	assert.Equal(t, pwsv1.EntryKind_FUNCTION_CALL, call1.GetKind())
+	require.NotNil(t, call1.GetSourceLocation())
+	assert.Equal(t, int32(12), call1.GetSourceLocation().GetLine(),
+		"the second @validate is on the next line")
+	assert.Equal(t, int32(15), call1.GetSourceLocation().GetColumn(), "points at `is_email`")
 
 	var callEntries int
 	for path, e := range byPath {
