@@ -84,23 +84,6 @@ func compileHTTPTestFiles(t *testing.T, files map[string]string, options ...fdp.
 	return out, rep
 }
 
-// requireNoErrors fails the test on any error-level diagnostic.
-//
-// [report.Level] counts down from [report.ICE], so error-or-worse is
-// `<= report.Error`; the other comparison quietly promotes every
-// warning and remark to a test failure.
-func requireNoErrors(t *testing.T, rep *report.Report) {
-	t.Helper()
-	if rep == nil {
-		return
-	}
-	for _, d := range rep.Diagnostics {
-		if d.Level() <= report.Error {
-			t.Fatalf("unexpected diagnostic: %s", d.Message())
-		}
-	}
-}
-
 // httpRuleOf returns the google.api.http rule on a method, or nil.
 func httpRuleOf(mdp *descriptorpb.MethodDescriptorProto) *annotations.HttpRule {
 	if mdp.GetOptions() == nil || !proto.HasExtension(mdp.GetOptions(), annotations.E_Http) {

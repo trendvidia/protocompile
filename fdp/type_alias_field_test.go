@@ -123,8 +123,7 @@ annotation doc(text: string);
 type Email = string @validate("matches(this, '^[^@]+@[^@]+$')");
 
 message User {
-  @doc("primary contact")
-  Email email = 1;
+  Email email = 1 @doc("primary contact");
 }
 `
 	f := compileForFDPTest(t, src)
@@ -182,12 +181,13 @@ message User {
 
 	exec := incremental.New()
 	sess := new(ir.Session)
-	results, _, err := incremental.Run(t.Context(), exec, queries.IR{
+	results, rep, err := incremental.Run(t.Context(), exec, queries.IR{
 		Opener:  allOpeners,
 		Session: sess,
 		Path:    "user.proto",
 	})
 	require.NoError(t, err)
+	requireNoErrors(t, rep)
 	require.Len(t, results, 1)
 	require.NotNil(t, results[0].Value)
 
@@ -249,12 +249,13 @@ message M {
 
 	exec := incremental.New()
 	sess := new(ir.Session)
-	results, _, err := incremental.Run(t.Context(), exec, queries.IR{
+	results, rep, err := incremental.Run(t.Context(), exec, queries.IR{
 		Opener:  allOpeners,
 		Session: sess,
 		Path:    "user.proto",
 	})
 	require.NoError(t, err)
+	requireNoErrors(t, rep)
 	require.NotNil(t, results[0].Value)
 
 	out, err := fdp.DescriptorProto(results[0].Value)
@@ -292,8 +293,7 @@ annotation doc(text: string);
 type Email = string @validate("matches(this, '@')");
 
 message Book {
-  @doc("by address")
-  map<string, Email> contacts = 1;
+  map<string, Email> contacts = 1 @doc("by address");
 }
 `
 	f := compileForFDPTest(t, src)

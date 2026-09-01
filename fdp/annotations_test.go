@@ -16,6 +16,7 @@ package fdp_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -28,8 +29,30 @@ import (
 	"github.com/trendvidia/protocompile/incremental"
 	"github.com/trendvidia/protocompile/incremental/queries"
 	"github.com/trendvidia/protocompile/ir"
+	"github.com/trendvidia/protocompile/report"
 	"github.com/trendvidia/protocompile/source"
 )
+
+// requireNoErrors fails the test if the compiler emitted anything at
+// Error level or worse.
+//
+// [report.Level] counts down from [report.ICE], so error-or-worse is
+// `<= report.Error`; the other comparison quietly promotes every warning
+// and remark to a test failure while letting an ICE through. A nil
+// report is a failure, not a pass: it is the one state indistinguishable
+// from a clean compile, and treating it as one silently restores the
+// hole this helper exists to close.
+func requireNoErrors(t *testing.T, rep *report.Report) {
+	t.Helper()
+	require.NotNil(t, rep, "incremental.Run returned no report")
+	var msgs []string
+	for _, d := range rep.Diagnostics {
+		if d.Level() <= report.Error {
+			msgs = append(msgs, d.Message())
+		}
+	}
+	require.Empty(t, msgs, "source does not compile cleanly:\n%s", strings.Join(msgs, "\n"))
+}
 
 // compileForFDPTest compiles a single .proto source and returns the
 // resulting FileDescriptorProto, ready for extension inspection.
@@ -42,12 +65,20 @@ func compileForFDPTest(t *testing.T, src string) *descriptorpb.FileDescriptorPro
 
 	exec := incremental.New()
 	sess := new(ir.Session)
-	results, _, err := incremental.Run(t.Context(), exec, queries.IR{
+	results, rep, err := incremental.Run(t.Context(), exec, queries.IR{
 		Opener:  allOpeners,
 		Session: sess,
 		Path:    "x.proto",
 	})
 	require.NoError(t, err)
+
+	// incremental.Run reports semantic errors through the report, not
+	// through err — a file the compiler rejects still yields an IR and a
+	// descriptor. Discarding the report here made every test in this
+	// package able to assert on carrier output for source that does not
+	// compile, which is how the non-bug in #153 came to be filed.
+	requireNoErrors(t, rep)
+
 	require.Len(t, results, 1)
 	require.NotNil(t, results[0].Value)
 
@@ -574,8 +605,7 @@ annotation k;
 
 @k
 message M {
-  @k
-  string field_a = 1;
+  string field_a = 1 @k;
   @k
   oneof choice {
     string field_b = 2;
@@ -585,8 +615,7 @@ message M {
 @k
 enum E {
   E_UNSET = 0;
-  @k
-  E_ONE = 1;
+  E_ONE = 1 @k;
 }
 
 @k
@@ -846,12 +875,13 @@ message User {
 
 	exec := incremental.New()
 	sess := new(ir.Session)
-	results, _, err := incremental.Run(t.Context(), exec, queries.IR{
+	results, rep, err := incremental.Run(t.Context(), exec, queries.IR{
 		Opener:  allOpeners,
 		Session: sess,
 		Path:    "user.proto",
 	})
 	require.NoError(t, err)
+	requireNoErrors(t, rep)
 	require.NotNil(t, results[0].Value)
 
 	out, err := fdp.DescriptorProto(results[0].Value)
@@ -978,8 +1008,64 @@ func annotationArg(t *testing.T, src string) *pwsv1.AnnotationArg {
 	return list.Entries[0].Args[0]
 }
 
+// TestAnnotationEnumParamArgLowering pins what an *accepted* argument
+// on an enum-typed parameter lowers to.
+//
+// Removing the two enum rows from TestAnnotationNumericRouting removed
+// the only fdp coverage of that path: the replacement pin in ir asserts
+// that the rejected spellings are diagnosed, which says nothing about
+// what the accepted ones emit. A regression that made `@e(GREEN)`
+// compile cleanly but emit no arg, or an int_value, would leave both
+// packages green. Neither of the neighbouring enum pins covers it —
+// TestAnnotationEmissionPath goes through an `any` parameter and
+// TestAnnotationParamDefaultEmission through a default value, so
+// validateUseEnumArg is on neither path.
+//
+// RED is here because it is the enum's zero value: a lowering that
+// treated "no number" and "number 0" alike would still pass on GREEN.
+func TestAnnotationEnumParamArgLowering(t *testing.T) {
+	t.Parallel()
+
+	const tmpl = `syntax = "proto3";
+package test;
+
+enum Color { RED = 0; GREEN = 1; }
+
+annotation e(value: Color);
+
+@e(%s)
+message M {}
+`
+
+	for _, tc := range []struct {
+		name, use, wantValue string
+		wantNumber           int32
+	}{
+		{name: "bare", use: "GREEN", wantValue: "GREEN", wantNumber: 1},
+		{name: "qualified", use: "Color.GREEN", wantValue: "GREEN", wantNumber: 1},
+		{name: "zero_value", use: "RED", wantValue: "RED", wantNumber: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			arg := annotationArg(t, fmt.Sprintf(tmpl, tc.use))
+			lit := arg.GetLiteral()
+			require.NotNil(t, lit, "an enum argument lowers to a Literal")
+			ev := lit.GetEnumValue()
+			require.NotNil(t, ev, "an enum argument lowers to Literal.enum_value")
+			assert.Equal(t, "test.Color", ev.GetEnumType())
+			assert.Equal(t, tc.wantValue, ev.GetValueName())
+			assert.Equal(t, tc.wantNumber, ev.GetNumber())
+		})
+	}
+}
+
 // TestAnnotationNumericRouting pins how a numeric literal is routed
 // into AnnotationArg for each kind of parameter that can receive one.
+//
+// An enum-typed parameter has no row here on purpose: RFC-001 §5.1
+// rule 4 gives it a `qualifiedIdent`, so every scalar literal on one is
+// a compile error rather than a lowering. That is pinned as a
+// diagnostic in ir, which is where it is raised.
 //
 // The routes are pinned together deliberately. They are branches of a
 // single condition in buildLiteralArg, and issue #149 was one of them
@@ -994,8 +1080,6 @@ func TestAnnotationNumericRouting(t *testing.T) {
 
 	const tmpl = `syntax = "proto3";
 package test;
-
-enum Color { RED = 0; GREEN = 1; }
 
 annotation a(value: %s);
 
@@ -1034,14 +1118,6 @@ message M {}
 		// consumer that knows the target field is unsigned recovers it
 		// exactly; this is by design, not the #149 defect.
 		{name: "uint64/max", param: "uint64", lit: "18446744073709551615", wantInt: -1},
-
-		// An enum-typed parameter still truncates a float literal.
-		// Pinned rather than fixed: #149's done-when is explicit that
-		// it must not change what a typed parameter accepts, and this
-		// wants a diagnostic rather than a different silent lowering.
-		// Tracked separately; see the issue filed alongside #149.
-		{name: "enum/float_truncates", param: "Color", lit: "1.5", wantInt: 1},
-		{name: "enum/int", param: "Color", lit: "1", wantInt: 1},
 	}
 
 	for _, tc := range tests {
