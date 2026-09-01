@@ -15,6 +15,7 @@
 package protocompile
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"io/fs"
@@ -25,6 +26,8 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
+
+	imports "github.com/trendvidia/protocompile/wellknownimports/fs"
 )
 
 // Resolver is used by the compiler to resolve a proto source file name
@@ -40,26 +43,33 @@ type Resolver interface {
 	FindFileByPath(path string) (SearchResult, error)
 }
 
-// SearchResult represents information about a proto source file. After
-// Track C of the M1 migration, the experimental pipeline reads source
-// bytes from `Source`; the `Proto` and `Desc` fields are preserved on
-// the struct for source-compatibility with pre-Track-C callers but are
-// currently not honoured (setting them is equivalent to returning the
-// file as not-found).
+// SearchResult represents information about a proto source file.
+//
+// A resolver answers with exactly one of the fields below; a wholly zero
+// SearchResult (with no error) means not-found.
+//
+// After Track C of the M1 migration the pipeline itself reads source bytes
+// and nothing else. `Proto` and `Desc` remain supported: a descriptor
+// supplied through either is rendered back to source and compiled. That
+// rendering is all-or-nothing — a descriptor carrying something that cannot
+// be expressed in source produces an error naming the file and the reason,
+// never a silent not-found.
 //
 // The pre-Track-C `AST` and `ParseResult` fields, which carried the
 // legacy AST and parser-result types, were removed along with the
 // legacy `ast/` and `parser/` packages.
 type SearchResult struct {
-	// Source carries the file's source bytes. The experimental
-	// pipeline reads from this and treats a nil reader (with no error)
-	// as not-found.
+	// Source carries the file's source bytes. The pipeline reads from this
+	// and treats a nil reader (with no error) as not-found.
+	//
+	// When set, Source wins: Proto and Desc are not consulted.
 	Source io.Reader
-	// Proto is currently not honoured. Preserved for source
-	// compatibility.
+	// Proto carries the file as a descriptor, which is rendered back to
+	// source and compiled. Used only when Source is nil.
 	Proto *descriptorpb.FileDescriptorProto
-	// Desc is currently not honoured. Preserved for source
-	// compatibility.
+	// Desc carries the file as a linked descriptor — the shape of the
+	// `protoregistry.GlobalFiles` pattern — which is rendered back to
+	// source and compiled. Used only when Source and Proto are nil.
 	Desc protoreflect.FileDescriptor
 }
 
@@ -169,35 +179,57 @@ func SourceAccessorFromMap(srcs map[string]string) func(string) (io.ReadCloser, 
 // WithStandardImports returns a new resolver that knows about the same standard
 // imports that are included with protoc.
 //
-// Note that this uses the descriptors embedded in generated code in the packages
-// of the Protobuf Go module, except for "google/protobuf/cpp_features.proto" and
-// "google/protobuf/java_features.proto". For those two files, compiled descriptors
-// are embedded in this module because there is no package in the Protobuf Go module
-// that contains generated code for those files. This resolver also provides results
-// for the "google/protobuf/go_features.proto", which is technically not a standard
-// file (it is not included with protoc) but is included in generated code in the
-// Protobuf Go module.
+// The standard files are served as **source**, from the copies embedded in
+// this module, so they carry everything source carries — including the
+// extension declarations on "google/protobuf/descriptor.proto" that prevent
+// a source file from illegally re-defining the custom features for C++,
+// Java, and Go.
 //
-// As of v0.14.0 of this module (and v1.34.2 of the Protobuf Go module and v27.0 of
-// Protobuf), the contents of the standard import "google/protobuf/descriptor.proto"
-// contain extension declarations which are *absent* from the descriptors that this
-// resolver returns. That is because extension declarations are only retained in
-// source, not at runtime, which means they are not available in the embedded
-// descriptors in generated code.
+// It previously answered with runtime descriptors from generated code, which
+// do not retain extension declarations — those exist only in source. While
+// [SearchResult.Desc] was inert that made no difference, because the
+// compiler's own built-in copies served these paths instead. Once Desc was
+// honoured the declaration-less descriptors would have won and silently
+// dropped that guard, so the source form is served directly (see #155).
 //
-// To use versions of the standard imports that *do* include these extension
-// declarations, see wellknownimports.WithStandardImports instead. As of this
-// writing, the declarations are only needed to prevent source files from
-// illegally re-defining the custom features for C++, Java, and Go.
+// The set of paths served is unchanged. This now behaves equivalently to
+// [github.com/trendvidia/protocompile/wellknownimports.WithStandardImports],
+// which composes a source resolver over the same embedded files; prefer
+// either, and note that the compiler already falls back to these files for
+// an import no resolver answers.
 func WithStandardImports(r Resolver) Resolver {
 	return ResolverFunc(func(name string) (SearchResult, error) {
 		res, err := r.FindFileByPath(name)
-		if err != nil {
-			// error from given resolver? see if it's a known standard file
-			if d, ok := standardImports[name]; ok {
-				return SearchResult{Desc: d}, nil
-			}
+		if err == nil {
+			return res, nil
 		}
-		return res, err
+		// Error from the given resolver? See if it is a known standard file.
+		// standardImports still decides membership, so the set of paths this
+		// answers for is exactly what it was.
+		if _, ok := standardImports[name]; !ok {
+			return res, err
+		}
+		src, srcErr := standardImportSource(name)
+		if srcErr != nil {
+			// Surface the caller's own error rather than masking it with one
+			// about our embedded copy.
+			return res, err
+		}
+		return SearchResult{Source: src}, nil
 	})
+}
+
+// standardImportSource reads one embedded standard import into memory. The
+// bytes are read eagerly so the returned reader outlives the file handle.
+func standardImportSource(name string) (io.Reader, error) {
+	f, err := imports.FS().Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	b, err := io.ReadAll(f)
+	if err != nil {
+		return nil, err
+	}
+	return bytes.NewReader(b), nil
 }
