@@ -98,9 +98,14 @@ This consumes runner minutes only when you explicitly ask for them.
 
 ### Required status checks
 
-The `trendvidia` branch ruleset does **not** require `test`, `lint`,
-`benchmarks`, or `windows` checks to pass before merge. The ruleset
-still enforces:
+The `trendvidia` branch ruleset requires **`test`** and **`lint`** — the
+two `ci` jobs that run on every pull request — to pass before merge. A
+red run now blocks the merge button rather than merely being visible.
+
+`benchmarks` and `windows` are **not** required. They do not run on pull
+requests at all (see above), so requiring them would block every merge.
+
+The ruleset also enforces:
 
 - block deletion / non-fast-forward / direct push
 - required linear history
@@ -108,11 +113,16 @@ still enforces:
 - pull-request flow with code-owner review + thread resolution
 - allowed merge methods: squash, rebase
 
-`ci` runs on every pull request, but because it is not a required
-check a red run does not block the merge button. Enforcement therefore
-still rests at the laptop level via `make ci-local` — read the PR's
-checks before you merge. If you find yourself merging without running
-it, add a pre-push hook:
+**If the self-hosted runner is down**, `test` and `lint` never report and
+no pull request can merge. The ruleset carries a bypass actor for exactly
+this case; use it deliberately and say so in the PR, rather than
+weakening the rule. Restarting the runner is the better fix when it is
+available.
+
+`make ci-local` is still worth running before you push — it is the same
+gate, minutes sooner, and it keeps a red cloud run from being the first
+time you learn something broke. If you find yourself pushing without
+running it, add a pre-push hook:
 
 ```bash
 cat > .git/hooks/pre-push <<'EOF'
