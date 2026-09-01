@@ -48,20 +48,21 @@ func Files() *protoregistry.Files {
 }
 
 // WithStandardImports returns a new resolver that can provide the source code for the
-// standard imports that are included with protoc. This differs from
-// protocompile.WithStandardImports, which uses descriptors embedded in generated
-// code in the Protobuf Go module. That function is lighter weight, and does not need
-// to bring in additional embedded data outside the Protobuf Go runtime. This version
-// includes its own embedded versions of the source files.
+// standard imports that are included with protoc, from the copies embedded in this
+// module.
 //
-// Unlike protocompile.WithStandardImports, this resolver does not provide results for
-// "google/protobuf/go_features.proto" file. This resolver is backed by source files
-// that are shipped with the Protobuf installation, which does not include that file.
+// [github.com/trendvidia/protocompile.WithStandardImports] is now equivalent: it
+// serves the same embedded source for the same set of paths, and like this one it
+// substitutes only where the wrapped resolver fails. It used to answer with runtime
+// descriptors from generated code instead, which is where the differences this
+// comment previously described came from — a possible version skew against the
+// Protobuf Go module, and the absence of the extension declarations that keep a
+// source file from re-defining the C++/Java/Go feature extensions. Neither applies
+// now; see #155.
 //
-// It is possible that the source code provided by this resolver differs from the
-// source code used to create the descriptors provided by protocompile.WithStandardImports.
-// That is because that other function depends on the Protobuf Go module, which could
-// resolve in user programs to a different version than was used to build this package.
+// Note also that the compiler falls back to these same embedded files for an import
+// no resolver answers, so wrapping is only needed when a resolver reports an error
+// for a standard path rather than a miss.
 func WithStandardImports(resolver protocompile.Resolver) protocompile.Resolver {
 	return protocompile.CompositeResolver{
 		resolver,

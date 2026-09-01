@@ -190,22 +190,19 @@ message M {
 		string(files[0].Messages().Get(0).Fields().Get(0).Message().FullName()))
 }
 
-// TestWithStandardImportsShadowsBuiltinSource pins the one observable
-// consequence of honouring Desc here, so that changing it is a decision
-// rather than an accident.
+// TestWithStandardImportsPreservesExtensionDeclarations pins the guard that
+// #155 was filed about.
 //
-// WithStandardImports supplies descriptor.proto as a runtime descriptor, and
-// the resolver is consulted before source.WKTs(), so the rendered file wins
-// over the embedded source. Extension declarations live only in source, so
-// the guard against re-defining the C++/Java/Go feature extensions is not
-// present in what the resolver supplies. That is what WithStandardImports'
-// own doc comment describes, and it is a behaviour change from before Desc
-// was honoured, where the built-in source won and the guard fired.
+// WithStandardImports serves the standard files as source, so
+// descriptor.proto arrives with its extension declarations intact and a
+// source file cannot re-define the C++/Java/Go feature extensions.
 //
-// Whether WithStandardImports should keep doing this is
-// https://github.com/trendvidia/protocompile/issues/155. Until that is
-// settled, this test states the current answer out loud.
-func TestWithStandardImportsShadowsBuiltinSource(t *testing.T) {
+// This is the property that would have been lost had the function kept
+// answering with runtime descriptors once SearchResult.Desc became
+// honoured: extension declarations exist only in source. Both paths below
+// must reject the redefinition — the built-in fallback, and
+// WithStandardImports itself.
+func TestWithStandardImportsPreservesExtensionDeclarations(t *testing.T) {
 	t.Parallel()
 
 	const src = `syntax = "proto2";
@@ -235,11 +232,11 @@ extend google.protobuf.FeatureSet { optional string cpp = 1000; }
 	require.Error(t, err, "the built-in descriptor.proto source declares this extension")
 	assert.Contains(t, err.Error(), "mismatched types")
 
-	// WithStandardImports: descriptor.proto comes from the runtime
-	// descriptor, which carries no declarations, so nothing rejects it.
+	// WithStandardImports must reject it too, rather than shadowing the
+	// built-in source with a declaration-less render.
 	_, err = (&protocompile.Compiler{
 		Resolver: protocompile.WithStandardImports(notFound),
 	}).Compile(context.Background(), "x.proto")
-	assert.NoError(t, err,
-		"WithStandardImports supplies a declaration-less descriptor.proto; see issue #155")
+	require.Error(t, err, "WithStandardImports must serve descriptor.proto with its declarations")
+	assert.Contains(t, err.Error(), "mismatched types")
 }
