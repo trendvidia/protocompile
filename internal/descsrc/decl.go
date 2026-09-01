@@ -136,12 +136,12 @@ type extendBlock struct {
 // declaration order, so `extend A {a} extend B {b} extend A {c}` stores
 // [a, b, c]; folding the two A blocks into one would emit [a, c, b] and
 // round-trip to a different descriptor.
-// extendBlocks groups extensions into the `extend` blocks that wrote them.
 //
-// A descriptor does not record block boundaries — three `extend Foo` blocks
-// and one holding the same three extensions produce an identical extension
-// list. What does distinguish them is nested_type: a block declaring a
-// group puts that group's body there at the block's own position.
+// Beyond that, a descriptor does not record block boundaries — three
+// `extend Foo` blocks and one holding the same three extensions produce an
+// identical extension list. What does distinguish them is nested_type: a
+// block declaring a group puts that group's body there at the block's own
+// position.
 //
 // Two group bodies written by one block are always *adjacent* there, because
 // an `extend` block can hold nothing but extension fields — no nested
@@ -149,9 +149,9 @@ type extendBlock struct {
 // between two group bodies is proof of a boundary, whatever fills it: a map
 // entry, a group body from a field, or an explicitly declared message.
 //
-// bodyPos gives a group extension's position, and is nil where none is
-// known. Without it, and between extensions that declare no group,
-// consecutive same-extendee extensions fold into one block — which
+// bodyPos gives a group extension's body position, and reports false for an
+// extension that declares no group. Between extensions with no position,
+// consecutive same-extendee ones fold into a single block — which
 // round-trips identically, since nothing observes the difference.
 func extendBlocks(
 	exts []*descriptorpb.FieldDescriptorProto,
@@ -166,11 +166,9 @@ func extendBlocks(
 		}
 
 		split, cur := false, -1
-		if bodyPos != nil {
-			if pos, ok := bodyPos(f); ok {
-				cur = pos
-				split = prevBody >= 0 && pos != prevBody+1
-			}
+		if pos, ok := bodyPos(f); ok {
+			cur = pos
+			split = prevBody >= 0 && pos != prevBody+1
 		}
 
 		if n := len(out); n > 0 && out[n-1].extendee == extendee && !split {

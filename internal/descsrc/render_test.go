@@ -375,3 +375,50 @@ message M {
 	// And it still has to round-trip.
 	requireRoundTrip(t, src)
 }
+
+// TestGrouplessBlockDoesNotStrandALaterOne pins the case a block with no
+// group body used to break: it has no position of its own, and stopping the
+// flush at it left every positioned block behind it to go out at the end —
+// after the map entry its body precedes in nested_type.
+//
+// nested_type here is [G, MEntry]; emitting the map field first renders
+// [MEntry, G], a silently different descriptor. The blocks have distinct
+// extendees so they cannot fold into one, which is what hid this from
+// [TestExtendBlockWithoutAGroupKeepsWorking].
+func TestGrouplessBlockDoesNotStrandALaterOne(t *testing.T) {
+	t.Parallel()
+
+	requireRoundTrip(t, `syntax = "proto2";
+message Foo { extensions 1 to 100; }
+message Bar { extensions 1 to 100; }
+message M {
+  extend Foo { optional int32 plain = 1; }
+  extend Bar { optional group G = 1 { optional int32 x = 1; } }
+  map<int32, string> m = 2;
+}
+`)
+}
+
+// TestGrouplessBlockBetweenTwoPositionedOnes is the same cause with the
+// position-less block in the middle, where it stranded only the block after
+// it: nested_type is [A, B, MEntry] and the naive flush renders
+// [A, MEntry, B].
+//
+// It also pins the ordering rule the fix rests on — blocks go out in their
+// own order, since the extension list is that order — by carrying the
+// position-less block out with the block that follows it rather than
+// hoisting either one past the other.
+func TestGrouplessBlockBetweenTwoPositionedOnes(t *testing.T) {
+	t.Parallel()
+
+	requireRoundTrip(t, `syntax = "proto2";
+message Foo { extensions 1 to 100; }
+message Bar { extensions 1 to 100; }
+message M {
+  extend Foo { optional group A = 1 { optional int32 a = 1; } }
+  extend Bar { optional int32 plain = 2; }
+  extend Foo { optional group B = 3 { optional int32 b = 1; } }
+  map<int32, string> m = 4;
+}
+`)
+}

@@ -129,26 +129,46 @@ func (r *renderer) messageBody(m *descriptorpb.DescriptorProto, scope string) er
 	// nested_type at the block's own position, which may be before a field
 	// that also puts one there. Emitting every field first would move it,
 	// so blocks are flushed among the fields at the point they occupy.
-	// A block that declares no group produces no entry, so its position is
-	// unobservable and it goes out at the end with the rest.
+	// A block that declares no group produces no entry, so its own position
+	// is unobservable; it rides along with the next block that has one.
 	nextBlock := 0
 	// flushBlocksBefore emits every remaining block whose group body sits
-	// earlier in nested_type than limit. A block with no body has no
-	// position, so it is never flushed here and goes out at the end.
+	// earlier in nested_type than limit.
+	//
+	// Blocks go out in their own order whatever happens, because the
+	// extension list is that order and a consumer sees it. So a block with
+	// no body — which has no position, and could go anywhere on its own —
+	// is carried out with the next block that does have one, rather than
+	// stopping the flush: leaving it behind would strand every positioned
+	// block after it and move that block's body past this field's entry.
+	// Only what trails the last positioned block waits for the end.
 	flushBlocksBefore := func(limit int) error {
 		for nextBlock < len(blocks) {
-			a := anchor{extend: true, index: nextBlock}
-			pos, ok := order[a]
-			if !ok || pos >= limit {
+			// The next block whose body is due here, if any; the
+			// position-less blocks ahead of it come along.
+			due := -1
+			for i := nextBlock; i < len(blocks); i++ {
+				pos, ok := order[anchor{extend: true, index: i}]
+				if !ok {
+					continue
+				}
+				if pos < limit {
+					due = i
+				}
+				break
+			}
+			if due < 0 {
 				return nil
 			}
-			if err := r.extendBlock(scope, blocks[nextBlock], nested); err != nil {
-				return err
+			for ; nextBlock <= due; nextBlock++ {
+				a := anchor{extend: true, index: nextBlock}
+				if err := r.extendBlock(scope, blocks[nextBlock], nested); err != nil {
+					return err
+				}
+				if err := emitNested(a); err != nil {
+					return err
+				}
 			}
-			if err := emitNested(a); err != nil {
-				return err
-			}
-			nextBlock++
 		}
 		return nil
 	}
@@ -237,8 +257,8 @@ func (r *renderer) messageBody(m *descriptorpb.DescriptorProto, scope string) er
 	}
 	r.reservedRanges(m)
 
-	// Whatever is left: blocks with no group body, and any that sit after
-	// every field-produced entry.
+	// Whatever is left: the blocks that sit after every field-produced
+	// entry, and any group-less blocks trailing them.
 	for ; nextBlock < len(blocks); nextBlock++ {
 		a := anchor{extend: true, index: nextBlock}
 		if err := r.extendBlock(scope, blocks[nextBlock], nested); err != nil {
@@ -505,8 +525,11 @@ func rangeSpec(start, end, limit int32) string {
 }
 
 // anchor names a point in the order a message body or file is emitted in:
-// after field index, or — once every field has gone out — after extend block
-// index. [anchorStart] precedes both.
+// after field index, or after extend block index. The two interleave — an
+// extend block whose group body sits in nested_type goes out among the
+// fields, at that position — so which of two anchors comes first is decided
+// by those positions, which is what [anchor.before] takes. [anchorStart]
+// precedes both.
 type anchor struct {
 	extend bool
 	index  int
