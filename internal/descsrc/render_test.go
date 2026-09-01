@@ -241,40 +241,57 @@ func TestOrphanMapEntryAtFileScopeIsRefused(t *testing.T) {
 	}
 }
 
-// TestExtendBlockBeforeAFieldIsRefused pins the boundary the schedule draws.
+// TestExtendBlockBeforeAFieldRoundTrips covers a message body whose
+// `extend` block is declared before a field that also synthesizes a nested
+// type.
 //
-// A message body emits its fields before its `extend` blocks, so a block
-// that was declared before a field cannot be put back where it was: its
-// group body sits ahead of that field's map entry in nested_type, and no
-// ordering of the emitted source reproduces that. Refusing by name is the
-// contract; before extend blocks were part of the schedule this rendered a
-// nested_type with a duplicate entry instead.
-func TestExtendBlockBeforeAFieldIsRefused(t *testing.T) {
+// Both put an entry in nested_type at their own position, so emitting every
+// field before any extend block moved the block's group body after the map
+// entry. That used to be refused by name — safe, but a construct valid
+// source can produce. Extend blocks are now emitted among the fields at the
+// position their body occupies.
+func TestExtendBlockBeforeAFieldRoundTrips(t *testing.T) {
 	t.Parallel()
 
-	opener := &source.Openers{
-		source.NewMap(map[string]*source.File{"t.proto": source.NewFile("t.proto", `syntax = "proto2";
+	requireRoundTrip(t, `syntax = "proto2";
 message Foo { extensions 1 to 100; }
 message M {
   extend Foo { optional group G = 1 { optional int32 x = 1; } }
   map<int32, string> m = 2;
 }
-`)}),
-		source.WKTs(),
-	}
-	fdp, err := compile(t, opener, "t.proto")
-	if err != nil {
-		t.Fatalf("fixture does not compile: %v", err)
-	}
+`)
+}
 
-	out, err := descsrc.Render(fdp)
-	if !errors.Is(err, descsrc.ErrUnsupported) {
-		t.Fatalf("want an ErrUnsupported refusal, got: %v", err)
-	}
-	if out != "" {
-		t.Errorf("a refusal must not emit partial output, got %q", out)
-	}
-	if !strings.Contains(err.Error(), "MEntry") {
-		t.Errorf("error should name the entry it could not place, got: %v", err)
-	}
+// TestExtendBlocksInterleavedWithFields is the general case: blocks before,
+// between and after the fields that anchor them, so a single flush point
+// would put at least one of them in the wrong place.
+func TestExtendBlocksInterleavedWithFields(t *testing.T) {
+	t.Parallel()
+
+	requireRoundTrip(t, `syntax = "proto2";
+message Foo { extensions 1 to 100; }
+message M {
+  extend Foo { optional group A = 1 { optional int32 a = 1; } }
+  map<int32, string> m1 = 2;
+  extend Foo { optional group B = 3 { optional int32 b = 1; } }
+  map<int32, string> m2 = 4;
+  extend Foo { optional group C = 5 { optional int32 c = 1; } }
+}
+`)
+}
+
+// TestExtendBlockWithoutAGroupKeepsWorking guards the unconstrained case:
+// a block declaring no group puts nothing in nested_type, so its position
+// is unobservable and it may go out with the rest at the end.
+func TestExtendBlockWithoutAGroupKeepsWorking(t *testing.T) {
+	t.Parallel()
+
+	requireRoundTrip(t, `syntax = "proto2";
+message Foo { extensions 1 to 100; }
+message M {
+  extend Foo { optional int32 plain = 1; }
+  map<int32, string> m = 2;
+  extend Foo { optional group G = 3 { optional int32 x = 1; } }
+}
+`)
 }

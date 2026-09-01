@@ -136,18 +136,54 @@ type extendBlock struct {
 // declaration order, so `extend A {a} extend B {b} extend A {c}` stores
 // [a, b, c]; folding the two A blocks into one would emit [a, c, b] and
 // round-trip to a different descriptor.
-func extendBlocks(exts []*descriptorpb.FieldDescriptorProto) ([]extendBlock, error) {
+// extendBlocks groups extensions into the `extend` blocks that wrote them.
+//
+// A descriptor does not record block boundaries — three `extend Foo` blocks
+// and one holding the same three extensions produce an identical extension
+// list. What does distinguish them is nested_type: a block declaring a
+// group puts that group's body at the block's own position, so a field's
+// entry appearing between two group bodies proves a block boundary there.
+//
+// splitAt reports whether a new block must start before the extension whose
+// group body sits at the given nested_type position, given the previous
+// one's. It is nil at file scope and wherever no such evidence exists, in
+// which case consecutive same-extendee extensions fold into one block —
+// which round-trips identically, since the difference is unobservable.
+func extendBlocks(
+	exts []*descriptorpb.FieldDescriptorProto,
+	bodyPos func(*descriptorpb.FieldDescriptorProto) (int, bool),
+	fieldBetween func(prev, cur int) bool,
+) ([]extendBlock, error) {
 	var out []extendBlock
+	prevBody := -1
 	for _, f := range exts {
 		extendee := f.GetExtendee()
 		if extendee == "" {
 			return nil, malformedf("extension %s has no extendee", f.GetName())
 		}
-		if n := len(out); n > 0 && out[n-1].extendee == extendee {
-			out[n-1].fields = append(out[n-1].fields, f)
-			continue
+
+		split := false
+		cur := -1
+		if bodyPos != nil {
+			if pos, ok := bodyPos(f); ok {
+				cur = pos
+				if prevBody >= 0 && fieldBetween(prevBody, pos) {
+					split = true
+				}
+			}
 		}
-		out = append(out, extendBlock{extendee: extendee, fields: []*descriptorpb.FieldDescriptorProto{f}})
+
+		if n := len(out); n > 0 && out[n-1].extendee == extendee && !split {
+			out[n-1].fields = append(out[n-1].fields, f)
+		} else {
+			out = append(out, extendBlock{
+				extendee: extendee,
+				fields:   []*descriptorpb.FieldDescriptorProto{f},
+			})
+		}
+		if cur >= 0 {
+			prevBody = cur
+		}
 	}
 	return out, nil
 }
