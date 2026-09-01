@@ -113,6 +113,19 @@ func corpusFiles(t *testing.T, dir, importRoot string) []string {
 	return out
 }
 
+// expectedRefusals lists the corpus files [descsrc.Render] refuses, and why.
+//
+// Pinning the set is what makes a refusal a decision rather than a skip. A
+// skipped subtest is green, so without this a change that turned a file the
+// renderer handles into one it refuses would look exactly like success — and
+// a refusal is a file the compiler can no longer import through a resolver.
+var expectedRefusals = map[string]string{
+	"desc_test_comments.proto":                      "custom options whose extensions are not linked into the test binary",
+	"desc_test_complex.proto":                       "custom options whose extensions are not linked into the test binary",
+	"desc_test_options.proto":                       "custom options whose extensions are not linked into the test binary",
+	"google/protobuf/unittest_custom_options.proto": "custom options whose extensions are not linked into the test binary",
+}
+
 // TestRoundTrip is the oracle for this package.
 //
 // For every file in the sweep corpus it compiles the source to a descriptor,
@@ -145,8 +158,14 @@ func TestRoundTrip(t *testing.T) {
 			}
 
 			rendered, err := descsrc.Render(want)
-			if err != nil {
-				t.Skipf("refused (fidelity boundary): %v", err)
+			why, refusalExpected := expectedRefusals[path]
+			switch {
+			case err != nil && !refusalExpected:
+				t.Fatalf("renderer refused a file it used to handle: %v", err)
+			case err != nil:
+				t.Skipf("refused (fidelity boundary: %s): %v", why, err)
+			case refusalExpected:
+				t.Fatalf("no longer refused (%s); drop it from expectedRefusals", why)
 			}
 
 			// Serve the rendered text at the original path so imports of it

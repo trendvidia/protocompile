@@ -22,18 +22,22 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
-func (r *renderer) message(m *descriptorpb.DescriptorProto) error {
+// message renders m as a `message` declaration. scope is the
+// fully-qualified name of the declaration m sits inside, without a trailing
+// dot — "" at file scope in a package-less file.
+func (r *renderer) message(m *descriptorpb.DescriptorProto, scope string) error {
 	// Map entries are synthesized from a `map<K, V>` field and are rendered
-	// as part of that field, never as a message of their own.
+	// as part of that field, never as a message of their own. Reaching here
+	// with one means no field claimed it, and there is no `map<K, V>`
+	// spelling that would recreate it — refusing is the contract, dropping
+	// it silently is what the contract exists to prevent.
 	if m.GetOptions().GetMapEntry() {
-		return nil
+		return unsupportedf("map entry message %s is produced by no field", m.GetName())
 	}
 
-	// A group's body is emitted inline at its field, so the nested message
-	// backing it must not also be emitted here. The caller marks those.
 	r.linef("message %s {", m.GetName())
 	r.indent++
-	if err := r.messageBody(m); err != nil {
+	if err := r.messageBody(m, scope+"."+m.GetName()); err != nil {
 		return err
 	}
 	r.indent--
@@ -41,7 +45,10 @@ func (r *renderer) message(m *descriptorpb.DescriptorProto) error {
 	return nil
 }
 
-func (r *renderer) messageBody(m *descriptorpb.DescriptorProto) error {
+// messageBody renders the contents of a message declaration. scope is the
+// message's own fully-qualified name; a group's body is a message too, and
+// reaches here under the name the group declares.
+func (r *renderer) messageBody(m *descriptorpb.DescriptorProto, scope string) error {
 	opts, err := collectOptions(m.GetOptions())
 	if err != nil {
 		return fmt.Errorf("message %s options: %w", m.GetName(), err)
@@ -51,13 +58,11 @@ func (r *renderer) messageBody(m *descriptorpb.DescriptorProto) error {
 	}
 
 	// Index the nested types so map entries and group bodies can be found
-	// and suppressed as standalone messages.
+	// and rendered at the declaration that synthesized them.
 	nested := make(map[string]*descriptorpb.DescriptorProto, len(m.GetNestedType()))
 	for _, n := range m.GetNestedType() {
 		nested[n.GetName()] = n
 	}
-	// consumed holds nested types rendered inline (map entries, groups).
-	consumed := make(map[string]bool)
 
 	// Synthetic oneofs back proto3 `optional` fields and are never written
 	// out; a real oneof groups the fields that name it.
@@ -72,28 +77,43 @@ func (r *renderer) messageBody(m *descriptorpb.DescriptorProto) error {
 		}
 	}
 
-	// nested_type is also declaration order, and two of its entries are
-	// synthesized rather than written: a map field creates its `...Entry`
-	// message, and a group creates the message holding its body. Both land
-	// at the position of the field that produces them, so a nested message
-	// declared before a map field must be emitted before it or the
-	// recompiled nested_type comes out in a different order.
-	//
-	// schedule[i] holds the nested messages to emit after field i; -1 holds
-	// those that precede every field.
-	schedule, err := nestedSchedule(m, nested)
+	blocks, err := extendBlocks(m.GetExtension())
 	if err != nil {
 		return err
 	}
-	emitNested := func(after int) error {
-		for _, n := range schedule[after] {
-			if err := r.message(n); err != nil {
+
+	// nested_type is also declaration order, and some of its entries are
+	// synthesized rather than written: a map field creates its `...Entry`
+	// message, and a group — whether a field or an extension — creates the
+	// message holding its body. Each lands at the position of the
+	// declaration that produces it, so those declarations anchor the
+	// sequence and a nested message declared between two of them must be
+	// emitted between them.
+	producedBy, err := fieldAnchors(scope, m.GetField(), nested)
+	if err != nil {
+		return err
+	}
+	blockAnchors, err := groupBodyAnchors(scope, blocks)
+	if err != nil {
+		return err
+	}
+	for name, a := range blockAnchors {
+		producedBy[name] = a
+	}
+	sched, err := scheduleDeclared(m.GetNestedType(), producedBy,
+		fmt.Sprintf("message %s nested_type", m.GetName()))
+	if err != nil {
+		return err
+	}
+	emitNested := func(a anchor) error {
+		for _, n := range sched[a] {
+			if err := r.message(n, scope); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
-	if err := emitNested(-1); err != nil {
+	if err := emitNested(anchorStart); err != nil {
 		return err
 	}
 
@@ -106,10 +126,20 @@ func (r *renderer) messageBody(m *descriptorpb.DescriptorProto) error {
 		if f.OneofIndex != nil && !synthetic[f.GetOneofIndex()] {
 			idx := f.GetOneofIndex()
 			if emitted[idx] {
+				// The oneof already went out at its first member. This
+				// member may still be a group, and so still anchor a nested
+				// message, which is why the schedule is flushed here too.
+				if err := emitNested(anchor{index: fieldIdx}); err != nil {
+					return err
+				}
 				continue
 			}
 			emitted[idx] = true
 
+			if int(idx) >= len(m.GetOneofDecl()) {
+				return malformedf("field %s names oneof index %d but message %s declares %d",
+					f.GetName(), idx, m.GetName(), len(m.GetOneofDecl()))
+			}
 			o := m.GetOneofDecl()[idx]
 			oopts, err := collectOptions(o.GetOptions())
 			if err != nil {
@@ -121,21 +151,21 @@ func (r *renderer) messageBody(m *descriptorpb.DescriptorProto) error {
 				r.linef("option %s = %s;", oo.name, oo.value)
 			}
 			for _, of := range oneofFields[idx] {
-				if err := r.field(of, nested, consumed); err != nil {
+				if err := r.field(of, scope, nested); err != nil {
 					return err
 				}
 			}
 			r.indent--
 			r.linef("}")
-			if err := emitNested(fieldIdx); err != nil {
+			if err := emitNested(anchor{index: fieldIdx}); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := r.field(f, nested, consumed); err != nil {
+		if err := r.field(f, scope, nested); err != nil {
 			return err
 		}
-		if err := emitNested(fieldIdx); err != nil {
+		if err := emitNested(anchor{index: fieldIdx}); err != nil {
 			return err
 		}
 	}
@@ -151,7 +181,15 @@ func (r *renderer) messageBody(m *descriptorpb.DescriptorProto) error {
 	}
 	r.reservedRanges(m)
 
-	return r.extends(m.GetName(), m.GetExtension(), nested, consumed)
+	for i, b := range blocks {
+		if err := r.extendBlock(scope, b, nested); err != nil {
+			return err
+		}
+		if err := emitNested(anchor{extend: true, index: i}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // syntheticOneofs reports which oneof indices exist only to back a proto3
@@ -175,13 +213,12 @@ func syntheticOneofs(m *descriptorpb.DescriptorProto) map[int32]bool {
 
 func (r *renderer) field(
 	f *descriptorpb.FieldDescriptorProto,
+	scope string,
 	nested map[string]*descriptorpb.DescriptorProto,
-	consumed map[string]bool,
 ) error {
 	// A map field is a repeated message field whose message is a synthesized
 	// entry type. Recover the `map<K, V>` spelling from the entry's fields.
-	if entry, ok := mapEntry(f, nested); ok {
-		consumed[entry.GetName()] = true
+	if entry, ok := mapEntry(f, scope, nested); ok {
 		key, err := r.typeName(entry.GetField()[0])
 		if err != nil {
 			return err
@@ -204,18 +241,17 @@ func (r *renderer) field(
 	}
 
 	if f.GetType() == descriptorpb.FieldDescriptorProto_TYPE_GROUP {
-		body, ok := nested[groupMessageName(f)]
-		if !ok {
-			return unsupportedf("group field %s has no backing message", f.GetName())
+		body, err := groupBody(f, scope, nested)
+		if err != nil {
+			return err
 		}
-		consumed[body.GetName()] = true
 		opts, err := fieldOptions(f)
 		if err != nil {
 			return err
 		}
 		r.linef("%sgroup %s = %d%s {", label, body.GetName(), f.GetNumber(), opts)
 		r.indent++
-		if err := r.messageBody(body); err != nil {
+		if err := r.messageBody(body, scope+"."+body.GetName()); err != nil {
 			return err
 		}
 		r.indent--
@@ -265,19 +301,36 @@ func (r *renderer) label(f *descriptorpb.FieldDescriptorProto) (string, error) {
 	}
 }
 
+// localName returns the simple name typeName refers to when the type it
+// names is declared directly in scope, and reports whether it is.
+//
+// The comparison has to be on the whole qualified name. Matching on the last
+// dot-segment alone confuses `.Other.FooEntry` with a sibling `FooEntry`,
+// and a field whose type merely ends in the same short name as a sibling map
+// entry would then render as a map — the silent wrong compile this package
+// exists to rule out.
+func localName(scope, typeName string) (string, bool) {
+	rest, ok := strings.CutPrefix(typeName, scope+".")
+	if !ok || rest == "" || strings.Contains(rest, ".") {
+		return "", false
+	}
+	return rest, true
+}
+
 // mapEntry reports whether f is a map field, returning the synthesized entry
 // message that backs it.
 func mapEntry(
 	f *descriptorpb.FieldDescriptorProto,
+	scope string,
 	nested map[string]*descriptorpb.DescriptorProto,
 ) (*descriptorpb.DescriptorProto, bool) {
 	if f.GetLabel() != descriptorpb.FieldDescriptorProto_LABEL_REPEATED ||
 		f.GetType() != descriptorpb.FieldDescriptorProto_TYPE_MESSAGE {
 		return nil, false
 	}
-	name := f.GetTypeName()
-	if i := strings.LastIndexByte(name, '.'); i >= 0 {
-		name = name[i+1:]
+	name, ok := localName(scope, f.GetTypeName())
+	if !ok {
+		return nil, false
 	}
 	entry, ok := nested[name]
 	if !ok || !entry.GetOptions().GetMapEntry() || len(entry.GetField()) != 2 {
@@ -286,14 +339,23 @@ func mapEntry(
 	return entry, true
 }
 
-// groupMessageName recovers a group's message name from its field name,
-// which protoc lowercases.
-func groupMessageName(f *descriptorpb.FieldDescriptorProto) string {
-	name := f.GetTypeName()
-	if i := strings.LastIndexByte(name, '.'); i >= 0 {
-		name = name[i+1:]
+// groupBody returns the message holding a group's body, which is always
+// declared in the scope the group itself is declared in.
+func groupBody(
+	f *descriptorpb.FieldDescriptorProto,
+	scope string,
+	siblings map[string]*descriptorpb.DescriptorProto,
+) (*descriptorpb.DescriptorProto, error) {
+	name, ok := localName(scope, f.GetTypeName())
+	if !ok {
+		return nil, malformedf("group %s names %q, which is not declared in %q",
+			f.GetName(), f.GetTypeName(), scope)
 	}
-	return name
+	body, ok := siblings[name]
+	if !ok {
+		return nil, malformedf("group %s has no backing message %q", f.GetName(), name)
+	}
+	return body, nil
 }
 
 func (r *renderer) typeName(f *descriptorpb.FieldDescriptorProto) (string, error) {
@@ -383,33 +445,108 @@ func rangeSpec(start, end, limit int32) string {
 	}
 }
 
-// nestedSchedule decides where each explicitly declared nested message must
-// be emitted so that recompiling reproduces nested_type in its original
-// order.
-//
-// Map entries and group bodies are synthesized by the field that produces
-// them, so they anchor the sequence; everything between two anchors was
-// declared there in source.
-func nestedSchedule(
-	m *descriptorpb.DescriptorProto,
+// anchor names a point in the order a message body or file is emitted in:
+// after field index, or — once every field has gone out — after extend block
+// index. [anchorStart] precedes both.
+type anchor struct {
+	extend bool
+	index  int
+}
+
+var anchorStart = anchor{index: -1}
+
+// before reports whether a is emitted strictly before b.
+func (a anchor) before(b anchor) bool {
+	if a.extend != b.extend {
+		return !a.extend
+	}
+	return a.index < b.index
+}
+
+func (a anchor) String() string {
+	if a == anchorStart {
+		return "the start of the declaration"
+	}
+	if a.extend {
+		return fmt.Sprintf("extend block %d", a.index)
+	}
+	return fmt.Sprintf("field %d", a.index)
+}
+
+// fieldAnchors maps each message synthesized by a field — a map entry, a
+// group body — to the field that produces it.
+func fieldAnchors(
+	scope string,
+	fields []*descriptorpb.FieldDescriptorProto,
 	nested map[string]*descriptorpb.DescriptorProto,
-) (map[int][]*descriptorpb.DescriptorProto, error) {
-	producedBy := make(map[string]int, len(m.GetField()))
-	for i, f := range m.GetField() {
-		if entry, ok := mapEntry(f, nested); ok {
-			producedBy[entry.GetName()] = i
+) (map[string]anchor, error) {
+	out := make(map[string]anchor, len(fields))
+	for i, f := range fields {
+		if entry, ok := mapEntry(f, scope, nested); ok {
+			out[entry.GetName()] = anchor{index: i}
 			continue
 		}
-		if f.GetType() == descriptorpb.FieldDescriptorProto_TYPE_GROUP {
-			producedBy[groupMessageName(f)] = i
+		if f.GetType() != descriptorpb.FieldDescriptorProto_TYPE_GROUP {
+			continue
+		}
+		body, err := groupBody(f, scope, nested)
+		if err != nil {
+			return nil, err
+		}
+		out[body.GetName()] = anchor{index: i}
+	}
+	return out, nil
+}
+
+// groupBodyAnchors maps each message synthesized by a group extension to the
+// `extend` block that declares it.
+//
+// A group is legal inside an `extend` block, and its body message lands in
+// the enclosing scope's message list just as a group field's does. Leaving
+// those out of the schedule made the body both scheduled as a message of its
+// own and emitted inline by its block, so the recompiled descriptor grew a
+// duplicate.
+func groupBodyAnchors(scope string, blocks []extendBlock) (map[string]anchor, error) {
+	out := make(map[string]anchor)
+	for i, b := range blocks {
+		for _, f := range b.fields {
+			if f.GetType() != descriptorpb.FieldDescriptorProto_TYPE_GROUP {
+				continue
+			}
+			name, ok := localName(scope, f.GetTypeName())
+			if !ok {
+				return nil, malformedf("group extension %s names %q, which is not declared in %q",
+					f.GetName(), f.GetTypeName(), scope)
+			}
+			out[name] = anchor{extend: true, index: i}
 		}
 	}
+	return out, nil
+}
 
-	schedule := make(map[int][]*descriptorpb.DescriptorProto)
-	last := -1
-	for _, n := range m.GetNestedType() {
-		if idx, ok := producedBy[n.GetName()]; ok {
-			last = idx
+// scheduleDeclared decides where each explicitly declared message in list
+// must be emitted so that recompiling reproduces list in its original order.
+//
+// The messages producedBy names are synthesized by a declaration, so they
+// anchor the sequence; everything between two anchors was declared there in
+// source. what names the list, for errors.
+func scheduleDeclared(
+	list []*descriptorpb.DescriptorProto,
+	producedBy map[string]anchor,
+	what string,
+) (map[anchor][]*descriptorpb.DescriptorProto, error) {
+	sched := make(map[anchor][]*descriptorpb.DescriptorProto)
+	last := anchorStart
+	for _, n := range list {
+		if a, ok := producedBy[n.GetName()]; ok {
+			if a.before(last) {
+				// Fields are emitted before extend blocks, so an extend
+				// block that came first in source cannot be put back there.
+				return nil, unsupportedf(
+					"%s has %s, synthesized by %s, after a message synthesized by %s",
+					what, n.GetName(), a, last)
+			}
+			last = a
 			continue
 		}
 		if n.GetOptions().GetMapEntry() {
@@ -417,7 +554,7 @@ func nestedSchedule(
 			// there is no `map<K, V>` spelling that would recreate it.
 			return nil, unsupportedf("orphan map entry message %s", n.GetName())
 		}
-		schedule[last] = append(schedule[last], n)
+		sched[last] = append(sched[last], n)
 	}
-	return schedule, nil
+	return sched, nil
 }

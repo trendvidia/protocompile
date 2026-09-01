@@ -52,6 +52,16 @@ func unsupportedf(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrUnsupported, fmt.Sprintf(format, args...))
 }
 
+// malformedf reports a descriptor that is not merely beyond what source can
+// express but internally inconsistent — an index pointing past its list, a
+// field with no extendee. Such an error deliberately does not wrap
+// [ErrUnsupported]: the package's contract is that the wrapping is what
+// separates "cannot be rendered" from "is malformed". Render is reachable
+// from a caller-supplied descriptor, so neither may be a panic.
+func malformedf(format string, args ...any) error {
+	return fmt.Errorf("descsrc: malformed descriptor: %s", fmt.Sprintf(format, args...))
+}
+
 // Render renders fdp as Protobuf source text.
 //
 // It returns an error wrapping [ErrUnsupported] if the descriptor contains
@@ -114,7 +124,11 @@ func (r *renderer) file(fdp *descriptorpb.FileDescriptorProto) error {
 		return unsupportedf("unknown syntax %q", r.syntax)
 	}
 
+	// scope is the fully-qualified prefix declarations in this file carry,
+	// which is what makes a type_name comparable to a sibling's name.
+	scope := ""
 	if pkg := fdp.GetPackage(); pkg != "" {
+		scope = "." + pkg
 		r.blank()
 		r.linef("package %s;", pkg)
 	}
@@ -135,45 +149,48 @@ func (r *renderer) file(fdp *descriptorpb.FileDescriptorProto) error {
 	}
 
 	// A file-scope `extend` block may declare a group, whose body message
-	// lands in message_type at the block's own position. So the block is
-	// emitted where its first such body appears, not appended at the end,
-	// or the recompiled message_type comes out reordered.
-	groupBodies := make(map[string]bool)
-	for _, e := range fdp.GetExtension() {
-		if e.GetType() == descriptorpb.FieldDescriptorProto_TYPE_GROUP {
-			groupBodies[groupMessageName(e)] = true
-		}
+	// lands in message_type at the block's own position. So the blocks are
+	// emitted where their bodies appear rather than appended at the end, and
+	// the messages between two bodies are emitted between the blocks that
+	// produce them, or the recompiled message_type comes out reordered.
+	blocks, err := extendBlocks(fdp.GetExtension())
+	if err != nil {
+		return err
 	}
-	topLevel := make(map[string]*descriptorpb.DescriptorProto, len(fdp.GetMessageType()))
+	siblings := make(map[string]*descriptorpb.DescriptorProto, len(fdp.GetMessageType()))
 	for _, m := range fdp.GetMessageType() {
-		topLevel[m.GetName()] = m
+		siblings[m.GetName()] = m
 	}
-
-	consumed := make(map[string]bool)
-	extendsDone := false
-	emitExtends := func() error {
-		if extendsDone {
-			return nil
-		}
-		extendsDone = true
-		return r.extends("", fdp.GetExtension(), topLevel, consumed)
+	producedBy, err := groupBodyAnchors(scope, blocks)
+	if err != nil {
+		return err
 	}
-
-	for _, m := range fdp.GetMessageType() {
-		if groupBodies[m.GetName()] {
-			if err := emitExtends(); err != nil {
+	sched, err := scheduleDeclared(fdp.GetMessageType(), producedBy,
+		fmt.Sprintf("file %q message_type", fdp.GetName()))
+	if err != nil {
+		return err
+	}
+	emit := func(a anchor) error {
+		for _, m := range sched[a] {
+			r.blank()
+			if err := r.message(m, scope); err != nil {
 				return err
 			}
-			continue
 		}
-		r.blank()
-		if err := r.message(m); err != nil {
+		return nil
+	}
+	if err := emit(anchorStart); err != nil {
+		return err
+	}
+	for i, b := range blocks {
+		if err := r.extendBlock(scope, b, siblings); err != nil {
+			return err
+		}
+		if err := emit(anchor{extend: true, index: i}); err != nil {
 			return err
 		}
 	}
-	if err := emitExtends(); err != nil {
-		return err
-	}
+
 	for _, e := range fdp.GetEnumType() {
 		r.blank()
 		if err := r.enum(e); err != nil {

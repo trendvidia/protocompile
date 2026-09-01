@@ -155,13 +155,17 @@ func TestEmptySearchResultIsStillNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "imported file does not exist")
 }
 
-// TestWithStandardImportsUsesDesc covers this package's own use of the field.
+// TestWithStandardImportsResolvesStandardImports covers this package's own
+// use of the field: [protocompile.WithStandardImports] answers a standard
+// import with SearchResult{Desc: ...}.
 //
-// [protocompile.WithStandardImports] answers a standard import by returning
-// SearchResult{Desc: ...}. While Desc was inert that made the function a
-// no-op wherever it was actually needed — it "supplied" the file and the
-// compile then reported it missing.
-func TestWithStandardImportsUsesDesc(t *testing.T) {
+// It does not, on its own, prove the Desc path ran. The pipeline falls back
+// to source.WKTs() for any path the resolver does not supply, and that
+// fallback serves every standard import, so this compiles either way — it
+// passes unchanged on the commit before Desc was honoured.
+// TestWithStandardImportsShadowsBuiltinSource is the half that distinguishes
+// them.
+func TestWithStandardImportsResolvesStandardImports(t *testing.T) {
 	t.Parallel()
 
 	const src = `syntax = "proto3";
@@ -170,8 +174,6 @@ message M {
   google.protobuf.FileDescriptorProto fdp = 1;
 }
 `
-	// The inner resolver knows only the one file and errors on everything
-	// else, so descriptor.proto can only come from WithStandardImports.
 	inner := protocompile.ResolverFunc(func(path string) (protocompile.SearchResult, error) {
 		if path == "x.proto" {
 			return protocompile.SearchResult{Source: strings.NewReader(src)}, nil
@@ -186,4 +188,58 @@ message M {
 	require.Len(t, files, 1)
 	assert.Equal(t, "google.protobuf.FileDescriptorProto",
 		string(files[0].Messages().Get(0).Fields().Get(0).Message().FullName()))
+}
+
+// TestWithStandardImportsShadowsBuiltinSource pins the one observable
+// consequence of honouring Desc here, so that changing it is a decision
+// rather than an accident.
+//
+// WithStandardImports supplies descriptor.proto as a runtime descriptor, and
+// the resolver is consulted before source.WKTs(), so the rendered file wins
+// over the embedded source. Extension declarations live only in source, so
+// the guard against re-defining the C++/Java/Go feature extensions is not
+// present in what the resolver supplies. That is what WithStandardImports'
+// own doc comment describes, and it is a behaviour change from before Desc
+// was honoured, where the built-in source won and the guard fired.
+//
+// Whether WithStandardImports should keep doing this is
+// https://github.com/trendvidia/protocompile/issues/155. Until that is
+// settled, this test states the current answer out loud.
+func TestWithStandardImportsShadowsBuiltinSource(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto2";
+import "google/protobuf/descriptor.proto";
+package evil;
+extend google.protobuf.FeatureSet { optional string cpp = 1000; }
+`
+	// WithStandardImports substitutes only where the wrapped resolver
+	// errors, which is the shape its doc describes.
+	notFound := protocompile.ResolverFunc(func(path string) (protocompile.SearchResult, error) {
+		if path == "x.proto" {
+			return protocompile.SearchResult{Source: strings.NewReader(src)}, nil
+		}
+		return protocompile.SearchResult{}, protoregistry.NotFound
+	})
+	// The same resolver saying not-found without an error, so the built-in
+	// source.WKTs() fallback serves descriptor.proto instead.
+	silent := protocompile.ResolverFunc(func(path string) (protocompile.SearchResult, error) {
+		if path == "x.proto" {
+			return protocompile.SearchResult{Source: strings.NewReader(src)}, nil
+		}
+		return protocompile.SearchResult{}, nil
+	})
+
+	// Built-in source: its extension declarations reject the redefinition.
+	_, err := (&protocompile.Compiler{Resolver: silent}).Compile(context.Background(), "x.proto")
+	require.Error(t, err, "the built-in descriptor.proto source declares this extension")
+	assert.Contains(t, err.Error(), "mismatched types")
+
+	// WithStandardImports: descriptor.proto comes from the runtime
+	// descriptor, which carries no declarations, so nothing rejects it.
+	_, err = (&protocompile.Compiler{
+		Resolver: protocompile.WithStandardImports(notFound),
+	}).Compile(context.Background(), "x.proto")
+	assert.NoError(t, err,
+		"WithStandardImports supplies a declaration-less descriptor.proto; see issue #155")
 }

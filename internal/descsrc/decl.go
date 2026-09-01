@@ -122,77 +122,85 @@ func streamPrefix(streaming bool) string {
 	return ""
 }
 
-// extends renders extension fields, grouped by the message they extend so
-// each group becomes one `extend` block.
+// extendBlock is one `extend` block: a run of consecutive entries in a
+// descriptor's extension list that share an extendee.
+type extendBlock struct {
+	extendee string
+	fields   []*descriptorpb.FieldDescriptorProto
+}
+
+// extendBlocks splits an extension list back into the source blocks that
+// wrote it.
 //
-// scope names the message the extensions are declared inside, or "" at file
-// scope; it is used only for error messages.
-func (r *renderer) extends(
-	scope string,
-	exts []*descriptorpb.FieldDescriptorProto,
-	siblings map[string]*descriptorpb.DescriptorProto,
-	consumed map[string]bool,
-) error {
-	if len(exts) == 0 {
-		return nil
-	}
-	// Preserve declaration order of the first extension for each extendee,
-	// so output order tracks the descriptor rather than map iteration.
-	var order []string
-	groups := make(map[string][]*descriptorpb.FieldDescriptorProto)
+// The split is on consecutive runs, not on the extendee overall. The list is
+// declaration order, so `extend A {a} extend B {b} extend A {c}` stores
+// [a, b, c]; folding the two A blocks into one would emit [a, c, b] and
+// round-trip to a different descriptor.
+func extendBlocks(exts []*descriptorpb.FieldDescriptorProto) ([]extendBlock, error) {
+	var out []extendBlock
 	for _, f := range exts {
-		ext := f.GetExtendee()
-		if ext == "" {
-			return unsupportedf("extension %s in %q has no extendee", f.GetName(), scope)
+		extendee := f.GetExtendee()
+		if extendee == "" {
+			return nil, malformedf("extension %s has no extendee", f.GetName())
 		}
-		if _, seen := groups[ext]; !seen {
-			order = append(order, ext)
+		if n := len(out); n > 0 && out[n-1].extendee == extendee {
+			out[n-1].fields = append(out[n-1].fields, f)
+			continue
 		}
-		groups[ext] = append(groups[ext], f)
+		out = append(out, extendBlock{extendee: extendee, fields: []*descriptorpb.FieldDescriptorProto{f}})
 	}
+	return out, nil
+}
 
-	for _, ext := range order {
-		r.blank()
-		r.linef("extend %s {", ext)
-		r.indent++
-		for _, f := range groups[ext] {
-			label, err := r.label(f)
-			if err != nil {
-				return err
-			}
-			opts, err := fieldOptions(f)
-			if err != nil {
-				return err
-			}
-
-			// An extension is never a map and never sits in a oneof, so the
-			// bookkeeping the in-message path needs does not apply here.
-			// A group still can appear; its body message lives in the scope
-			// enclosing the `extend` block, not inside it.
-			if f.GetType() == descriptorpb.FieldDescriptorProto_TYPE_GROUP {
-				body, ok := siblings[groupMessageName(f)]
-				if !ok {
-					return unsupportedf("group extension %s has no backing message", f.GetName())
-				}
-				consumed[body.GetName()] = true
-				r.linef("%sgroup %s = %d%s {", label, body.GetName(), f.GetNumber(), opts)
-				r.indent++
-				if err := r.messageBody(body); err != nil {
-					return err
-				}
-				r.indent--
-				r.linef("}")
-				continue
-			}
-
-			typ, err := r.typeName(f)
-			if err != nil {
-				return err
-			}
-			r.linef("%s%s %s = %d%s;", label, typ, f.GetName(), f.GetNumber(), opts)
+// extendBlock renders one `extend` block.
+//
+// scope is the fully-qualified name of the declaration the block sits
+// inside, and siblings the messages declared alongside it: a group
+// extension's body message lives in the scope enclosing the block, not
+// inside it.
+func (r *renderer) extendBlock(
+	scope string,
+	b extendBlock,
+	siblings map[string]*descriptorpb.DescriptorProto,
+) error {
+	r.blank()
+	r.linef("extend %s {", b.extendee)
+	r.indent++
+	for _, f := range b.fields {
+		label, err := r.label(f)
+		if err != nil {
+			return err
 		}
-		r.indent--
-		r.linef("}")
+		opts, err := fieldOptions(f)
+		if err != nil {
+			return err
+		}
+
+		// An extension is never a map and never sits in a oneof, so the
+		// bookkeeping the in-message path needs does not apply here. A group
+		// still can appear.
+		if f.GetType() == descriptorpb.FieldDescriptorProto_TYPE_GROUP {
+			body, err := groupBody(f, scope, siblings)
+			if err != nil {
+				return err
+			}
+			r.linef("%sgroup %s = %d%s {", label, body.GetName(), f.GetNumber(), opts)
+			r.indent++
+			if err := r.messageBody(body, scope+"."+body.GetName()); err != nil {
+				return err
+			}
+			r.indent--
+			r.linef("}")
+			continue
+		}
+
+		typ, err := r.typeName(f)
+		if err != nil {
+			return err
+		}
+		r.linef("%s%s %s = %d%s;", label, typ, f.GetName(), f.GetNumber(), opts)
 	}
+	r.indent--
+	r.linef("}")
 	return nil
 }
