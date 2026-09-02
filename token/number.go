@@ -138,7 +138,13 @@ func (n NumberToken) IsValid() bool {
 
 // Int converts this value into a 64-bit unsigned integer.
 //
-// Returns whether the conversion was exact.
+// A literal carries no sign — a leading `-` is a separate prefix
+// expression — so this is a magnitude. A value that is not whole is rounded
+// to nearest, with a half going away from zero, matching
+// [decimal.Decimal.Int]: `1.5` gives 2 and `2.9` gives 3.
+//
+// Returns whether the conversion was exact, which is false both for a value
+// that had to be rounded and for one too large to represent.
 func (n NumberToken) Int() (v uint64, exact bool) {
 	if n.Raw() == nil {
 		// This is a decimal integer, so we just parse on the fly.
@@ -154,8 +160,12 @@ func (n NumberToken) Int() (v uint64, exact bool) {
 		}
 		return math.MaxUint64, false
 	case n.Raw().IsFloat:
+		// Rounded, not truncated, to agree with the Big path above: a value
+		// exactly representable as a float64 is stored here and one that is
+		// not is stored as a Decimal, so truncating here made 1.5 give 1
+		// while 1.1 went the other way (#167).
 		f := math.Float64frombits(n.Raw().Word)
-		k := uint64(f)
+		k := uint64(math.Round(f))
 		return k, f == float64(k)
 	default:
 		return n.Raw().Word, true

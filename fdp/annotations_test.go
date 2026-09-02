@@ -1170,20 +1170,32 @@ message M {}
 		},
 		{name: "any/negative_small", param: "any", lit: "-3", wantInt: -3},
 
-		// A negative fraction that truncates to zero is zero, so it stays on
+		// A negative fraction that ROUNDS to zero is zero, so it stays on
 		// the integer route even on an unsigned parameter — the accepted
 		// side of the `-0` rule in TestAnnotationScalarArgRange.
-		{name: "uint32/negative_fraction_to_zero", param: "uint32", lit: "-0.5", wantInt: 0},
+		//
+		// `-0.5` is not this case: half rounds away from zero (#167), so it
+		// reaches a magnitude of 1 and is diagnosed instead.
+		{name: "uint32/negative_fraction_to_zero", param: "uint32", lit: "-0.4", wantInt: 0},
 
 		// A value that does not fit a declared integer parameter is now a
 		// compile error, so it has no row here — this table only covers
 		// what lowers. The diagnostic is pinned in ir, where it is raised:
 		// TestAnnotationScalarArgRange.
 		//
-		// A fractional literal that DOES fit is still lowered, truncated:
-		// `@a(1.5)` on int32 gives int_value 1. That is a different
-		// question from range and is deliberately untouched.
-		{name: "int32/fraction_truncates", param: "int32", lit: "1.5", wantInt: 1},
+		// A fractional literal that DOES fit is still lowered rather than
+		// diagnosed — whether a value is whole is a different question
+		// from whether it fits, and only the second is checked.
+		//
+		// It rounds to nearest, half away from zero (#167). It used to
+		// depend on whether the literal was exactly representable as a
+		// float64: 1.5 truncated to 1 while 1.1 came back as 0, because
+		// the two storage paths behind NumberToken.Int disagreed.
+		{name: "int32/fraction_rounds", param: "int32", lit: "1.5", wantInt: 2},
+		{name: "int32/fraction_rounds_down", param: "int32", lit: "1.1", wantInt: 1},
+		{name: "int32/fraction_rounds_up", param: "int32", lit: "2.9", wantInt: 3},
+		// Large enough that the old zero-return was unmistakable.
+		{name: "int32/fraction_large", param: "int32", lit: "1000000.1", wantInt: 1000000},
 	}
 
 	for _, tc := range tests {
