@@ -679,3 +679,50 @@ func scalarParamType(n predeclared.Name) pwsv1.ParamType {
 	}
 	return pwsv1.ParamType_PARAM_TYPE_UNSPECIFIED
 }
+
+// wrapperScalars maps the nine google.protobuf wrapper messages to the
+// scalar each one wraps.
+//
+// A wrapper is a message, so [ir.Type.Predeclared] reports nothing for a
+// field declared as one, and [carrierScalar] would otherwise treat a
+// `google.protobuf.DoubleValue` field as having no type to route by. They
+// are well-known and their contents are fixed, so the mapping is a table
+// rather than a structural inspection.
+var wrapperScalars = map[string]predeclared.Name{
+	"google.protobuf.DoubleValue": predeclared.Double,
+	"google.protobuf.FloatValue":  predeclared.Float,
+	"google.protobuf.Int64Value":  predeclared.Int64,
+	"google.protobuf.UInt64Value": predeclared.UInt64,
+	"google.protobuf.Int32Value":  predeclared.Int32,
+	"google.protobuf.UInt32Value": predeclared.UInt32,
+	"google.protobuf.BoolValue":   predeclared.Bool,
+	"google.protobuf.StringValue": predeclared.String,
+	"google.protobuf.BytesValue":  predeclared.Bytes,
+}
+
+// carrierScalar gives the scalar type an annotation attached to a member of
+// this type should be routed by, or [predeclared.Unknown] when there is
+// none to route by.
+//
+// A wrapper resolves to the scalar it wraps: `google.protobuf.DoubleValue`
+// is the canonical nullable double, and a `@default` on one is a value for
+// that double. Without this the wrappers kept the spelling route and with
+// it the (MaxInt64, MaxUint64] ambiguity #172 removed from bare scalars
+// (#174).
+//
+// The arbitrary-precision types protowire defines — `pxf.BigInt`,
+// `pxf.Decimal`, `pxf.BigFloat` — are deliberately NOT mapped. They exist
+// to hold values a `double` cannot represent, so routing them through
+// `double_value` would lose the precision that is their entire purpose;
+// a literal in the band still lowers ambiguously on those carriers, which
+// is a known gap rather than an oversight. Resolving it needs a carrier
+// field that can hold them, not a different scalar route.
+func carrierScalar(t ir.Type) predeclared.Name {
+	if n := t.Predeclared(); n != predeclared.Unknown {
+		return n
+	}
+	if !t.IsMessage() {
+		return predeclared.Unknown
+	}
+	return wrapperScalars[string(t.FullName())]
+}
