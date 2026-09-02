@@ -668,8 +668,8 @@ func (t Type) toRef(file *File) Ref[Type] {
 // wrapperScalars maps the nine google.protobuf wrapper messages to the
 // scalar each one wraps.
 //
-// A wrapper is a message, so [ir.Type.Predeclared] reports nothing for a
-// field declared as one, and [carrierScalar] would otherwise treat a
+// A wrapper is a message, so [Type.Predeclared] reports nothing for a
+// field declared as one, and [Type.CarrierScalar] would otherwise treat a
 // `google.protobuf.DoubleValue` field as having no type to route by. They
 // are well-known and their contents are fixed, so the mapping is a table
 // rather than a structural inspection.

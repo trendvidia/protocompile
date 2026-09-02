@@ -1925,3 +1925,121 @@ message M { `+msg+` f = 1 @deflt(`+lit+`); }
 		assert.False(t, diagnosed, "pxf.%s must still accept 42: %v", msg, rep.Diagnostics)
 	}
 }
+
+// TestCarrierBoundDescendsIntoListArguments pins the bound against the
+// shape it first missed: a LIST argument.
+//
+// fdp's buildListLiteral hands every element to the same buildArgValue the
+// scalar form uses, with the same carrier, so `@deflt([1e19])` on an
+// `int64` field wrapped to -8446744073709551616 exactly as `@deflt(1e19)`
+// did — #177 verbatim, one shape over. A bound that only inspects the
+// argument expression itself leaves that open, and nesting has to recurse
+// because buildListElement lowers a nested list through buildArgValue too.
+func TestCarrierBoundDescendsIntoListArguments(t *testing.T) {
+	t.Parallel()
+
+	t.Run("rejected", func(t *testing.T) {
+		t.Parallel()
+		for _, tc := range [][2]string{
+			{"int64", "[1e19]"},     // #177's headline, in a list
+			{"sint64", "[1e19]"},    //
+			{"sfixed64", "[1e19]"},  //
+			{"int32", "[1e19]"},     //
+			{"int64", "[[1e19]]"},   // nested lists lower the same way
+			{"int64", "[42, 1e19]"}, // the offending element is not first
+			{"uint64", "[-1]"},      // negative-on-unsigned, in a list
+			{"google.protobuf.Int64Value", "[1e19]"},
+		} {
+			_, diagnosed := compileCarrier(t, tc[0], tc[1])
+			assert.True(t, diagnosed, "%s carrier must reject %s", tc[0], tc[1])
+		}
+	})
+
+	t.Run("accepted", func(t *testing.T) {
+		t.Parallel()
+		for _, tc := range [][2]string{
+			// Everything the scalar form accepts, a list of it accepts too.
+			{"uint64", "[1e19]"}, {"fixed64", "[1e19]"},
+			{"double", "[1e19]"}, {"float", "[1e19]"},
+			{"int64", "[42, 9223372036854775807]"},
+			{"int32", "[1.5, 1e100, -18446744073709551615]"},
+			{"int32", "[]"},
+			{"string", `["x", "y"]`},
+		} {
+			rep, diagnosed := compileCarrier(t, tc[0], tc[1])
+			assert.False(t, diagnosed, "%s must accept %s, got: %v", tc[0], tc[1], rep.Diagnostics)
+		}
+	})
+}
+
+// TestCarrierBoundRejectsNegativeOnUnsignedCarrier pins the other arm of
+// the carrier bound, which nothing else reaches: every unsigned case in
+// the range tests is `1e19`, which takes the too-large path instead.
+//
+// `-0` is rejected along with `-1`, deliberately: a `-` prefix on an
+// unsigned target is the error whatever the magnitude, which is what
+// checkIntBounds (ir/lower_eval.go) already does for an unsigned FIELD and
+// what #169/#171 settled for a parameter. A signed carrier still takes
+// both.
+func TestCarrierBoundRejectsNegativeOnUnsignedCarrier(t *testing.T) {
+	t.Parallel()
+
+	t.Run("rejected", func(t *testing.T) {
+		t.Parallel()
+		for _, tc := range [][2]string{
+			{"uint64", "-1"}, {"fixed64", "-1"},
+			{"uint32", "-1"}, {"fixed32", "-1"},
+			{"uint64", "-0"}, {"uint32", "-0"},
+			{"google.protobuf.UInt64Value", "-1"},
+			{"google.protobuf.UInt32Value", "-0"},
+		} {
+			_, diagnosed := compileCarrier(t, tc[0], tc[1])
+			assert.True(t, diagnosed, "%s carrier must reject %s", tc[0], tc[1])
+		}
+	})
+
+	t.Run("accepted", func(t *testing.T) {
+		t.Parallel()
+		for _, tc := range [][2]string{
+			{"int64", "-1"}, {"int64", "-0"}, {"int32", "-0"},
+			{"int64", "-9223372036854775808"}, // MinInt64 negates to itself
+			{"double", "-1"}, {"float", "-0"},
+			// A float-spelled negative is routed to double_value, so the
+			// unsigned arm must not see it either.
+			{"uint64", "-1.5"},
+		} {
+			rep, diagnosed := compileCarrier(t, tc[0], tc[1])
+			assert.False(t, diagnosed, "%s must accept %s, got: %v", tc[0], tc[1], rep.Diagnostics)
+		}
+	})
+}
+
+// TestCarrierBoundNamesTheRightType pins what the diagnostic calls the
+// bound. A wrapper's bound is the scalar it wraps, and the annotated type
+// is the wrapper — naming `int64` as "the annotated type" of a
+// `google.protobuf.Int64Value` field is the lie the Unknown branch already
+// takes care to avoid for `pxf.BigInt`.
+func TestCarrierBoundNamesTheRightType(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct{ fieldType, lit, want string }{
+		{"int64", "1e19", "out of range for the annotated type `int64`"},
+		{"google.protobuf.Int64Value", "1e19",
+			"out of range for the scalar `int64` wrapped by the annotated type " +
+				"`google.protobuf.Int64Value`"},
+		{"uint64", "-1", "is negative, but the annotated type `uint64` is unsigned"},
+		{"google.protobuf.UInt32Value", "-1",
+			"is negative, but the scalar `uint32` wrapped by the annotated type " +
+				"`google.protobuf.UInt32Value` is unsigned"},
+	} {
+		rep, diagnosed := compileCarrier(t, tc.fieldType, tc.lit)
+		require.True(t, diagnosed, "%s @deflt(%s) must be diagnosed", tc.fieldType, tc.lit)
+		found := false
+		for _, d := range rep.Diagnostics {
+			if strings.Contains(d.Message(), tc.want) {
+				found = true
+			}
+		}
+		assert.True(t, found, "want a diagnostic containing %q, got: %v", tc.want, rep.Diagnostics)
+	}
+}

@@ -878,18 +878,6 @@ func integerRange(n predeclared.Name) (limit, limitNegative uint64, signed, ok b
 	return 0, 0, false, false
 }
 
-// checkIntegerRange diagnoses a numeric literal that cannot be represented by
-// the integer scalar its parameter declares.
-//
-// Without it the value was carried into the carrier however it happened to
-// convert: `1e100` saturated to MaxUint64 and reinterpreted to -1, an
-// unsigned parameter accepted a negative literal, and a value past the
-// declared width simply wrapped — none of them diagnosed, and none
-// recoverable by a consumer reading the carrier.
-//
-// A fractional literal in range is deliberately NOT diagnosed here. It is a
-// different question — the value fits, it is just not a whole number — and
-// it is pinned in fdp's routing table rather than decided here (#165).
 // rangeFault is what an integer bound found wrong with a literal, if
 // anything. Separated from the diagnostic so the parameter bound and the
 // carrier bound can share the decision while wording it differently.
@@ -952,8 +940,18 @@ func integerRangeFault(scalar predeclared.Name, negative bool, num token.NumberT
 	return rangeOK
 }
 
-// checkIntegerRange diagnoses a numeric literal that cannot be represented
-// by the integer scalar its PARAMETER declares.
+// checkIntegerRange diagnoses a numeric literal that cannot be represented by
+// the integer scalar its PARAMETER declares.
+//
+// Without it the value was carried into the carrier however it happened to
+// convert: `1e100` saturated to MaxUint64 and reinterpreted to -1, an
+// unsigned parameter accepted a negative literal, and a value past the
+// declared width simply wrapped — none of them diagnosed, and none
+// recoverable by a consumer reading the carrier.
+//
+// A fractional literal in range is deliberately NOT diagnosed here. It is a
+// different question — the value fits, it is just not a whole number — and
+// it is pinned in fdp's routing table rather than decided here (#165).
 func checkIntegerRange(
 	r *report.Report,
 	target Annotation,
@@ -1016,6 +1014,59 @@ func checkCarrierRange(
 		return
 	}
 
+	// `describe` names what the literal has to fit, in the reader's terms,
+	// and is phrased so it reads as the subject of "… is unsigned" as well
+	// as the object of "out of range for …".
+	//
+	// With a scalar carrier that is the annotated type. A wrapper names
+	// both, because the annotated type is the wrapper and the bound is the
+	// scalar it wraps — calling `int64` "the annotated type" of a
+	// `google.protobuf.Int64Value` field would be a lie. With no scalar at
+	// all it is int_value itself, because that is what the literal becomes
+	// and the annotated type is a message.
+	bound := carrier.CarrierScalar()
+	describe := fmt.Sprintf("the annotated type `%s`", bound)
+	switch {
+	case bound == predeclared.Unknown:
+		bound = predeclared.Int64
+		describe = "the 64-bit signed `int_value` an untyped argument " +
+			"on this carrier is lowered into"
+	case carrier.Predeclared() == predeclared.Unknown:
+		describe = fmt.Sprintf("the scalar `%s` wrapped by the annotated type `%s`",
+			bound, carrier.FullName())
+	}
+	if bound == predeclared.Float || bound == predeclared.Double {
+		return // Routed to double_value; int_value's range does not apply.
+	}
+
+	checkCarrierRangeValue(r, target, param, arg, bound, describe)
+}
+
+// checkCarrierRangeValue applies a resolved carrier bound to one argument
+// value expression.
+//
+// A list argument lowers element by element through the SAME carrier
+// routing the scalar form uses — fdp's buildListLiteral hands each element
+// to buildArgValue with the argument's carrier — so `@default([1e19])`
+// wraps on an `int64` carrier exactly as `@default(1e19)` does. Bounding
+// the argument without descending into it left #177 fixed in one shape and
+// open in the other; nesting recurses for the same reason, since
+// buildListElement lowers a nested list through buildArgValue too.
+func checkCarrierRangeValue(
+	r *report.Report,
+	target Annotation,
+	param AnnotationParam,
+	arg ast.ExprAny,
+	bound predeclared.Name,
+	describe string,
+) {
+	if arg.Kind() == ast.ExprKindArray {
+		for elem := range seq.Values(arg.AsArray().Elements()) {
+			checkCarrierRangeValue(r, target, param, elem, bound, describe)
+		}
+		return
+	}
+
 	negative := false
 	value := arg
 	if arg.Kind() == ast.ExprKindPrefixed {
@@ -1056,31 +1107,21 @@ func checkCarrierRange(
 		return
 	}
 
-	// `describe` names what the literal has to fit, in the reader's terms.
-	// With a scalar carrier that is the annotated type; without one it is
-	// int_value itself, because that is what the literal becomes and
-	// naming int64 as "the annotated type" would be a lie — the annotated
-	// type is a message.
-	bound := carrier.CarrierScalar()
-	describe := fmt.Sprintf("`%s`, the annotated type", bound)
-	if bound == predeclared.Unknown {
-		bound = predeclared.Int64
-		describe = "`int_value`, a 64-bit signed integer, which is how an " +
-			"untyped argument on this carrier is lowered"
-	}
-	if bound == predeclared.Float || bound == predeclared.Double {
-		return // Routed to double_value; int_value's range does not apply.
-	}
-
-	switch integerRangeFault(bound, negative, lit.Token.AsNumber()) {
+	switch integerRangeFault(bound, negative, num) {
 	case rangeTooLarge:
 		r.Errorf("argument %q for `%s` is out of range for %s",
 			param.Name(), target.FullName(), describe,
 		).Apply(
 			report.Snippet(arg),
+			// Both halves of the bound are stated, because only the first
+			// is a wrap: above MaxInt64 the value overflows `int_value`
+			// itself and reaches a consumer negated, while at or below it
+			// the value survives the carrier intact and it is the
+			// annotated type that cannot hold it.
 			report.Notef("an untyped annotation argument is carried as `int_value`, "+
-				"a 64-bit signed integer, so a value the annotated type cannot hold "+
-				"reaches a consumer wrapped"),
+				"a 64-bit signed integer: past its range the value reaches a consumer "+
+				"wrapped, and within it the value survives but the annotated type "+
+				"still cannot hold it"),
 		)
 	case rangeNegativeOnUnsigned:
 		r.Errorf("argument %q for `%s` is negative, but %s is unsigned",
