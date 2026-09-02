@@ -327,10 +327,28 @@ func buildListElement(u ir.AnnotationUse, elem ast.ExprAny, param ir.AnnotationP
 // so `1.5` keeps its fraction instead of truncating to `1`.
 func buildLiteralArg(lit ast.ExprLiteral, param ir.AnnotationParam, carrier predeclared.Name) *pwsv1.AnnotationArg {
 	tok := lit.Token
+
+	// An untyped parameter is one that declares no scalar to convert
+	// towards: no parameter at all, or `any`. Deliberately not
+	// `!param.IsScalar()` — that would also capture enum- and
+	// message-typed parameters, changing what an already-typed parameter
+	// accepts.
+	untyped := param.IsZero() || param.IsAny()
+
 	switch tok.Kind() {
 	case token.String:
 		text := tok.AsString().Text()
-		if param.IsScalar() && param.Scalar() == predeclared.Bytes {
+		// `string_value` is a proto3 string and so must be valid UTF-8. A
+		// bytes default frequently is not — `@default("\xff\xfe")` put raw
+		// ff fe in there, and the descriptor then failed to MARSHAL at all,
+		// breaking anything that writes the image out rather than only
+		// annotation-aware readers (#179).
+		//
+		// A declared `bytes` parameter already took the bytes route; the
+		// carrier gets the same treatment, for the same reason the numeric
+		// routing consults it.
+		if (param.IsScalar() && param.Scalar() == predeclared.Bytes) ||
+			(untyped && carrier == predeclared.Bytes) {
 			return &pwsv1.AnnotationArg{
 				Value: &pwsv1.AnnotationArg_BytesValue{BytesValue: []byte(text)},
 			}
@@ -341,12 +359,6 @@ func buildLiteralArg(lit ast.ExprLiteral, param ir.AnnotationParam, carrier pred
 
 	case token.Number:
 		num := tok.AsNumber()
-		// An untyped parameter is one that declares no scalar to
-		// convert towards: no parameter at all, or `any`. Deliberately
-		// not `!param.IsScalar()` — that would also capture enum- and
-		// message-typed parameters, changing what an already-typed
-		// parameter accepts.
-		untyped := param.IsZero() || param.IsAny()
 
 		// An untyped parameter has no type of its own, but the thing the
 		// annotation is ATTACHED to usually does — `@default(1e19)` on a
