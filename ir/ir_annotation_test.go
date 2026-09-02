@@ -2071,3 +2071,63 @@ enum E {
 			"an enum value has no element type to bound against: %v", d.Message())
 	}
 }
+
+// TestCarrierBoundRejectsWhatFloatCannotHold is #180: #178 bounded every
+// integer carrier and exempted both float ones, which is right for `double`
+// — double_value IS a double — and wrong for `float`.
+//
+// double_value holds values float32 cannot, and assigning one yields +Inf,
+// indistinguishable from a literal that meant infinity.
+//
+// The bound asks the conversion rather than comparing against MaxFloat32,
+// because a value just above the maximum rounds DOWN to it and is fine;
+// only the ones that round to infinity are out of range. The pair either
+// side of that boundary is below.
+func TestCarrierBoundRejectsWhatFloatCannotHold(t *testing.T) {
+	t.Parallel()
+
+	t.Run("rejected", func(t *testing.T) {
+		t.Parallel()
+		for _, tc := range [][2]string{
+			{"float", "1e300"},
+			{"float", "1e39"},
+			{"float", "3.5e38"},
+			// The sign does not change whether the magnitude fits.
+			{"float", "-1e300"},
+			// And inside a list, where the bound reaches through the same
+			// recursion the integer case uses.
+			{"float", "[1e300]"},
+			{"float", "[3.4e38, 1e300]"},
+			// The wrapper follows through CarrierScalar.
+			{"google.protobuf.FloatValue", "1e300"},
+		} {
+			_, diagnosed := compileCarrier(t, tc[0], tc[1])
+			assert.True(t, diagnosed, "%s must reject %s", tc[0], tc[1])
+		}
+	})
+
+	t.Run("accepted", func(t *testing.T) {
+		t.Parallel()
+		for _, tc := range [][2]string{
+			// MaxFloat32 itself, and a value that rounds down to it.
+			{"float", "3.4028235e38"},
+			{"float", "3.4e38"},
+			{"float", "-3.4e38"},
+			// Underflow is a different question: 1e-50 becomes zero in
+			// float32, which is a value float32 has.
+			{"float", "1e-50"},
+			{"float", "42"},
+			{"float", "1.5"},
+			{"float", "[3.4e38]"},
+			{"google.protobuf.FloatValue", "42"},
+			// `double` needs no bound at all — double_value is a double.
+			{"double", "1e300"},
+			{"double", "1e308"},
+			{"double", "-1e308"},
+			{"google.protobuf.DoubleValue", "1e300"},
+		} {
+			rep, diagnosed := compileCarrier(t, tc[0], tc[1])
+			assert.False(t, diagnosed, "%s must accept %s: %v", tc[0], tc[1], rep.Diagnostics)
+		}
+	})
+}
