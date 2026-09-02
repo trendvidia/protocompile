@@ -903,6 +903,11 @@ func checkIntegerRange(
 	}
 
 	if negative {
+		// `-0` is zero, which every integer type holds. Rejecting it as a
+		// negative value would refuse a literal that is in range.
+		if v == 0 {
+			return
+		}
 		if !signed {
 			r.Errorf("argument %q for `%s` is negative, but `%s` is unsigned",
 				param.Name(), target.FullName(), param.TypeName(),

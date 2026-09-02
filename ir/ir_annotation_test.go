@@ -1638,6 +1638,11 @@ message M {}
 			{"uint64", "18446744073709551615"}, // MaxUint64
 			{"uint32", "0"},
 			{"int32", "3"},
+			// `-0` is zero. Reading it as a negative value would refuse a
+			// literal that every integer type holds.
+			{"uint32", "-0"},
+			{"uint64", "-0"},
+			{"int32", "-0"},
 			// A fraction that fits is not a range error; it still lowers,
 			// truncated. Different question, deliberately untouched.
 			{"int32", "1.5"},
