@@ -15,6 +15,7 @@
 package fdp
 
 import (
+	"math"
 	"strings"
 
 	"google.golang.org/protobuf/proto"
@@ -191,6 +192,24 @@ func buildArgValue(u ir.AnnotationUse, value ast.ExprAny, param ir.AnnotationPar
 		}
 		switch v := neg.Value.(type) {
 		case *pwsv1.AnnotationArg_IntValue:
+			// buildLiteralArg reinterpreted the magnitude via int64, so
+			// negating it here is faithful only while the magnitude fits
+			// int64. A magnitude in (MaxInt64, MaxUint64] reinterprets to a
+			// negative int64, and negating THAT flips the sign back:
+			// `-18446744073709551615` reached the carrier as `int_value: 1`.
+			// No consumer recovers the literal from that, so it takes the
+			// double route an out-of-uint64 literal already takes (#165).
+			//
+			// MinInt64 is excluded deliberately: 2^63 is its own two's
+			// complement, so `-9223372036854775808` negates to itself and is
+			// exactly representable.
+			if v.IntValue < 0 && v.IntValue != math.MinInt64 {
+				// The IntValue variant is only produced from a number token.
+				f, _ := inner.AsLiteral().Token.AsNumber().Float()
+				return &pwsv1.AnnotationArg{
+					Value: &pwsv1.AnnotationArg_DoubleValue{DoubleValue: -f},
+				}
+			}
 			v.IntValue = -v.IntValue
 		case *pwsv1.AnnotationArg_DoubleValue:
 			v.DoubleValue = -v.DoubleValue

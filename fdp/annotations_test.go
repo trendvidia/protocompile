@@ -16,6 +16,7 @@ package fdp_test
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 
@@ -1147,6 +1148,27 @@ message M {}
 			name: "any/big_int_out_of_range", param: "any", lit: "99999999999999999999999",
 			isDouble: true, wantDouble: 1e23,
 		},
+
+		// The mirror of that pair, one range down. A negative literal is
+		// lowered by negating what buildLiteralArg produced, which is the
+		// magnitude reinterpreted through int64 — so for a magnitude in
+		// (MaxInt64, MaxUint64] the negation flipped the sign straight back
+		// and `-18446744073709551615` reached the carrier as `int_value: 1`.
+		// These three are also one apart at each end of int64's range.
+		{name: "any/negative_int64_min", param: "any", lit: "-9223372036854775808", wantInt: math.MinInt64},
+		{
+			name: "any/negative_past_int64_min", param: "any", lit: "-9223372036854775809",
+			isDouble: true, wantDouble: -9223372036854775809,
+		},
+		{
+			name: "any/negative_uint64_max", param: "any", lit: "-18446744073709551615",
+			isDouble: true, wantDouble: -18446744073709551615,
+		},
+		{
+			name: "any/negative_uint64_max_plus_one", param: "any", lit: "-18446744073709551616",
+			isDouble: true, wantDouble: -18446744073709551616,
+		},
+		{name: "any/negative_small", param: "any", lit: "-3", wantInt: -3},
 
 		// A negative fraction that truncates to zero is zero, so it stays on
 		// the integer route even on an unsigned parameter — the accepted

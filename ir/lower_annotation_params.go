@@ -811,6 +811,19 @@ func validateScalarArg(r *report.Report, target Annotation, param AnnotationPara
 			return
 		}
 		mismatch("prefixed expression")
+
+	default:
+		// Every remaining shape — a list literal, a message literal — is
+		// not a scalar, and `repeated` is not a spellable parameter type
+		// (classifyAnnotationParamType: "annotation parameter type must be
+		// a name"), so a list can never be valid on one. The sibling
+		// validators reject these shapes already — validateEnumArg via
+		// describeArgShape, validateMessageArg for anything that is not a
+		// dict — but a scalar parameter fell through this switch silently,
+		// so `@a([1e100, 5])` on an `int32` parameter compiled and reached
+		// the carrier as a list, walking around the range check above with
+		// one pair of brackets.
+		mismatch(describeArgShape(arg))
 	}
 }
 

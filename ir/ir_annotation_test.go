@@ -1719,6 +1719,14 @@ message M {}
 		{"fraction_one_past_max", "int32", "2147483648.5", "out of range for `int32`"},
 		{"fraction_one_past_min", "int32", "-2147483649.5", "out of range for `int32`"},
 		{"negative_fraction_on_uint32", "uint32", "-1.5", "is negative, but `uint32` is unsigned"},
+
+		// A list literal is not a scalar, and `repeated` is not a spellable
+		// parameter type — but validateScalarArg had no case for the shape,
+		// so `@a([1e100, 5])` on an `int32` parameter compiled and lowered
+		// to a list, walking around the range check with two brackets.
+		{"list_on_int32", "int32", "[1e100, 5]", "expects int32, got a list literal"},
+		{"list_on_uint32", "uint32", "[-3]", "expects uint32, got a list literal"},
+		{"message_literal_on_int32", "int32", "Foo{x: 1}", "expects int32, got a message literal"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
