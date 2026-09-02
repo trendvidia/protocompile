@@ -1377,3 +1377,131 @@ message M {}
 	require.IsType(t, (*pwsv1.AnnotationArg_IntValue)(nil), arg.Value)
 	assert.Equal(t, int64(-8446744073709551616), arg.GetIntValue())
 }
+
+// wrapperAnnotationArg is [fieldAnnotationArg] for a field whose type is a
+// google.protobuf wrapper, which needs the import.
+func wrapperAnnotationArg(t *testing.T, wrapper, lit string) *pwsv1.AnnotationArg {
+	t.Helper()
+	f := compileForFDPTest(t, fmt.Sprintf(`syntax = "proto3";
+package test;
+
+import "google/protobuf/wrappers.proto";
+
+annotation deflt(value: any);
+
+message M {
+  google.protobuf.%s f = 1 @deflt(%s);
+}
+`, wrapper, lit))
+	fdp := f.GetMessageType()[0].GetField()[0]
+	require.NotNil(t, fdp.Options)
+	list, ok := proto.GetExtension(fdp.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+	require.True(t, ok)
+	require.Len(t, list.Entries, 1)
+	require.Len(t, list.Entries[0].Args, 1)
+	return list.Entries[0].Args[0]
+}
+
+// TestAnnotationWrapperCarrierMatchesItsScalar pins #174 as the property it
+// actually is: a google.protobuf wrapper carrier lowers exactly as the
+// scalar it wraps.
+//
+// The wrappers are messages, so Predeclared reports nothing for them and
+// #173's carrier routing skipped them — leaving `@default(1e19)` on a
+// `DoubleValue` field at `int_value: -8446744073709551616`, the same
+// (MaxInt64, MaxUint64] ambiguity #172 removed from bare `double`.
+//
+// Asserting equivalence rather than enumerating expected values means the
+// two cannot drift apart: whatever the scalar rule becomes, the wrapper
+// follows it.
+func TestAnnotationWrapperCarrierMatchesItsScalar(t *testing.T) {
+	t.Parallel()
+
+	// The bound is exercised from both sides, as with #172: the whole
+	// defect lives in one bit of range.
+	literals := []string{
+		"42",
+		"9223372036854775807",  // MaxInt64
+		"9223372036854775808",  // MaxInt64 + 1 — the band opens
+		"18446744073709551615", // MaxUint64   — the band closes
+		"18446744073709551616", // one past it
+		"1e19",                 // the reported case
+		"1.5",
+	}
+
+	for _, pair := range []struct{ wrapper, scalar string }{
+		{"DoubleValue", "double"},
+		{"FloatValue", "float"},
+		{"Int64Value", "int64"},
+		{"UInt64Value", "uint64"},
+		{"Int32Value", "int32"},
+		{"UInt32Value", "uint32"},
+	} {
+		t.Run(pair.wrapper, func(t *testing.T) {
+			t.Parallel()
+			for _, lit := range literals {
+				want := fieldAnnotationArg(t, pair.scalar, lit)
+				got := wrapperAnnotationArg(t, pair.wrapper, lit)
+				assert.Equal(t, fmt.Sprintf("%T", want.Value), fmt.Sprintf("%T", got.Value),
+					"%s and %s must pick the same oneof member for %s",
+					pair.wrapper, pair.scalar, lit)
+				assert.True(t, proto.Equal(want, got),
+					"%s and %s must lower %s identically: %v vs %v",
+					pair.wrapper, pair.scalar, lit, want.Value, got.Value)
+			}
+		})
+	}
+}
+
+// TestAnnotationWrapperCarrierFixesTheBand states #174's headline outright,
+// so the reported symptom is visible in the test name and not only implied
+// by the equivalence above.
+func TestAnnotationWrapperCarrierFixesTheBand(t *testing.T) {
+	t.Parallel()
+
+	arg := wrapperAnnotationArg(t, "DoubleValue", "1e19")
+	require.IsType(t, (*pwsv1.AnnotationArg_DoubleValue)(nil), arg.Value,
+		"got %v — a DoubleValue field must not receive the two's-complement int", arg.Value)
+	assert.InDelta(t, 1e19, arg.GetDoubleValue(), 1)
+}
+
+// TestAnnotationNonWrapperMessageCarrierKeepsSpelling pins the deliberate
+// gap: only the nine well-known wrappers are mapped, so any other
+// message-typed carrier keeps the literal's own spelling.
+//
+// This is the case protowire's arbitrary-precision types fall into —
+// `pxf.BigInt`, `pxf.Decimal`, `pxf.BigFloat`. They are not mapped on
+// purpose: they exist to hold what a `double` cannot, so routing them
+// through `double_value` would lose the precision that is their point.
+// A literal in the band therefore stays ambiguous on those carriers.
+func TestAnnotationNonWrapperMessageCarrierKeepsSpelling(t *testing.T) {
+	t.Parallel()
+
+	// Shaped like pxf.BigFloat: a message in another package, not a
+	// google.protobuf wrapper.
+	f := compileForFDPTest(t, `syntax = "proto3";
+package test;
+
+annotation deflt(value: any);
+
+message BigFloat { string repr = 1; }
+
+message M {
+  BigFloat f = 1 @deflt(1e19);
+}
+`)
+	var field *descriptorpb.FieldDescriptorProto
+	for _, m := range f.GetMessageType() {
+		if m.GetName() == "M" {
+			field = m.GetField()[0]
+		}
+	}
+	require.NotNil(t, field)
+	list, ok := proto.GetExtension(field.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+	require.True(t, ok)
+	arg := list.Entries[0].Args[0]
+
+	require.IsType(t, (*pwsv1.AnnotationArg_IntValue)(nil), arg.Value)
+	assert.Equal(t, int64(-8446744073709551616), arg.GetIntValue(),
+		"unmapped message carriers keep the spelling route, ambiguity included")
+}
