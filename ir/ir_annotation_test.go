@@ -1662,16 +1662,19 @@ message M {}
 			{"uint32", "-0"},
 			{"uint64", "-0"},
 			{"int32", "-0"},
-			// A fraction that fits is not a range error; it still lowers,
-			// truncated. Different question, deliberately untouched.
+			// A fraction that fits is not a range error; it still lowers.
+			// Different question, deliberately untouched.
 			{"int32", "1.5"},
-			// The truncation is what has to fit, so these are in range and
-			// their neighbours below (one integer step out) are not.
-			{"int32", "2147483647.5"},
-			{"int32", "-2147483648.5"},
-			// Truncates to zero, so it is the `-0` case, not a negative
-			// value on an unsigned parameter.
-			{"uint32", "-0.5"},
+			// The ROUNDED value is what has to fit (#167 — Int rounds to
+			// nearest, half away from zero), so the bound sits half a step
+			// lower than truncation would put it: .4 rounds back inside,
+			// while .5 rounds out and is rejected below.
+			{"int32", "2147483647.4"},
+			{"int32", "-2147483648.4"},
+			// Rounds to zero, so it is the `-0` case rather than a negative
+			// value on an unsigned parameter. `-0.5` rounds away from zero
+			// to 1 and is rejected below.
+			{"uint32", "-0.4"},
 			// Float scalars have no integer bound to exceed.
 			{"double", "1e100"},
 			{"float", "1.5"},
@@ -1717,6 +1720,13 @@ message M {}
 		// exactly what the two checks above exist to prevent.
 		{"fraction_above_max", "int32", "99999999999.5", "out of range for `int32`"},
 		{"fraction_one_past_max", "int32", "2147483648.5", "out of range for `int32`"},
+		// Rounding, not truncation, decides: this rounds UP to 2147483648,
+		// one past the ceiling, where truncation would have kept it inside.
+		{"fraction_rounds_past_max", "int32", "2147483647.5", "out of range for `int32`"},
+		{"fraction_rounds_past_min", "int32", "-2147483648.5", "out of range for `int32`"},
+		// Rounds away from zero to a magnitude of 1, so it is a negative
+		// value on an unsigned parameter, not the `-0` case.
+		{"negative_half_on_uint32", "uint32", "-0.5", "is negative, but `uint32` is unsigned"},
 		{"fraction_one_past_min", "int32", "-2147483649.5", "out of range for `int32`"},
 		{"negative_fraction_on_uint32", "uint32", "-1.5", "is negative, but `uint32` is unsigned"},
 
