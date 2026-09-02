@@ -18,6 +18,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 
+	"github.com/trendvidia/protocompile/ast/predeclared"
 	pwsv1 "github.com/trendvidia/protocompile/gen/protowire/schema/v1"
 	"github.com/trendvidia/protocompile/ir"
 	"github.com/trendvidia/protocompile/seq"
@@ -147,7 +148,9 @@ func addAnnotationEntries(entries *[]*pwsv1.SourceEntry, elementPath string, kin
 
 		argIndex := 0
 		for _, b := range use.ArgBindings() {
-			arg := buildArg(use, b)
+			// Only used to see whether the argument survives lowering,
+			// which does not depend on the carrier's type.
+			arg := buildArg(use, b, predeclared.Unknown)
 			if arg == nil {
 				continue // Dropped from the carrier.
 			}
