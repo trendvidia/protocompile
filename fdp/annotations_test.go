@@ -1170,13 +1170,13 @@ message M {}
 		},
 		{name: "any/negative_small", param: "any", lit: "-3", wantInt: -3},
 
-		// A negative fraction that ROUNDS to zero is zero, so it stays on
-		// the integer route even on an unsigned parameter — the accepted
-		// side of the `-0` rule in TestAnnotationScalarArgRange.
+		// A negative fraction that ROUNDS to zero lowers as zero. It has to
+		// be a SIGNED parameter: an unsigned one rejects any negated
+		// literal whatever its magnitude, matching checkIntBounds (#169).
 		//
-		// `-0.5` is not this case: half rounds away from zero (#167), so it
-		// reaches a magnitude of 1 and is diagnosed instead.
-		{name: "uint32/negative_fraction_to_zero", param: "uint32", lit: "-0.4", wantInt: 0},
+		// `-0.5` is not this case even here: half rounds away from zero
+		// (#167), so it reaches a magnitude of 1.
+		{name: "int32/negative_fraction_to_zero", param: "int32", lit: "-0.4", wantInt: 0},
 
 		// A value that does not fit a declared integer parameter is now a
 		// compile error, so it has no row here — this table only covers

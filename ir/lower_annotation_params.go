@@ -920,13 +920,15 @@ func checkIntegerRange(
 	}
 
 	if negative {
-		// `-0` is zero, which every integer type holds. Rejecting it as a
-		// negative value would refuse a literal that is in range. A
-		// fraction that truncates to zero (`-0.5`) is the same case: zero
-		// is what lowers.
-		if v == 0 {
-			return
-		}
+		// Any negated literal on an unsigned type is an error, whatever its
+		// magnitude — `-0` included. That is what `checkIntBounds`
+		// (ir/lower_eval.go) does for an unsigned FIELD, and the two
+		// checkers answering differently inside one package was the real
+		// defect (#169); `-0` being arguably in range is not worth a
+		// divergence a reader has to discover.
+		//
+		// A signed type still takes `-0` and `-0.4`: they reach the range
+		// check below with a magnitude of zero, which fits.
 		if !signed {
 			r.Errorf("argument %q for `%s` is negative, but `%s` is unsigned",
 				param.Name(), target.FullName(), param.TypeName(),

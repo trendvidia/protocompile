@@ -1650,18 +1650,13 @@ message M {}
 			// Non-decimal spellings reach the same check: the bound is on
 			// the value, not on how it is written.
 			{"int32", "0x7FFFFFFF"},
-			// `-0` is zero. Reading it as a negative value would refuse a
-			// literal that every integer type holds.
-			//
-			// This DIVERGES from the repo's other integer-range checker:
-			// `checkIntBounds` (ir/lower_eval.go) errors on any `neg` for an
-			// unsigned type, so `Foo{x: -0}` on a `uint32` *field* is
-			// rejected while `@a(-0)` on a `uint32` *parameter* is accepted.
-			// Pinned rather than reconciled — which of the two is right is
-			// the author's call, not this test's.
-			{"uint32", "-0"},
-			{"uint64", "-0"},
+			// A signed type takes `-0`: it reaches the range check with a
+			// magnitude of zero, which fits. On an UNSIGNED type it is an
+			// error — see negative_zero_on_uint32 below, and
+			// TestNegativeZeroAgreesBetweenFieldAndParameter for why.
 			{"int32", "-0"},
+			{"int64", "-0"},
+			{"int32", "-0.4"},
 			// A fraction that fits is not a range error; it still lowers.
 			// Different question, deliberately untouched.
 			{"int32", "1.5"},
@@ -1671,10 +1666,6 @@ message M {}
 			// while .5 rounds out and is rejected below.
 			{"int32", "2147483647.4"},
 			{"int32", "-2147483648.4"},
-			// Rounds to zero, so it is the `-0` case rather than a negative
-			// value on an unsigned parameter. `-0.5` rounds away from zero
-			// to 1 and is rejected below.
-			{"uint32", "-0.4"},
 			// Float scalars have no integer bound to exceed.
 			{"double", "1e100"},
 			{"float", "1.5"},
@@ -1727,6 +1718,12 @@ message M {}
 		// Rounds away from zero to a magnitude of 1, so it is a negative
 		// value on an unsigned parameter, not the `-0` case.
 		{"negative_half_on_uint32", "uint32", "-0.5", "is negative, but `uint32` is unsigned"},
+		// Any negated literal on an unsigned type, whatever its magnitude
+		// (#169). `-0` is the case that used to be accepted here while the
+		// equivalent field was rejected.
+		{"negative_zero_on_uint32", "uint32", "-0", "is negative, but `uint32` is unsigned"},
+		{"negative_zero_on_uint64", "uint64", "-0", "is negative, but `uint64` is unsigned"},
+		{"negative_zero_fraction_on_uint32", "uint32", "-0.4", "is negative, but `uint32` is unsigned"},
 		{"fraction_one_past_min", "int32", "-2147483649.5", "out of range for `int32`"},
 		{"negative_fraction_on_uint32", "uint32", "-1.5", "is negative, but `uint32` is unsigned"},
 
@@ -1745,4 +1742,56 @@ message M {}
 				"%s(%s) must be diagnosed, got: %v", tc.param, tc.lit, rep.Diagnostics)
 		})
 	}
+}
+
+// TestNegativeZeroAgreesBetweenFieldAndParameter is the point of #169: the
+// package has two integer-range checkers, and they used to disagree.
+//
+// `checkIntBounds` (ir/lower_eval.go) errors on any negated literal for an
+// unsigned type, so `Foo{x: -0}` on a `uint32` field was rejected, while
+// `checkIntegerRange` accepted `@a(-0)` on a `uint32` parameter. Either
+// answer is defensible; one package holding both is not, and a reader has
+// no way to predict which they will meet.
+//
+// The test asserts they agree rather than asserting a particular answer, so
+// it keeps its teeth if the shared answer is ever revisited.
+func TestNegativeZeroAgreesBetweenFieldAndParameter(t *testing.T) {
+	t.Parallel()
+
+	// `-0` bound to a uint32 field, through a message literal.
+	_, fieldRep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+message Foo { uint32 x = 1; }
+annotation m(value: Foo);
+@m(Foo{x: -0})
+message M {}
+`)
+	// `-0` bound to a uint32 parameter.
+	_, paramRep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+annotation a(value: uint32);
+@a(-0)
+message M {}
+`)
+
+	fieldErrs := countErrors(fieldRep)
+	paramErrs := countErrors(paramRep)
+	assert.Equal(t, fieldErrs > 0, paramErrs > 0,
+		"a uint32 field and a uint32 parameter must answer `-0` the same way; "+
+			"field diagnostics: %v, parameter diagnostics: %v",
+		fieldRep.Diagnostics, paramRep.Diagnostics)
+
+	// And the answer they agree on today.
+	assert.Positive(t, fieldErrs, "the field rejects `-0`")
+	assert.Positive(t, paramErrs, "so the parameter must too")
+}
+
+func countErrors(rep *report.Report) int {
+	var n int
+	for _, d := range rep.Diagnostics {
+		if isError(d) {
+			n++
+		}
+	}
+	return n
 }
