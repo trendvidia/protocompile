@@ -41,8 +41,13 @@ import (
 // Returns true when an extension was attached. Callers use that to
 // ensure an Options message is materialised on the descriptor when
 // it would otherwise have been nil.
-func emitAnnotations(uses seq.Indexer[ir.AnnotationUse], target proto.Message, extDesc *protoimpl.ExtensionInfo) bool {
-	list := buildAnnotationList(uses)
+func emitAnnotations(
+	uses seq.Indexer[ir.AnnotationUse],
+	target proto.Message,
+	extDesc *protoimpl.ExtensionInfo,
+	carrier predeclared.Name,
+) bool {
+	list := buildAnnotationList(uses, carrier)
 	if list == nil {
 		return false
 	}
@@ -54,14 +59,15 @@ func emitAnnotations(uses seq.Indexer[ir.AnnotationUse], target proto.Message, e
 // into a [pwsv1.AnnotationList], or returns nil when none survive.
 // Split out of [emitAnnotations] for the method carrier, which reads
 // the list back for the §5.2 `google.api.http` lowering.
-func buildAnnotationList(uses seq.Indexer[ir.AnnotationUse]) *pwsv1.AnnotationList {
+func buildAnnotationList(uses seq.Indexer[ir.AnnotationUse], carrier predeclared.Name) *pwsv1.AnnotationList {
 	if uses.Len() == 0 {
 		return nil
 	}
 
 	list := &pwsv1.AnnotationList{}
 	for u := range seq.Values(uses) {
-		if entry := buildAnnotation(u); entry != nil {
+		// A declaration is not attached to a typed carrier.
+		if entry := buildAnnotation(u, carrier); entry != nil {
 			list.Entries = append(list.Entries, entry)
 		}
 	}
@@ -73,7 +79,7 @@ func buildAnnotationList(uses seq.Indexer[ir.AnnotationUse]) *pwsv1.AnnotationLi
 
 // buildAnnotation lowers one [ir.AnnotationUse] into a
 // [pwsv1.Annotation]. Returns nil for an unresolved use site.
-func buildAnnotation(u ir.AnnotationUse) *pwsv1.Annotation {
+func buildAnnotation(u ir.AnnotationUse, carrier predeclared.Name) *pwsv1.Annotation {
 	target := u.Target()
 	if target.IsZero() {
 		return nil
@@ -85,7 +91,7 @@ func buildAnnotation(u ir.AnnotationUse) *pwsv1.Annotation {
 	}
 
 	for _, b := range u.ArgBindings() {
-		arg := buildArg(u, b)
+		arg := buildArg(u, b, carrier)
 		if arg != nil {
 			ann.Args = append(ann.Args, arg)
 		}
@@ -101,7 +107,7 @@ func buildAnnotation(u ir.AnnotationUse) *pwsv1.Annotation {
 //
 // Returns nil for shapes the B3 classification pass already rejected
 // (opaque captures on non-expression params, message literals).
-func buildArg(u ir.AnnotationUse, b ir.AnnotationArgBinding) *pwsv1.AnnotationArg {
+func buildArg(u ir.AnnotationUse, b ir.AnnotationArgBinding, carrier predeclared.Name) *pwsv1.AnnotationArg {
 	if b.Arg.IsZero() {
 		return nil
 	}
@@ -141,7 +147,7 @@ func buildArg(u ir.AnnotationUse, b ir.AnnotationArgBinding) *pwsv1.AnnotationAr
 		return out
 	}
 
-	value := buildArgValue(u, b.Arg.Value(), b.Param)
+	value := buildArgValue(u, b.Arg.Value(), b.Param, carrier)
 	if value == nil {
 		return nil
 	}
@@ -152,10 +158,10 @@ func buildArg(u ir.AnnotationUse, b ir.AnnotationArgBinding) *pwsv1.AnnotationAr
 // buildArgValue lowers a classified argument value expression into a
 // [pwsv1.AnnotationArg] with only the value oneof populated. Returns
 // nil for shapes B3 rejected.
-func buildArgValue(u ir.AnnotationUse, value ast.ExprAny, param ir.AnnotationParam) *pwsv1.AnnotationArg {
+func buildArgValue(u ir.AnnotationUse, value ast.ExprAny, param ir.AnnotationParam, carrier predeclared.Name) *pwsv1.AnnotationArg {
 	switch value.Kind() {
 	case ast.ExprKindLiteral:
-		return buildLiteralArg(value.AsLiteral(), param)
+		return buildLiteralArg(value.AsLiteral(), param, carrier)
 
 	case ast.ExprKindPath:
 		// Identifier path: the boolean keywords `true` / `false`, or
@@ -186,7 +192,7 @@ func buildArgValue(u ir.AnnotationUse, value ast.ExprAny, param ir.AnnotationPar
 		if inner.Kind() != ast.ExprKindLiteral {
 			return nil
 		}
-		neg := buildLiteralArg(inner.AsLiteral(), param)
+		neg := buildLiteralArg(inner.AsLiteral(), param, carrier)
 		if neg == nil {
 			return nil
 		}
@@ -217,7 +223,7 @@ func buildArgValue(u ir.AnnotationUse, value ast.ExprAny, param ir.AnnotationPar
 		return neg
 
 	case ast.ExprKindArray:
-		return &pwsv1.AnnotationArg{Value: buildListLiteral(u, value.AsArray(), param)}
+		return &pwsv1.AnnotationArg{Value: buildListLiteral(u, value.AsArray(), param, carrier)}
 
 	case ast.ExprKindDict:
 		// A typed message-literal list element (RFC-001 §8.1,
@@ -271,10 +277,10 @@ func buildEnumLiteral(u ir.AnnotationUse, path ast.Path) *pwsv1.EnumLiteral {
 // [pwsv1.ListLiteral] of [pwsv1.LiteralValue] elements. Elements
 // carry no names and can never be expressions; homogeneity was
 // checked by the B3 pass.
-func buildListLiteral(u ir.AnnotationUse, arr ast.ExprArray, param ir.AnnotationParam) *pwsv1.AnnotationArg_Literal {
+func buildListLiteral(u ir.AnnotationUse, arr ast.ExprArray, param ir.AnnotationParam, carrier predeclared.Name) *pwsv1.AnnotationArg_Literal {
 	list := &pwsv1.ListLiteral{}
 	for elem := range seq.Values(arr.Elements()) {
-		if lv := buildListElement(u, elem, param); lv != nil {
+		if lv := buildListElement(u, elem, param, carrier); lv != nil {
 			list.Elements = append(list.Elements, lv)
 		}
 	}
@@ -287,8 +293,8 @@ func buildListLiteral(u ir.AnnotationUse, arr ast.ExprArray, param ir.Annotation
 // [pwsv1.LiteralValue]. The field numbers of LiteralValue's oneof
 // mirror AnnotationArg's, so the scalar lowering is shared and
 // re-wrapped.
-func buildListElement(u ir.AnnotationUse, elem ast.ExprAny, param ir.AnnotationParam) *pwsv1.LiteralValue {
-	arg := buildArgValue(u, elem, param)
+func buildListElement(u ir.AnnotationUse, elem ast.ExprAny, param ir.AnnotationParam, carrier predeclared.Name) *pwsv1.LiteralValue {
+	arg := buildArgValue(u, elem, param, carrier)
 	if arg == nil {
 		return nil
 	}
@@ -319,7 +325,7 @@ func buildListElement(u ir.AnnotationUse, elem ast.ExprAny, param ir.AnnotationP
 // parameter at all) and an `any` param (which accepts any
 // literal-shaped argument). Both follow the literal's own spelling,
 // so `1.5` keeps its fraction instead of truncating to `1`.
-func buildLiteralArg(lit ast.ExprLiteral, param ir.AnnotationParam) *pwsv1.AnnotationArg {
+func buildLiteralArg(lit ast.ExprLiteral, param ir.AnnotationParam, carrier predeclared.Name) *pwsv1.AnnotationArg {
 	tok := lit.Token
 	switch tok.Kind() {
 	case token.String:
@@ -341,7 +347,21 @@ func buildLiteralArg(lit ast.ExprLiteral, param ir.AnnotationParam) *pwsv1.Annot
 		// message-typed parameters, changing what an already-typed
 		// parameter accepts.
 		untyped := param.IsZero() || param.IsAny()
+
+		// An untyped parameter has no type of its own, but the thing the
+		// annotation is ATTACHED to usually does — `@default(1e19)` on a
+		// `double` field is a value for that field. Routing by the
+		// carrier's type is what keeps the band above MaxInt64 readable:
+		// int_value stores it two's-complement, which only an unsigned
+		// target knows to undo, so a double target received a negative
+		// number (#172).
+		//
+		// Only floats need this. An integer carrier already recovers the
+		// value from its own type, and a carrier with no scalar type —
+		// a message, a service — falls back to the literal's spelling
+		// because there is nothing else to consult.
 		if param.IsScalar() && isFloatScalar(param.Scalar()) ||
+			untyped && isFloatScalar(carrier) ||
 			untyped && num.IsFloat() {
 			f, _ := num.Float()
 			return &pwsv1.AnnotationArg{
@@ -500,7 +520,9 @@ func buildDefaultArg(deflt ast.ExprAny, param ir.AnnotationParam) *pwsv1.Annotat
 		}
 	}
 
-	return buildArgValue(ir.AnnotationUse{}, deflt, param)
+	// A parameter DEFAULT belongs to the declaration, not to anything it
+	// is attached to, so there is no carrier type to route by.
+	return buildArgValue(ir.AnnotationUse{}, deflt, param, predeclared.Unknown)
 }
 
 // locationOf packs a token's start position into a
@@ -569,7 +591,9 @@ func buildFunctionDecl(fn ir.Function) *pwsv1.FunctionDecl {
 		if opt.Name == "" {
 			continue
 		}
-		arg := buildArgValue(ir.AnnotationUse{}, opt.Value, ir.AnnotationParam{})
+		// A function option has no carrier either; its routing stays on
+		// the literal's own spelling.
+		arg := buildArgValue(ir.AnnotationUse{}, opt.Value, ir.AnnotationParam{}, predeclared.Unknown)
 		if arg == nil {
 			continue
 		}
@@ -621,7 +645,8 @@ func buildTypeDecl(a ir.TypeAlias) *pwsv1.TypeDecl {
 	}
 	list := &pwsv1.AnnotationList{}
 	for u := range seq.Values(uses) {
-		if entry := buildAnnotation(u); entry != nil {
+		// A declaration is not attached to a typed carrier.
+		if entry := buildAnnotation(u, predeclared.Unknown); entry != nil {
 			list.Entries = append(list.Entries, entry)
 		}
 	}

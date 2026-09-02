@@ -1246,3 +1246,134 @@ function f() [ratio = 1.5, whole = 2.0, count = 3, negative = -2];
 	require.IsType(t, (*pwsv1.AnnotationArg_IntValue)(nil), opts["negative"].Value)
 	assert.Equal(t, int64(-2), opts["negative"].GetIntValue())
 }
+
+// fieldAnnotationArg compiles a single field carrying `@deflt(lit)` and
+// returns the lowered argument.
+func fieldAnnotationArg(t *testing.T, fieldType, lit string) *pwsv1.AnnotationArg {
+	t.Helper()
+	f := compileForFDPTest(t, fmt.Sprintf(`syntax = "proto3";
+package test;
+
+annotation deflt(value: any);
+
+message M {
+  %s f = 1 @deflt(%s);
+}
+`, fieldType, lit))
+	require.Len(t, f.GetMessageType(), 1)
+	require.Len(t, f.GetMessageType()[0].GetField(), 1)
+	fdp := f.GetMessageType()[0].GetField()[0]
+	require.NotNil(t, fdp.Options)
+	list, ok := proto.GetExtension(fdp.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+	require.True(t, ok)
+	require.NotNil(t, list)
+	require.Len(t, list.Entries, 1)
+	require.Len(t, list.Entries[0].Args, 1)
+	return list.Entries[0].Args[0]
+}
+
+// TestAnnotationUntypedArgRoutesByCarrier pins the rule issue #172 is about:
+// an untyped parameter has no type of its own, so the lowering routes by the
+// type of the thing the annotation is attached to.
+//
+// The band above MaxInt64 is why. `int_value` is an int64, so a value in
+// (MaxInt64, MaxUint64] is stored two's-complement — recoverable only by a
+// consumer that knows the target is unsigned. A `double` target does not,
+// and applied the negative number it was handed: `@deflt(1e19)` on a double
+// field produced -8446744073709551616.
+//
+// The bound is exercised from both sides against both kinds of target,
+// because the whole defect lives in one bit of range.
+func TestAnnotationUntypedArgRoutesByCarrier(t *testing.T) {
+	t.Parallel()
+
+	const (
+		maxInt64  = "9223372036854775807"
+		overInt64 = "9223372036854775808"
+		maxUint64 = "18446744073709551615"
+	)
+
+	t.Run("float carrier takes double_value", func(t *testing.T) {
+		t.Parallel()
+		for _, tc := range []struct {
+			field, lit string
+			want       float64
+		}{
+			// The reported case, and the reason for the rule.
+			{"double", "1e19", 1e19},
+			{"float", "1e19", 1e19},
+			{"double", overInt64, 9223372036854775808},
+			{"double", maxUint64, 18446744073709551615},
+			// Below the band too: the rule is the carrier's type, not the
+			// value. A double field cannot hold MaxInt64 exactly anyway, so
+			// the carrier now reports what the field will actually store.
+			{"double", maxInt64, 9223372036854775807},
+			{"double", "42", 42},
+			{"double", "1.5", 1.5},
+		} {
+			arg := fieldAnnotationArg(t, tc.field, tc.lit)
+			require.IsType(t, (*pwsv1.AnnotationArg_DoubleValue)(nil), arg.Value,
+				"%s field, literal %s: want double_value, got %v", tc.field, tc.lit, arg.Value)
+			assert.InDelta(t, tc.want, arg.GetDoubleValue(), math.Abs(tc.want)*1e-15)
+		}
+	})
+
+	t.Run("integer carrier is unchanged", func(t *testing.T) {
+		t.Parallel()
+		for _, tc := range []struct {
+			field, lit string
+			want       int64
+		}{
+			// An integer target recovers the value from its own type, so
+			// the two's-complement encoding stays and is not ambiguous.
+			{"uint64", "1e19", -8446744073709551616},
+			{"uint64", maxUint64, -1},
+			{"uint64", overInt64, -9223372036854775808},
+			{"int64", maxInt64, 9223372036854775807},
+			{"int32", "42", 42},
+		} {
+			arg := fieldAnnotationArg(t, tc.field, tc.lit)
+			require.IsType(t, (*pwsv1.AnnotationArg_IntValue)(nil), arg.Value,
+				"%s field, literal %s: want int_value, got %v", tc.field, tc.lit, arg.Value)
+			assert.Equal(t, tc.want, arg.GetIntValue())
+		}
+	})
+
+	t.Run("out of uint64 range still lowers as double on any carrier", func(t *testing.T) {
+		t.Parallel()
+		// #165's rule is independent of the carrier and keeps working.
+		for _, field := range []string{"uint64", "int64", "double"} {
+			arg := fieldAnnotationArg(t, field, "1e100")
+			require.IsType(t, (*pwsv1.AnnotationArg_DoubleValue)(nil), arg.Value,
+				"%s field: want double_value, got %v", field, arg.Value)
+			assert.InDelta(t, 1e100, arg.GetDoubleValue(), 1e85)
+		}
+	})
+}
+
+// TestAnnotationUntypedArgWithoutACarrierKeepsSpelling pins the other side:
+// an annotation on a message has no element type to route by, so the
+// literal's own spelling still decides. Nothing can be consulted there, and
+// a value in the band stays ambiguous — which is the documented limit of
+// the #172 fix rather than an oversight.
+func TestAnnotationUntypedArgWithoutACarrierKeepsSpelling(t *testing.T) {
+	t.Parallel()
+
+	f := compileForFDPTest(t, `syntax = "proto3";
+package test;
+
+annotation deflt(value: any);
+
+@deflt(1e19)
+message M {}
+`)
+	list, ok := proto.GetExtension(
+		f.GetMessageType()[0].Options, pwsv1.E_MessageAnnotations).(*pwsv1.AnnotationList)
+	require.True(t, ok)
+	require.Len(t, list.Entries, 1)
+	require.Len(t, list.Entries[0].Args, 1)
+
+	arg := list.Entries[0].Args[0]
+	require.IsType(t, (*pwsv1.AnnotationArg_IntValue)(nil), arg.Value)
+	assert.Equal(t, int64(-8446744073709551616), arg.GetIntValue())
+}
