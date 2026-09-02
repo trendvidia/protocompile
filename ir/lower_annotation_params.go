@@ -649,6 +649,11 @@ func allAnnotationUses(file *File) func(yield func(AnnotationUse, Type) bool) {
 		// whose type simply has no scalar (an unmapped message): the first
 		// has nothing to bound against, the second lowers as int_value and
 		// is bounded by that.
+		//
+		// An ENUM VALUE is a member with no element type at all, so it
+		// passes the zero Type through Element() and lands in the first
+		// case — correctly, since there is no more of a type to bound
+		// against there than on the enum itself.
 		emit := func(uses seq.Indexer[AnnotationUse], carrier Type) bool {
 			for u := range seq.Values(uses) {
 				if !yield(u, carrier) {

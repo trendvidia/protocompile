@@ -2043,3 +2043,31 @@ func TestCarrierBoundNamesTheRightType(t *testing.T) {
 		assert.True(t, found, "want a diagnostic containing %q, got: %v", tc.want, rep.Diagnostics)
 	}
 }
+
+// TestCarrierBoundSkipsMembersWithNoElementType pins the third carrier
+// state, the one no other test here reaches: a member that HAS no element
+// type.
+//
+// An enum value is such a member — it is yielded by Type.Members() like a
+// field, but Element() is zero — so it takes the same route a message- or
+// service-level annotation does rather than the unmapped-message route
+// that bounds `pxf.BigInt` by int64. That is the documented limit of
+// carrier routing (#172) and not something the carrier bound changes; this
+// pins which of the two it falls into, since the two differ by a
+// diagnostic.
+func TestCarrierBoundSkipsMembersWithNoElementType(t *testing.T) {
+	t.Parallel()
+
+	_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+annotation deflt(value: any);
+enum E {
+  E_ZERO = 0;
+  E_ONE = 1 @deflt(1e19);
+}
+`)
+	for _, d := range rep.Diagnostics {
+		assert.False(t, isError(d),
+			"an enum value has no element type to bound against: %v", d.Message())
+	}
+}
