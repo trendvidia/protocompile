@@ -1251,7 +1251,7 @@ function f() [ratio = 1.5, whole = 2.0, count = 3, negative = -2];
 // returns the lowered argument.
 func fieldAnnotationArg(t *testing.T, fieldType, lit string) *pwsv1.AnnotationArg {
 	t.Helper()
-	f := compileForFDPTest(t, fmt.Sprintf(`syntax = "proto3";
+	return fieldArg(t, compileForFDPTest(t, fmt.Sprintf(`syntax = "proto3";
 package test;
 
 annotation deflt(value: any);
@@ -1259,17 +1259,7 @@ annotation deflt(value: any);
 message M {
   %s f = 1 @deflt(%s);
 }
-`, fieldType, lit))
-	require.Len(t, f.GetMessageType(), 1)
-	require.Len(t, f.GetMessageType()[0].GetField(), 1)
-	fdp := f.GetMessageType()[0].GetField()[0]
-	require.NotNil(t, fdp.Options)
-	list, ok := proto.GetExtension(fdp.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
-	require.True(t, ok)
-	require.NotNil(t, list)
-	require.Len(t, list.Entries, 1)
-	require.Len(t, list.Entries[0].Args, 1)
-	return list.Entries[0].Args[0]
+`, fieldType, lit)))
 }
 
 // TestAnnotationUntypedArgRoutesByCarrier pins the rule issue #172 is about:
@@ -1382,7 +1372,7 @@ message M {}
 // google.protobuf wrapper, which needs the import.
 func wrapperAnnotationArg(t *testing.T, wrapper, lit string) *pwsv1.AnnotationArg {
 	t.Helper()
-	f := compileForFDPTest(t, fmt.Sprintf(`syntax = "proto3";
+	return fieldArg(t, compileForFDPTest(t, fmt.Sprintf(`syntax = "proto3";
 package test;
 
 import "google/protobuf/wrappers.proto";
@@ -1392,14 +1382,7 @@ annotation deflt(value: any);
 message M {
   google.protobuf.%s f = 1 @deflt(%s);
 }
-`, wrapper, lit))
-	fdp := f.GetMessageType()[0].GetField()[0]
-	require.NotNil(t, fdp.Options)
-	list, ok := proto.GetExtension(fdp.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
-	require.True(t, ok)
-	require.Len(t, list.Entries, 1)
-	require.Len(t, list.Entries[0].Args, 1)
-	return list.Entries[0].Args[0]
+`, wrapper, lit)))
 }
 
 // TestAnnotationWrapperCarrierMatchesItsScalar pins #174 as the property it
