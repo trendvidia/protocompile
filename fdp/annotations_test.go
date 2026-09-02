@@ -1460,3 +1460,123 @@ func TestAnnotationWrapperCarrierFixesTheBand(t *testing.T) {
 		"got %v — a DoubleValue field must not receive the two's-complement int", arg.Value)
 	assert.InDelta(t, 1e19, arg.GetDoubleValue(), 1)
 }
+
+// TestAnnotationBytesCarrierTakesBytesValue is #179.
+//
+// `string_value` is a proto3 string and so must be valid UTF-8. A bytes
+// default frequently is not, and the untyped path sent every string literal
+// there regardless of the carrier — so `@default("\xff\xfe")` on a `bytes`
+// field put raw ff fe into a string field and the descriptor could no
+// longer be MARSHALLED. That breaks anything writing the image out, not
+// only annotation-aware readers, which is why the assertion below is on
+// proto.Marshal rather than on the member alone.
+func TestAnnotationBytesCarrierTakesBytesValue(t *testing.T) {
+	t.Parallel()
+
+	// A lone 0xff is not valid UTF-8 in any position.
+	const nonUTF8 = `"\xff\xfe"`
+
+	t.Run("bytes carrier", func(t *testing.T) {
+		t.Parallel()
+		f := compileForFDPTest(t, `syntax = "proto3";
+package test;
+
+annotation deflt(value: any);
+
+message M {
+  bytes f = 1 @deflt(`+nonUTF8+`);
+}
+`)
+		arg := fieldArg(t, f)
+		require.IsType(t, (*pwsv1.AnnotationArg_BytesValue)(nil), arg.Value,
+			"a bytes carrier must not route through string_value")
+		assert.Equal(t, []byte{0xff, 0xfe}, arg.GetBytesValue())
+
+		_, err := proto.Marshal(f)
+		require.NoError(t, err, "the descriptor must serialize; this is the symptom #179 is about")
+	})
+
+	t.Run("BytesValue wrapper carrier", func(t *testing.T) {
+		t.Parallel()
+		f := compileForFDPTest(t, `syntax = "proto3";
+package test;
+
+import "google/protobuf/wrappers.proto";
+
+annotation deflt(value: any);
+
+message M {
+  google.protobuf.BytesValue f = 1 @deflt(`+nonUTF8+`);
+}
+`)
+		arg := fieldArg(t, f)
+		require.IsType(t, (*pwsv1.AnnotationArg_BytesValue)(nil), arg.Value)
+		assert.Equal(t, []byte{0xff, 0xfe}, arg.GetBytesValue())
+		_, err := proto.Marshal(f)
+		require.NoError(t, err)
+	})
+
+	// A string carrier is unchanged: string_value is right for it, and
+	// routing it to bytes would be the mirror-image defect.
+	for _, carrier := range []string{"string", "google.protobuf.StringValue"} {
+		t.Run(carrier+" carrier is unchanged", func(t *testing.T) {
+			t.Parallel()
+			imp := ""
+			if strings.HasPrefix(carrier, "google.protobuf.") {
+				imp = "import \"google/protobuf/wrappers.proto\";\n"
+			}
+			f := compileForFDPTest(t, `syntax = "proto3";
+package test;
+`+imp+`
+annotation deflt(value: any);
+
+message M {
+  `+carrier+` f = 1 @deflt("hello");
+}
+`)
+			arg := fieldArg(t, f)
+			require.IsType(t, (*pwsv1.AnnotationArg_StringValue)(nil), arg.Value)
+			assert.Equal(t, "hello", arg.GetStringValue())
+		})
+	}
+
+	// A DECLARED bytes parameter was already correct and must stay so —
+	// it is the route the carrier path now reuses.
+	t.Run("declared bytes parameter is unchanged", func(t *testing.T) {
+		t.Parallel()
+		f := compileForFDPTest(t, `syntax = "proto3";
+package test;
+
+annotation raw(value: bytes);
+
+message M {
+  bytes f = 1 @raw(`+nonUTF8+`);
+}
+`)
+		arg := fieldArg(t, f)
+		require.IsType(t, (*pwsv1.AnnotationArg_BytesValue)(nil), arg.Value)
+		_, err := proto.Marshal(f)
+		require.NoError(t, err)
+	})
+}
+
+// fieldArg returns the single annotation argument on the single field of
+// the single message in f.
+func fieldArg(t *testing.T, f *descriptorpb.FileDescriptorProto) *pwsv1.AnnotationArg {
+	t.Helper()
+	for _, m := range f.GetMessageType() {
+		if m.GetName() != "M" {
+			continue
+		}
+		require.Len(t, m.GetField(), 1)
+		fdp := m.GetField()[0]
+		require.NotNil(t, fdp.Options)
+		list, ok := proto.GetExtension(fdp.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+		require.True(t, ok)
+		require.Len(t, list.Entries, 1)
+		require.Len(t, list.Entries[0].Args, 1)
+		return list.Entries[0].Args[0]
+	}
+	t.Fatal("no message M")
+	return nil
+}
