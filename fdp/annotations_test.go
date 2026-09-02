@@ -1555,6 +1555,58 @@ message M {
 `)
 		arg := fieldArg(t, f)
 		require.IsType(t, (*pwsv1.AnnotationArg_BytesValue)(nil), arg.Value)
+		assert.Equal(t, []byte{0xff, 0xfe}, arg.GetBytesValue())
+		_, err := proto.Marshal(f)
+		require.NoError(t, err)
+	})
+
+	// A list argument reaches buildLiteralArg through buildListElement with
+	// the SAME carrier, so the route has to hold element by element. The
+	// scalar shape is not evidence for the list one: #178 landed the
+	// carrier bound on the argument and had to be fixed in review to
+	// descend into list elements, and nesting is the shape after that.
+	t.Run("list elements follow the bytes carrier", func(t *testing.T) {
+		t.Parallel()
+		f := compileForFDPTest(t, `syntax = "proto3";
+package test;
+
+annotation deflt(value: any);
+
+message M {
+  bytes f = 1 @deflt([`+nonUTF8+`]);
+}
+`)
+		elems := fieldArg(t, f).GetLiteral().GetList().GetElements()
+		require.Len(t, elems, 1)
+		require.IsType(t, (*pwsv1.LiteralValue_BytesValue)(nil), elems[0].Kind,
+			"a list element on a bytes carrier must not route through string_value")
+		assert.Equal(t, []byte{0xff, 0xfe}, elems[0].GetBytesValue())
+
+		_, err := proto.Marshal(f)
+		require.NoError(t, err)
+	})
+
+	// A list of lists is the shape after that: buildListElement lowers a
+	// nested list back through buildArgValue, so the carrier has to survive
+	// the second descent as well.
+	t.Run("nested list elements follow the bytes carrier", func(t *testing.T) {
+		t.Parallel()
+		f := compileForFDPTest(t, `syntax = "proto3";
+package test;
+
+annotation deflt(value: any);
+
+message M {
+  bytes f = 1 @deflt([[`+nonUTF8+`]]);
+}
+`)
+		outer := fieldArg(t, f).GetLiteral().GetList().GetElements()
+		require.Len(t, outer, 1)
+		inner := outer[0].GetLiteral().GetList().GetElements()
+		require.Len(t, inner, 1)
+		require.IsType(t, (*pwsv1.LiteralValue_BytesValue)(nil), inner[0].Kind)
+		assert.Equal(t, []byte{0xff, 0xfe}, inner[0].GetBytesValue())
+
 		_, err := proto.Marshal(f)
 		require.NoError(t, err)
 	})
@@ -1562,21 +1614,23 @@ message M {
 
 // fieldArg returns the single annotation argument on the single field of
 // the single message in f.
+//
+// The absent-extension state is asserted against the VALUE, not against a
+// type assertion: proto.GetExtension hands back a typed nil for a
+// message-typed extension that is not set, so `v, ok := …
+// .(*pwsv1.AnnotationList)` succeeds with ok == true and a nil list. That
+// assertion can never fail, and the field access after it panics instead
+// of reporting — on precisely the state these tests exist to catch, a
+// carrier that stopped emitting its AnnotationList.
 func fieldArg(t *testing.T, f *descriptorpb.FileDescriptorProto) *pwsv1.AnnotationArg {
 	t.Helper()
-	for _, m := range f.GetMessageType() {
-		if m.GetName() != "M" {
-			continue
-		}
-		require.Len(t, m.GetField(), 1)
-		fdp := m.GetField()[0]
-		require.NotNil(t, fdp.Options)
-		list, ok := proto.GetExtension(fdp.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
-		require.True(t, ok)
-		require.Len(t, list.Entries, 1)
-		require.Len(t, list.Entries[0].Args, 1)
-		return list.Entries[0].Args[0]
-	}
-	t.Fatal("no message M")
-	return nil
+	require.Len(t, f.GetMessageType(), 1)
+	require.Len(t, f.GetMessageType()[0].GetField(), 1)
+	fdp := f.GetMessageType()[0].GetField()[0]
+	require.NotNil(t, fdp.GetOptions(), "field carries no options")
+	list, _ := proto.GetExtension(fdp.GetOptions(), pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+	require.NotNil(t, list, "field carries no AnnotationList extension")
+	require.Len(t, list.GetEntries(), 1)
+	require.Len(t, list.GetEntries()[0].GetArgs(), 1)
+	return list.GetEntries()[0].GetArgs()[0]
 }
