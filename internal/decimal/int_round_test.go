@@ -17,6 +17,7 @@ package decimal
 import (
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -74,6 +75,68 @@ func TestIntRoundsToNearest(t *testing.T) {
 			_, err := d.Parse(tc.in)
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, d.Int(new(big.Int)).Int64())
+		})
+	}
+}
+
+// TestIntBelowHalfIsZeroWithoutBuildingTheDivisor covers the state every
+// other fixture here misses: a fraction whose digit count is small. `k` is
+// digits-exp, and Parse bounds the exponent only by int32, so a literal as
+// short as `1e-100000000` asks roundToNearest for a 332-million-bit
+// divisor — to divide a one-word mantissa into an answer that is always 0,
+// because a negative exponent puts the value below 1/2.
+//
+// The value alone does not pin this: returning zero is also what the bug in
+// #167 did. The deadline is the assertion. Without the short-circuit this
+// takes tens of seconds and hundreds of megabytes; with it, microseconds.
+func TestIntBelowHalfIsZeroWithoutBuildingTheDivisor(t *testing.T) {
+	t.Parallel()
+
+	for _, in := range []string{"1e-100000000", "0x1p-100000000", "1.5e-2000000000"} {
+		t.Run(in, func(t *testing.T) {
+			t.Parallel()
+
+			done := make(chan int64, 1)
+			go func() {
+				var d Decimal
+				if _, err := d.Parse(in); err != nil {
+					close(done)
+					return
+				}
+				done <- d.Int(new(big.Int)).Int64()
+			}()
+
+			select {
+			case got, ok := <-done:
+				require.True(t, ok, "parse failed")
+				assert.Equal(t, int64(0), got)
+			case <-time.After(5 * time.Second):
+				t.Fatal("Int built the divisor instead of short-circuiting")
+			}
+		})
+	}
+}
+
+// TestIntRoundsMultiWordMantissa covers the other state the table above
+// misses: every literal there has a mantissa that fits in a single
+// big.Word, so the copy, the division and the carry are never exercised
+// across word boundaries.
+func TestIntRoundsMultiWordMantissa(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct{ in, want string }{
+		{"123456789012345678901234567890.4", "123456789012345678901234567890"},
+		{"123456789012345678901234567890.5", "123456789012345678901234567891"},
+		// A carry that propagates the whole way: .5 rounds up through
+		// every nine.
+		{"99999999999999999999999999999.5", "100000000000000000000000000000"},
+	} {
+		t.Run(tc.in, func(t *testing.T) {
+			t.Parallel()
+			var d Decimal
+			_, err := d.Parse(tc.in)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, d.Int(new(big.Int)).String())
 		})
 	}
 }

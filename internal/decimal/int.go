@@ -118,6 +118,21 @@ func (z *Decimal) setInt(x *big.Int, reuse bool) *Decimal {
 // that is not already whole. It used to return zero — for any magnitude,
 // so 1000000.1 came back as 0 — which is what this replaces.
 func (z *Decimal) roundToNearest(x *big.Int, k uint) *big.Int {
+	// z is mantissa * base^(exp-digits) with a mantissa of exactly digits
+	// digits, so its magnitude is below base^exp: a negative exponent puts
+	// it under 1/base <= 1/2, and it rounds to zero.
+	//
+	// This is not only a shortcut. k is digits-exp, which Parse bounds only
+	// by int32, so `1e-10000000` asks for a divisor of 10^10000001 — 33
+	// million bits, built to divide a one-word mantissa into an answer that
+	// is always 0. Measured on this path before the guard: 1e-100000 took
+	// 620µs, 1e-1000000 21ms and 1e-10000000 794ms, and it grows by ~30 per
+	// decade from there. Past this line exp >= 0, so k <= z.digits() and the
+	// divisor is bounded by the literal the author actually wrote.
+	if z.exp < 0 {
+		return x.SetUint64(0)
+	}
+
 	// SetBits shares storage with the slice it is given, and z.get() is z's
 	// own mantissa, so it is copied rather than aliased.
 	m := new(big.Int).SetBits(append([]big.Word(nil), z.get()...))
@@ -129,13 +144,15 @@ func (z *Decimal) roundToNearest(x *big.Int, k uint) *big.Int {
 		d = new(big.Int).Exp(big.NewInt(10), new(big.Int).SetUint64(uint64(k)), nil)
 	}
 
-	q, r := new(big.Int), new(big.Int)
-	q.QuoRem(m, d, r)
+	// x is the quotient; m and d are freshly allocated, so neither aliases
+	// it, and r is distinct from both.
+	r := new(big.Int)
+	x.QuoRem(m, d, r)
 
 	// The mantissa is unsigned, so "away from zero" is simply up: round when
 	// the remainder is at least half the divisor, i.e. 2r >= d.
 	if r.Lsh(r, 1).Cmp(d) >= 0 {
-		q.Add(q, big.NewInt(1))
+		x.Add(x, big.NewInt(1))
 	}
-	return x.Set(q)
+	return x
 }

@@ -138,7 +138,13 @@ func (n NumberToken) IsValid() bool {
 
 // Int converts this value into a 64-bit unsigned integer.
 //
-// Returns whether the conversion was exact.
+// A literal carries no sign — a leading `-` is a separate prefix
+// expression — so this is a magnitude. A value that is not whole is rounded
+// to nearest, with a half going away from zero, matching
+// [decimal.Decimal.Int]: `1.5` gives 2 and `2.9` gives 3.
+//
+// Returns whether the conversion was exact, which is false both for a value
+// that had to be rounded and for one too large to represent.
 func (n NumberToken) Int() (v uint64, exact bool) {
 	if n.Raw() == nil {
 		// This is a decimal integer, so we just parse on the fly.
