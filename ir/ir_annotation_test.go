@@ -1795,3 +1795,133 @@ func countErrors(rep *report.Report) int {
 	}
 	return n
 }
+
+// compileCarrier compiles `@deflt(lit)` on a field of the given type and
+// reports whether it was diagnosed, without requiring a clean compile.
+func compileCarrier(t *testing.T, fieldType, lit string) (*report.Report, bool) {
+	t.Helper()
+	imp := ""
+	if strings.HasPrefix(fieldType, "google.protobuf.") {
+		imp = "import \"google/protobuf/wrappers.proto\";\n"
+	}
+	_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+`+imp+`annotation deflt(value: any);
+message M { `+fieldType+` f = 1 @deflt(`+lit+`); }
+`)
+	for _, d := range rep.Diagnostics {
+		if isError(d) {
+			return rep, true
+		}
+	}
+	return rep, false
+}
+
+// TestCarrierBoundRejectsWhatTheAnnotatedTypeCannotHold is #177: a literal
+// in (MaxInt64, MaxUint64] lowers into `int_value`, an int64, so on a
+// SIGNED 64-bit carrier it wraps to a negative — and lands inside the
+// type's own range, which is why nothing downstream reported it either.
+// The 32-bit carriers were caught only because the wrapped value still did
+// not fit them.
+func TestCarrierBoundRejectsWhatTheAnnotatedTypeCannotHold(t *testing.T) {
+	t.Parallel()
+
+	t.Run("rejected", func(t *testing.T) {
+		t.Parallel()
+		for _, ft := range []string{
+			"int64", "sint64", "sfixed64", // #177's headline
+			"int32", "sint32", "sfixed32", "uint32", "fixed32",
+			"google.protobuf.Int64Value", "google.protobuf.Int32Value",
+		} {
+			_, diagnosed := compileCarrier(t, ft, "1e19")
+			assert.True(t, diagnosed, "%s carrier must reject a literal it cannot hold", ft)
+		}
+	})
+
+	t.Run("accepted", func(t *testing.T) {
+		t.Parallel()
+		for _, tc := range [][2]string{
+			// An unsigned carrier holds it and recovers it from its own type.
+			{"uint64", "1e19"}, {"fixed64", "1e19"},
+			{"google.protobuf.UInt64Value", "1e19"},
+			// The bound is one apart from both ends.
+			{"int64", "9223372036854775807"},
+			{"uint64", "18446744073709551615"},
+			{"int32", "2147483647"},
+			// A float carrier is routed to double_value and never bounded.
+			{"double", "1e19"}, {"float", "1e19"},
+			{"google.protobuf.DoubleValue", "1e19"},
+		} {
+			rep, diagnosed := compileCarrier(t, tc[0], tc[1])
+			assert.False(t, diagnosed, "%s must accept %s, got: %v", tc[0], tc[1], rep.Diagnostics)
+		}
+	})
+}
+
+// TestCarrierBoundOnlyRejectsWhatLowersAsInt pins the guard the bound needs
+// to mirror: a literal routed to `double_value` must not be bounded by
+// int64's range.
+//
+// The bound restates buildLiteralArg's routing, so the two can drift. These
+// are the values that lower as a double for reasons OTHER than the
+// carrier's type — float spelling, past uint64, and a negative magnitude
+// past int64 — and every one of them must compile on a carrier whose own
+// range would reject it.
+func TestCarrierBoundOnlyRejectsWhatLowersAsInt(t *testing.T) {
+	t.Parallel()
+
+	for _, lit := range []string{
+		"1.5", // float-spelled and inexact
+		// Float-spelled AND exact, and far outside the carrier's range.
+		// This is the pair the guard exists for: every other value here is
+		// caught by the exactness check instead, so without these two,
+		// deleting the IsFloat guard passes the whole suite.
+		"1.0e19",
+		"10000000000000000000.0",
+		"1e100",                   // past uint64, lowers as double (#165)
+		"99999999999999999999999", // same
+		"-18446744073709551615",   // negative magnitude past int64 (#166)
+	} {
+		rep, diagnosed := compileCarrier(t, "int32", lit)
+		assert.False(t, diagnosed,
+			"%s lowers as double_value and must not be bounded by int32: %v", lit, rep.Diagnostics)
+	}
+}
+
+// TestCarrierBoundRejectsOnArbitraryPrecisionCarriers is #176. A carrier
+// with no scalar of its own — protowire's pxf.BigInt, pxf.Decimal and
+// pxf.BigFloat, matched here by shape rather than by import — still lowers
+// its literal into `int_value`, so a value in the band reached a consumer
+// with the WRONG SIGN, not merely reduced precision.
+//
+// Bounding by int64 makes that a compile error rather than a negative
+// number. It does not give those types a faithful route; that needs a
+// carrier member which can hold them, and is governance-gated.
+func TestCarrierBoundRejectsOnArbitraryPrecisionCarriers(t *testing.T) {
+	t.Parallel()
+
+	compile := func(t *testing.T, msg, lit string) (*report.Report, bool) {
+		t.Helper()
+		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package pxf;
+annotation deflt(value: any);
+message `+msg+` { bytes abs = 1; bool negative = 2; }
+message M { `+msg+` f = 1 @deflt(`+lit+`); }
+`)
+		for _, d := range rep.Diagnostics {
+			if isError(d) {
+				return rep, true
+			}
+		}
+		return rep, false
+	}
+
+	for _, msg := range []string{"BigInt", "Decimal", "BigFloat"} {
+		_, diagnosed := compile(t, msg, "1e19")
+		assert.True(t, diagnosed, "pxf.%s must reject a band literal rather than sign-flip it", msg)
+
+		// Below the band these carriers were always exact, and stay so.
+		rep, diagnosed := compile(t, msg, "42")
+		assert.False(t, diagnosed, "pxf.%s must still accept 42: %v", msg, rep.Diagnostics)
+	}
+}
