@@ -1419,27 +1419,23 @@ func TestAnnotationWrapperCarrierMatchesItsScalar(t *testing.T) {
 
 	// The bound is exercised from both sides, as with #172: the whole
 	// defect lives in one bit of range.
-	literals := []string{
-		"42",
-		"9223372036854775807",  // MaxInt64
-		"9223372036854775808",  // MaxInt64 + 1 — the band opens
-		"18446744073709551615", // MaxUint64   — the band closes
-		"18446744073709551616", // one past it
-		"1e19",                 // the reported case
-		"1.5",
-	}
-
-	for _, pair := range []struct{ wrapper, scalar string }{
-		{"DoubleValue", "double"},
-		{"FloatValue", "float"},
-		{"Int64Value", "int64"},
-		{"UInt64Value", "uint64"},
-		{"Int32Value", "int32"},
-		{"UInt32Value", "uint32"},
+	// Each literal has to be one the carrier can hold: an out-of-range one
+	// is now diagnosed (#177), and equality of rejection is asserted
+	// separately below.
+	for _, pair := range []struct {
+		wrapper, scalar string
+		literals        []string
+	}{
+		{"DoubleValue", "double", []string{"42", "1.5", "1e19", "18446744073709551616"}},
+		{"FloatValue", "float", []string{"42", "1.5", "1e19"}},
+		{"Int64Value", "int64", []string{"42", "9223372036854775807", "-9223372036854775808"}},
+		{"UInt64Value", "uint64", []string{"42", "1e19", "18446744073709551615"}},
+		{"Int32Value", "int32", []string{"42", "2147483647", "-2147483648"}},
+		{"UInt32Value", "uint32", []string{"42", "4294967295"}},
 	} {
 		t.Run(pair.wrapper, func(t *testing.T) {
 			t.Parallel()
-			for _, lit := range literals {
+			for _, lit := range pair.literals {
 				want := fieldAnnotationArg(t, pair.scalar, lit)
 				got := wrapperAnnotationArg(t, pair.wrapper, lit)
 				assert.Equal(t, fmt.Sprintf("%T", want.Value), fmt.Sprintf("%T", got.Value),
@@ -1463,45 +1459,4 @@ func TestAnnotationWrapperCarrierFixesTheBand(t *testing.T) {
 	require.IsType(t, (*pwsv1.AnnotationArg_DoubleValue)(nil), arg.Value,
 		"got %v — a DoubleValue field must not receive the two's-complement int", arg.Value)
 	assert.InDelta(t, 1e19, arg.GetDoubleValue(), 1)
-}
-
-// TestAnnotationNonWrapperMessageCarrierKeepsSpelling pins the deliberate
-// gap: only the nine well-known wrappers are mapped, so any other
-// message-typed carrier keeps the literal's own spelling.
-//
-// This is the case protowire's arbitrary-precision types fall into —
-// `pxf.BigInt`, `pxf.Decimal`, `pxf.BigFloat`. They are not mapped on
-// purpose: they exist to hold what a `double` cannot, so routing them
-// through `double_value` would lose the precision that is their point.
-// A literal in the band therefore stays ambiguous on those carriers.
-func TestAnnotationNonWrapperMessageCarrierKeepsSpelling(t *testing.T) {
-	t.Parallel()
-
-	// Shaped like pxf.BigFloat: a message in another package, not a
-	// google.protobuf wrapper.
-	f := compileForFDPTest(t, `syntax = "proto3";
-package test;
-
-annotation deflt(value: any);
-
-message BigFloat { string repr = 1; }
-
-message M {
-  BigFloat f = 1 @deflt(1e19);
-}
-`)
-	var field *descriptorpb.FieldDescriptorProto
-	for _, m := range f.GetMessageType() {
-		if m.GetName() == "M" {
-			field = m.GetField()[0]
-		}
-	}
-	require.NotNil(t, field)
-	list, ok := proto.GetExtension(field.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
-	require.True(t, ok)
-	arg := list.Entries[0].Args[0]
-
-	require.IsType(t, (*pwsv1.AnnotationArg_IntValue)(nil), arg.Value)
-	assert.Equal(t, int64(-8446744073709551616), arg.GetIntValue(),
-		"unmapped message carriers keep the spelling route, ambiguity included")
 }

@@ -452,7 +452,7 @@ func (g *generator) field(f ir.Member, fdp *descriptorpb.FieldDescriptorProto) {
 				}
 			})
 		}
-		if emitAnnotations(annUses, fdp.Options, pwsv1.E_FieldAnnotations, carrierScalar(f.Element())) {
+		if emitAnnotations(annUses, fdp.Options, pwsv1.E_FieldAnnotations, f.Element().CarrierScalar()) {
 			hadAny = true
 		}
 		if !hadAny {
