@@ -1620,6 +1620,7 @@ func TestAnnotationScalarArgRange(t *testing.T) {
 		t.Helper()
 		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
 package test;
+message Foo { int32 x = 1; }
 annotation a(value: `+param+`);
 @a(`+lit+`)
 message M {}
@@ -1638,14 +1639,39 @@ message M {}
 			{"uint64", "18446744073709551615"}, // MaxUint64
 			{"uint32", "0"},
 			{"int32", "3"},
+			// The `sint`/`fixed`/`sfixed` spellings share the bounds of the
+			// width they encode; each is at its maximum here, one below the
+			// rejected row of the same name.
+			{"sfixed32", "2147483647"},
+			{"sint32", "-2147483648"},
+			{"fixed32", "4294967295"},
+			{"sint64", "9223372036854775807"},
+			{"fixed64", "18446744073709551615"},
+			// Non-decimal spellings reach the same check: the bound is on
+			// the value, not on how it is written.
+			{"int32", "0x7FFFFFFF"},
 			// `-0` is zero. Reading it as a negative value would refuse a
 			// literal that every integer type holds.
+			//
+			// This DIVERGES from the repo's other integer-range checker:
+			// `checkIntBounds` (ir/lower_eval.go) errors on any `neg` for an
+			// unsigned type, so `Foo{x: -0}` on a `uint32` *field* is
+			// rejected while `@a(-0)` on a `uint32` *parameter* is accepted.
+			// Pinned rather than reconciled — which of the two is right is
+			// the author's call, not this test's.
 			{"uint32", "-0"},
 			{"uint64", "-0"},
 			{"int32", "-0"},
 			// A fraction that fits is not a range error; it still lowers,
 			// truncated. Different question, deliberately untouched.
 			{"int32", "1.5"},
+			// The truncation is what has to fit, so these are in range and
+			// their neighbours below (one integer step out) are not.
+			{"int32", "2147483647.5"},
+			{"int32", "-2147483648.5"},
+			// Truncates to zero, so it is the `-0` case, not a negative
+			// value on an unsigned parameter.
+			{"uint32", "-0.5"},
 			// Float scalars have no integer bound to exceed.
 			{"double", "1e100"},
 			{"float", "1.5"},
@@ -1673,6 +1699,26 @@ message M {}
 		{"uint64_saturating_exponent", "uint64", "1e100", "out of range for `uint64`"},
 		{"negative_on_uint32", "uint32", "-3", "is negative, but `uint32` is unsigned"},
 		{"negative_on_uint64", "uint64", "-1", "is negative, but `uint64` is unsigned"},
+		// The `sint`/`fixed`/`sfixed` spellings map onto the same bounds;
+		// each row is one past the accepted row of the same name above, so a
+		// mapping that pointed at the wrong width would fail here.
+		{"sfixed32_above_max", "sfixed32", "2147483648", "out of range for `sfixed32`"},
+		{"sint32_below_min", "sint32", "-2147483649", "out of range for `sint32`"},
+		{"fixed32_above_max", "fixed32", "4294967296", "out of range for `fixed32`"},
+		{"sint64_above_max", "sint64", "9223372036854775808", "out of range for `sint64`"},
+		{"negative_on_fixed64", "fixed64", "-1", "is negative, but `fixed64` is unsigned"},
+		{"hex_above_max", "int32", "0x100000000", "out of range for `int32`"},
+
+		// A fraction lowers truncated, so the TRUNCATION is what has to
+		// fit. Skipping the check for every inexact literal let a value
+		// straight past the bound through behind a `.5` — `99999999999.5`
+		// on an `int32` reached the carrier as `int_value: 99999999999`,
+		// and `-1.5` on an unsigned parameter as `int_value: -1`, which is
+		// exactly what the two checks above exist to prevent.
+		{"fraction_above_max", "int32", "99999999999.5", "out of range for `int32`"},
+		{"fraction_one_past_max", "int32", "2147483648.5", "out of range for `int32`"},
+		{"fraction_one_past_min", "int32", "-2147483649.5", "out of range for `int32`"},
+		{"negative_fraction_on_uint32", "uint32", "-1.5", "is negative, but `uint32` is unsigned"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

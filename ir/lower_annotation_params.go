@@ -893,18 +893,24 @@ func checkIntegerRange(
 		// whether the value is whole, NOT by magnitude: float64 rounds
 		// MaxUint64 and MaxUint64+1 to the same number, so comparing
 		// against the bound misses the literal one past it.
-		//
-		// A fraction is a different question and is left alone (#165);
-		// anything whole that did not fit is out of range.
 		if f, _ := num.Float(); f == math.Trunc(f) {
 			tooLarge()
+			return
 		}
-		return
+		// A fraction is a different question and still lowers, truncated
+		// (#165) — but Int has already truncated it, so `v` is exactly the
+		// magnitude that reaches the carrier. Bound that, rather than
+		// returning: a fraction is not a licence to skip the check, and
+		// returning here let `@a(99999999999.5)` past an `int32` parameter
+		// and `@a(-1.5)` past an unsigned one, which are the very values
+		// this function exists to reject.
 	}
 
 	if negative {
 		// `-0` is zero, which every integer type holds. Rejecting it as a
-		// negative value would refuse a literal that is in range.
+		// negative value would refuse a literal that is in range. A
+		// fraction that truncates to zero (`-0.5`) is the same case: zero
+		// is what lowers.
 		if v == 0 {
 			return
 		}

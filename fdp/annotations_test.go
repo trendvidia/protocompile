@@ -1148,6 +1148,11 @@ message M {}
 			isDouble: true, wantDouble: 1e23,
 		},
 
+		// A negative fraction that truncates to zero is zero, so it stays on
+		// the integer route even on an unsigned parameter — the accepted
+		// side of the `-0` rule in TestAnnotationScalarArgRange.
+		{name: "uint32/negative_fraction_to_zero", param: "uint32", lit: "-0.5", wantInt: 0},
+
 		// A value that does not fit a declared integer parameter is now a
 		// compile error, so it has no row here — this table only covers
 		// what lowers. The diagnostic is pinned in ir, where it is raised:
