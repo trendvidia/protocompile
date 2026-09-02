@@ -26,7 +26,11 @@ func (z *Decimal) IsInt() bool {
 	return z.IsZero() || int(z.exp) >= z.digits()
 }
 
-// Int sets x to the nearest integer to z.
+// Int sets x to the nearest integer to z, with a half rounded away from
+// zero.
+//
+// The result is a magnitude: z's sign is not applied, matching the rest of
+// this type, where the sign lives in flags rather than in the mantissa.
 //
 // If z is non-finite, returns nil and leaves x unchanged.
 func (z *Decimal) Int(x *big.Int) *big.Int {
@@ -40,7 +44,7 @@ func (z *Decimal) Int(x *big.Int) *big.Int {
 
 	n := int(z.exp) - z.digits()
 	if n < 0 {
-		return x.SetUint64(0)
+		return z.roundToNearest(x, uint(-n))
 	}
 
 	w := x.Bits()
@@ -105,4 +109,33 @@ func (z *Decimal) setInt(x *big.Int, reuse bool) *Decimal {
 	z.exp = int32(exp)
 
 	return z
+}
+
+// roundToNearest sets x to z's mantissa divided by base^k, rounded to the
+// nearest integer with a half going away from zero.
+//
+// k is the number of fractional digits, so this is the path for a value
+// that is not already whole. It used to return zero — for any magnitude,
+// so 1000000.1 came back as 0 — which is what this replaces.
+func (z *Decimal) roundToNearest(x *big.Int, k uint) *big.Int {
+	// SetBits shares storage with the slice it is given, and z.get() is z's
+	// own mantissa, so it is copied rather than aliased.
+	m := new(big.Int).SetBits(append([]big.Word(nil), z.get()...))
+
+	var d *big.Int
+	if z.base2() {
+		d = new(big.Int).Lsh(big.NewInt(1), k)
+	} else {
+		d = new(big.Int).Exp(big.NewInt(10), new(big.Int).SetUint64(uint64(k)), nil)
+	}
+
+	q, r := new(big.Int), new(big.Int)
+	q.QuoRem(m, d, r)
+
+	// The mantissa is unsigned, so "away from zero" is simply up: round when
+	// the remainder is at least half the divisor, i.e. 2r >= d.
+	if r.Lsh(r, 1).Cmp(d) >= 0 {
+		q.Add(q, big.NewInt(1))
+	}
+	return x.Set(q)
 }
