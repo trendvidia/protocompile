@@ -16,6 +16,7 @@ package fdp_test
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 
@@ -1118,6 +1119,71 @@ message M {}
 		// consumer that knows the target field is unsigned recovers it
 		// exactly; this is by design, not the #149 defect.
 		{name: "uint64/max", param: "uint64", lit: "18446744073709551615", wantInt: -1},
+
+		// #165. `Int` reports exactness, and it is false precisely when
+		// the value does not fit — the big-integer path saturates to
+		// MaxUint64 and says so. Discarding that flag wrote the saturated
+		// value as if the author had asked for it.
+		//
+		// The pair below is the whole defect: they are ONE apart, and
+		// before the fix both reached the carrier as `int_value: -1`, so
+		// a consumer could not tell a literal that means MaxUint64 from
+		// one that overflowed past it.
+		{name: "any/uint64_max_exact", param: "any", lit: "18446744073709551615", wantInt: -1},
+		{
+			name: "any/uint64_max_plus_one", param: "any", lit: "18446744073709551616",
+			isDouble: true, wantDouble: 18446744073709551616,
+		},
+
+		// An exponent with integer value takes the integer path —
+		// IsFloat is false for it, as documented ("can only be used as a
+		// float literal, even if it has integer value"). So exactness,
+		// not spelling, is what separates these two.
+		{name: "any/exponent_in_range", param: "any", lit: "1e10", wantInt: 10000000000},
+		{name: "any/exponent_out_of_range", param: "any", lit: "1e100", isDouble: true, wantDouble: 1e100},
+		// Exact, and large enough to wrap into a negative int64. Carried
+		// as two's complement by design, the same as uint64/max.
+		{name: "any/exponent_at_wrap", param: "any", lit: "1e19", wantInt: -8446744073709551616},
+		{
+			name: "any/big_int_out_of_range", param: "any", lit: "99999999999999999999999",
+			isDouble: true, wantDouble: 1e23,
+		},
+
+		// The mirror of that pair, one range down. A negative literal is
+		// lowered by negating what buildLiteralArg produced, which is the
+		// magnitude reinterpreted through int64 — so for a magnitude in
+		// (MaxInt64, MaxUint64] the negation flipped the sign straight back
+		// and `-18446744073709551615` reached the carrier as `int_value: 1`.
+		// These three are also one apart at each end of int64's range.
+		{name: "any/negative_int64_min", param: "any", lit: "-9223372036854775808", wantInt: math.MinInt64},
+		{
+			name: "any/negative_past_int64_min", param: "any", lit: "-9223372036854775809",
+			isDouble: true, wantDouble: -9223372036854775809,
+		},
+		{
+			name: "any/negative_uint64_max", param: "any", lit: "-18446744073709551615",
+			isDouble: true, wantDouble: -18446744073709551615,
+		},
+		{
+			name: "any/negative_uint64_max_plus_one", param: "any", lit: "-18446744073709551616",
+			isDouble: true, wantDouble: -18446744073709551616,
+		},
+		{name: "any/negative_small", param: "any", lit: "-3", wantInt: -3},
+
+		// A negative fraction that truncates to zero is zero, so it stays on
+		// the integer route even on an unsigned parameter — the accepted
+		// side of the `-0` rule in TestAnnotationScalarArgRange.
+		{name: "uint32/negative_fraction_to_zero", param: "uint32", lit: "-0.5", wantInt: 0},
+
+		// A value that does not fit a declared integer parameter is now a
+		// compile error, so it has no row here — this table only covers
+		// what lowers. The diagnostic is pinned in ir, where it is raised:
+		// TestAnnotationScalarArgRange.
+		//
+		// A fractional literal that DOES fit is still lowered, truncated:
+		// `@a(1.5)` on int32 gives int_value 1. That is a different
+		// question from range and is deliberately untouched.
+		{name: "int32/fraction_truncates", param: "int32", lit: "1.5", wantInt: 1},
 	}
 
 	for _, tc := range tests {

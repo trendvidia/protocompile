@@ -15,6 +15,7 @@
 package ir
 
 import (
+	"math"
 	"strings"
 
 	"github.com/trendvidia/protocompile/ast"
@@ -783,6 +784,7 @@ func validateScalarArg(r *report.Report, target Annotation, param AnnotationPara
 			mismatch("string literal")
 		case token.Number:
 			if isNumericScalar(scalar) {
+				checkIntegerRange(r, target, param, arg, scalar, false, lit.Token.AsNumber())
 				return
 			}
 			mismatch("number literal")
@@ -805,9 +807,23 @@ func validateScalarArg(r *report.Report, target Annotation, param AnnotationPara
 			inner.Kind() == ast.ExprKindLiteral &&
 			inner.AsLiteral().Token.Kind() == token.Number &&
 			isNumericScalar(scalar) {
+			checkIntegerRange(r, target, param, arg, scalar, true, inner.AsLiteral().Token.AsNumber())
 			return
 		}
 		mismatch("prefixed expression")
+
+	default:
+		// Every remaining shape — a list literal, a message literal — is
+		// not a scalar, and `repeated` is not a spellable parameter type
+		// (classifyAnnotationParamType: "annotation parameter type must be
+		// a name"), so a list can never be valid on one. The sibling
+		// validators reject these shapes already — validateEnumArg via
+		// describeArgShape, validateMessageArg for anything that is not a
+		// dict — but a scalar parameter fell through this switch silently,
+		// so `@a([1e100, 5])` on an `int32` parameter compiled and reached
+		// the carrier as a list, walking around the range check above with
+		// one pair of brackets.
+		mismatch(describeArgShape(arg))
 	}
 }
 
@@ -825,4 +841,107 @@ func isNumericScalar(n predeclared.Name) bool {
 		return true
 	}
 	return false
+}
+
+// integerRange gives the inclusive bounds of a predeclared integer scalar as
+// magnitudes: the ceiling for a non-negative literal, and the largest
+// magnitude a negative one may have. Reports false for a non-integer scalar.
+//
+// Negative bounds are magnitudes because a literal carries its sign as a
+// separate prefix node, so the value reaching here is always unsigned.
+// int32's floor is -2^31, whose magnitude is one past its ceiling.
+func integerRange(n predeclared.Name) (limit, limitNegative uint64, signed, ok bool) {
+	switch n {
+	case predeclared.Int32, predeclared.SInt32, predeclared.SFixed32:
+		return math.MaxInt32, 1 << 31, true, true
+	case predeclared.Int64, predeclared.SInt64, predeclared.SFixed64:
+		return math.MaxInt64, 1 << 63, true, true
+	case predeclared.UInt32, predeclared.Fixed32:
+		return math.MaxUint32, 0, false, true
+	case predeclared.UInt64, predeclared.Fixed64:
+		return math.MaxUint64, 0, false, true
+	}
+	return 0, 0, false, false
+}
+
+// checkIntegerRange diagnoses a numeric literal that cannot be represented by
+// the integer scalar its parameter declares.
+//
+// Without it the value was carried into the carrier however it happened to
+// convert: `1e100` saturated to MaxUint64 and reinterpreted to -1, an
+// unsigned parameter accepted a negative literal, and a value past the
+// declared width simply wrapped — none of them diagnosed, and none
+// recoverable by a consumer reading the carrier.
+//
+// A fractional literal in range is deliberately NOT diagnosed here. It is a
+// different question — the value fits, it is just not a whole number — and
+// it is pinned in fdp's routing table rather than decided here (#165).
+func checkIntegerRange(
+	r *report.Report,
+	target Annotation,
+	param AnnotationParam,
+	arg ast.ExprAny,
+	scalar predeclared.Name,
+	negative bool,
+	num token.NumberToken,
+) {
+	limit, limitNegative, signed, ok := integerRange(scalar)
+	if !ok {
+		return // float or double; nothing to bound.
+	}
+
+	tooLarge := func() {
+		r.Errorf("argument %q for `%s` is out of range for `%s`",
+			param.Name(), target.FullName(), param.TypeName(),
+		).Apply(
+			report.Snippet(arg),
+			report.Snippetf(param.AST(), "parameter declared here"),
+		)
+	}
+
+	v, exact := num.Int()
+	if !exact {
+		// Int saturates rather than failing, so an inexact conversion is
+		// either a value past uint64 or a fraction. Tell them apart by
+		// whether the value is whole, NOT by magnitude: float64 rounds
+		// MaxUint64 and MaxUint64+1 to the same number, so comparing
+		// against the bound misses the literal one past it.
+		if f, _ := num.Float(); f == math.Trunc(f) {
+			tooLarge()
+			return
+		}
+		// A fraction is a different question and still lowers, truncated
+		// (#165) — but Int has already truncated it, so `v` is exactly the
+		// magnitude that reaches the carrier. Bound that, rather than
+		// returning: a fraction is not a licence to skip the check, and
+		// returning here let `@a(99999999999.5)` past an `int32` parameter
+		// and `@a(-1.5)` past an unsigned one, which are the very values
+		// this function exists to reject.
+	}
+
+	if negative {
+		// `-0` is zero, which every integer type holds. Rejecting it as a
+		// negative value would refuse a literal that is in range. A
+		// fraction that truncates to zero (`-0.5`) is the same case: zero
+		// is what lowers.
+		if v == 0 {
+			return
+		}
+		if !signed {
+			r.Errorf("argument %q for `%s` is negative, but `%s` is unsigned",
+				param.Name(), target.FullName(), param.TypeName(),
+			).Apply(
+				report.Snippet(arg),
+				report.Snippetf(param.AST(), "parameter declared here"),
+			)
+			return
+		}
+		if v > limitNegative {
+			tooLarge()
+		}
+		return
+	}
+	if v > limit {
+		tooLarge()
+	}
 }

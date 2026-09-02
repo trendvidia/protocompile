@@ -1599,3 +1599,140 @@ annotation e(value: Color);
 		})
 	}
 }
+
+// TestAnnotationScalarArgRange pins the range check on a declared integer
+// parameter: a literal that cannot be represented by the type the author
+// asked for is a compile error rather than a silently wrapped value.
+//
+// Before this, none of the rejected cases below were diagnosed. `1e100`
+// saturated to MaxUint64 and reinterpreted to -1, a negative literal was
+// accepted by an unsigned parameter, and a value past the declared width
+// simply wrapped — and a consumer reading the carrier could not recover
+// any of it (#165).
+//
+// Every bound is tested from both sides, one apart, because an off-by-one
+// here is invisible: the accepted side would still compile and the
+// rejected side would still be rejected.
+func TestAnnotationScalarArgRange(t *testing.T) {
+	t.Parallel()
+
+	compile := func(t *testing.T, param, lit string) *report.Report {
+		t.Helper()
+		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+message Foo { int32 x = 1; }
+annotation a(value: `+param+`);
+@a(`+lit+`)
+message M {}
+`)
+		return rep
+	}
+
+	t.Run("accepted", func(t *testing.T) {
+		t.Parallel()
+		for _, tc := range []struct{ param, lit string }{
+			{"int32", "2147483647"},            // MaxInt32
+			{"int32", "-2147483648"},           // MinInt32
+			{"int64", "9223372036854775807"},   // MaxInt64
+			{"int64", "-9223372036854775808"},  // MinInt64
+			{"uint32", "4294967295"},           // MaxUint32
+			{"uint64", "18446744073709551615"}, // MaxUint64
+			{"uint32", "0"},
+			{"int32", "3"},
+			// The `sint`/`fixed`/`sfixed` spellings share the bounds of the
+			// width they encode; each is at its maximum here, one below the
+			// rejected row of the same name.
+			{"sfixed32", "2147483647"},
+			{"sint32", "-2147483648"},
+			{"fixed32", "4294967295"},
+			{"sint64", "9223372036854775807"},
+			{"fixed64", "18446744073709551615"},
+			// Non-decimal spellings reach the same check: the bound is on
+			// the value, not on how it is written.
+			{"int32", "0x7FFFFFFF"},
+			// `-0` is zero. Reading it as a negative value would refuse a
+			// literal that every integer type holds.
+			//
+			// This DIVERGES from the repo's other integer-range checker:
+			// `checkIntBounds` (ir/lower_eval.go) errors on any `neg` for an
+			// unsigned type, so `Foo{x: -0}` on a `uint32` *field* is
+			// rejected while `@a(-0)` on a `uint32` *parameter* is accepted.
+			// Pinned rather than reconciled — which of the two is right is
+			// the author's call, not this test's.
+			{"uint32", "-0"},
+			{"uint64", "-0"},
+			{"int32", "-0"},
+			// A fraction that fits is not a range error; it still lowers,
+			// truncated. Different question, deliberately untouched.
+			{"int32", "1.5"},
+			// The truncation is what has to fit, so these are in range and
+			// their neighbours below (one integer step out) are not.
+			{"int32", "2147483647.5"},
+			{"int32", "-2147483648.5"},
+			// Truncates to zero, so it is the `-0` case, not a negative
+			// value on an unsigned parameter.
+			{"uint32", "-0.5"},
+			// Float scalars have no integer bound to exceed.
+			{"double", "1e100"},
+			{"float", "1.5"},
+		} {
+			rep := compile(t, tc.param, tc.lit)
+			for _, d := range rep.Diagnostics {
+				if isError(d) {
+					t.Errorf("%s(%s): unexpected diagnostic: %s", tc.param, tc.lit, d.Message())
+				}
+			}
+		}
+	})
+
+	for _, tc := range []struct{ name, param, lit, want string }{
+		{"int32_above_max", "int32", "2147483648", "out of range for `int32`"},
+		{"int32_below_min", "int32", "-2147483649", "out of range for `int32`"},
+		{"int64_above_max", "int64", "9223372036854775808", "out of range for `int64`"},
+		{"int64_below_min", "int64", "-9223372036854775809", "out of range for `int64`"},
+		{"uint32_above_max", "uint32", "4294967296", "out of range for `uint32`"},
+		// One past MaxUint64. float64 rounds this and MaxUint64 to the same
+		// number, so a magnitude comparison misses it; the check tests
+		// whether the value is whole instead.
+		{"uint64_above_max", "uint64", "18446744073709551616", "out of range for `uint64`"},
+		{"int32_saturating_exponent", "int32", "1e100", "out of range for `int32`"},
+		{"uint64_saturating_exponent", "uint64", "1e100", "out of range for `uint64`"},
+		{"negative_on_uint32", "uint32", "-3", "is negative, but `uint32` is unsigned"},
+		{"negative_on_uint64", "uint64", "-1", "is negative, but `uint64` is unsigned"},
+		// The `sint`/`fixed`/`sfixed` spellings map onto the same bounds;
+		// each row is one past the accepted row of the same name above, so a
+		// mapping that pointed at the wrong width would fail here.
+		{"sfixed32_above_max", "sfixed32", "2147483648", "out of range for `sfixed32`"},
+		{"sint32_below_min", "sint32", "-2147483649", "out of range for `sint32`"},
+		{"fixed32_above_max", "fixed32", "4294967296", "out of range for `fixed32`"},
+		{"sint64_above_max", "sint64", "9223372036854775808", "out of range for `sint64`"},
+		{"negative_on_fixed64", "fixed64", "-1", "is negative, but `fixed64` is unsigned"},
+		{"hex_above_max", "int32", "0x100000000", "out of range for `int32`"},
+
+		// A fraction lowers truncated, so the TRUNCATION is what has to
+		// fit. Skipping the check for every inexact literal let a value
+		// straight past the bound through behind a `.5` — `99999999999.5`
+		// on an `int32` reached the carrier as `int_value: 99999999999`,
+		// and `-1.5` on an unsigned parameter as `int_value: -1`, which is
+		// exactly what the two checks above exist to prevent.
+		{"fraction_above_max", "int32", "99999999999.5", "out of range for `int32`"},
+		{"fraction_one_past_max", "int32", "2147483648.5", "out of range for `int32`"},
+		{"fraction_one_past_min", "int32", "-2147483649.5", "out of range for `int32`"},
+		{"negative_fraction_on_uint32", "uint32", "-1.5", "is negative, but `uint32` is unsigned"},
+
+		// A list literal is not a scalar, and `repeated` is not a spellable
+		// parameter type — but validateScalarArg had no case for the shape,
+		// so `@a([1e100, 5])` on an `int32` parameter compiled and lowered
+		// to a list, walking around the range check with two brackets.
+		{"list_on_int32", "int32", "[1e100, 5]", "expects int32, got a list literal"},
+		{"list_on_uint32", "uint32", "[-3]", "expects uint32, got a list literal"},
+		{"message_literal_on_int32", "int32", "Foo{x: 1}", "expects int32, got a message literal"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			rep := compile(t, tc.param, tc.lit)
+			assert.True(t, hasErrorContaining(rep, tc.want),
+				"%s(%s) must be diagnosed, got: %v", tc.param, tc.lit, rep.Diagnostics)
+		})
+	}
+}
