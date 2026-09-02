@@ -1040,8 +1040,11 @@ func checkCarrierRange(
 		describe = fmt.Sprintf("the scalar `%s` wrapped by the annotated type `%s`",
 			bound, carrier.FullName())
 	}
-	if bound == predeclared.Float || bound == predeclared.Double {
-		return // Routed to double_value; int_value's range does not apply.
+	if bound == predeclared.Double {
+		// double_value IS a double, so there is nothing it cannot hold.
+		// `float` is not exempt: see the float32 case in
+		// checkCarrierRangeValue.
+		return
 	}
 
 	checkCarrierRangeValue(r, target, param, arg, bound, describe)
@@ -1087,6 +1090,33 @@ func checkCarrierRangeValue(
 	}
 	lit := value.AsLiteral()
 	if lit.Token.Kind() != token.Number {
+		return
+	}
+
+	num0 := lit.Token.AsNumber()
+
+	// A float carrier is bounded by its OWN width, not by int_value's: its
+	// literal is routed to `double_value` whatever the spelling, so the
+	// int-route guards below never apply and this has to come first.
+	//
+	// double_value holds values float32 cannot, and assigning one yields
+	// +Inf — indistinguishable from a literal that meant infinity (#180).
+	if bound == predeclared.Float {
+		v, _ := num0.Float()
+		// Ask the conversion rather than comparing against MaxFloat32:
+		// 3.4028235e38 is the canonical spelling of the largest float and
+		// is strictly GREATER than its exact binary value, so a comparison
+		// rejects it while the conversion rounds it down. Only values that
+		// round to infinity are out of range.
+		if !math.IsInf(v, 0) && math.IsInf(float64(float32(v)), 0) {
+			r.Errorf("argument %q for `%s` is out of range for %s",
+				param.Name(), target.FullName(), describe,
+			).Apply(
+				report.Snippet(arg),
+				report.Notef("`float` holds up to about 3.4e38; a larger value "+
+					"reaches a consumer as infinity"),
+			)
+		}
 		return
 	}
 
