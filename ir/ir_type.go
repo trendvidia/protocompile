@@ -716,5 +716,20 @@ func (t Type) CarrierScalar() predeclared.Name {
 	if !t.IsMessage() {
 		return predeclared.Unknown
 	}
+
+	// A map field's element type is the synthesized `*Entry` message, so
+	// without this a `map<string, double>` carrier reports no scalar and
+	// falls to the int_value bound — rejecting a literal that the bare
+	// `double` and `repeated double` carriers both accept (#183).
+	//
+	// An annotation on a map field is read as a value for the map's VALUE
+	// type, which is the reading `repeated V` already gets for free: its
+	// Element() is V rather than a container. The key is never the
+	// carrier — a single literal cannot denote a pair.
+	if t.IsMapEntry() {
+		_, value := t.EntryFields()
+		return value.Element().CarrierScalar()
+	}
+
 	return wrapperScalars[string(t.FullName())]
 }
