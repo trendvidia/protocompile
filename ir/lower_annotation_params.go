@@ -1005,6 +1005,37 @@ func checkIntegerRange(
 // int64 is what its literal will lower into. That is what makes
 // `@default(1e19)` on a `pxf.BigInt` an error rather than a silently
 // negative value (#176).
+//
+// # What this bound assumes, and what it costs
+//
+// It reads every untyped argument as a value FOR the annotated field.
+// That holds for `@default` and `@example`, whose whole meaning is a value
+// for the thing they sit on, and not for an annotation whose argument is
+// about something else:
+//
+//	int32 f = 1 @max_bytes(5000000000);   // rejected
+//
+// `@max_bytes` is a byte limit, not a value for an int32 field, and the
+// bound rejects it anyway. That is a false positive and it is deliberate
+// (#183): a wrapped value a consumer cannot distinguish from a deliberate
+// one is the worse failure, and narrowing the bound to value-carrying
+// annotations would need the compiler to know which annotations those are
+// — a spec-level marker or a hardcoded list, neither of which exists.
+//
+// Note the asymmetry that makes the trade acceptable: carrier-directed
+// ROUTING is harmless when the assumption is wrong, because the value
+// survives in a different member. Only BOUNDING rejects, so only bounding
+// carries this cost.
+//
+// # Enum carriers are bounded at int64, not int32
+//
+// An enum value is an int32, so `E f = 1 @default(5000000000)` is rejected
+// downstream while compiling clean here — the same "diagnosed downstream
+// rather than at compile" case this function closes for `int32` and
+// friends. It is left that way on purpose (#183): an enum field is the
+// carrier most likely to hold an argument that is not a value for it, so
+// tightening it concentrates the false positive above rather than spending
+// it where a value is actually meant.
 func checkCarrierRange(
 	r *report.Report,
 	target Annotation,
@@ -1036,6 +1067,10 @@ func checkCarrierRange(
 		bound = predeclared.Int64
 		describe = "the 64-bit signed `int_value` an untyped argument " +
 			"on this carrier is lowered into"
+	case carrier.IsMapEntry():
+		// The entry message is synthesized; naming it would point at
+		// something the author never wrote.
+		describe = fmt.Sprintf("`%s`, the map's value type", bound)
 	case carrier.Predeclared() == predeclared.Unknown:
 		describe = fmt.Sprintf("the scalar `%s` wrapped by the annotated type `%s`",
 			bound, carrier.FullName())
