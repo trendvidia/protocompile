@@ -1117,54 +1117,28 @@ message M {}
 		// exactly; this is by design, not the #149 defect.
 		{name: "uint64/max", param: "uint64", lit: "18446744073709551615", wantInt: -1},
 
-		// #165. `Int` reports exactness, and it is false precisely when
-		// the value does not fit — the big-integer path saturates to
-		// MaxUint64 and says so. Discarding that flag wrote the saturated
-		// value as if the author had asked for it.
-		//
-		// The pair below is the whole defect: they are ONE apart, and
-		// before the fix both reached the carrier as `int_value: -1`, so
-		// a consumer could not tell a literal that means MaxUint64 from
-		// one that overflowed past it.
-		{name: "any/uint64_max_exact", param: "any", lit: "18446744073709551615", wantInt: -1},
-		{
-			name: "any/uint64_max_plus_one", param: "any", lit: "18446744073709551616",
-			isDouble: true, wantDouble: 18446744073709551616,
-		},
+		// #165's pair — 18446744073709551615 and ...616, one apart, one
+		// wrapping to int_value: -1 and one saturating to double_value —
+		// is no longer here. Neither lowers: a target-less integer literal
+		// past int64 is now diagnosed, because `int_value` is an int64 and
+		// nothing downstream can tell a wrap from a value that means it
+		// (#194). They are pinned in
+		// TestTargetlessIntegerPastInt64IsDiagnosed instead.
 
-		// An exponent with integer value takes the integer path —
-		// IsFloat is false for it, as documented ("can only be used as a
-		// float literal, even if it has integer value"). So exactness,
-		// not spelling, is what separates these two.
-		{name: "any/exponent_in_range", param: "any", lit: "1e10", wantInt: 10000000000},
+		// An exponent is a FLOAT spelling, so with no target to convert to
+		// these keep their own type (#188). They used to take the integer
+		// path, because the lexer does not count a positive exponent as a
+		// float (#191) — which is how `1e19` reached a carrier as
+		// int_value: -8446744073709551616, the symptom that opened this
+		// whole family in #172.
+		{name: "any/exponent_in_range", param: "any", lit: "1e10", isDouble: true, wantDouble: 1e10},
 		{name: "any/exponent_out_of_range", param: "any", lit: "1e100", isDouble: true, wantDouble: 1e100},
-		// Exact, and large enough to wrap into a negative int64. Carried
-		// as two's complement by design, the same as uint64/max.
-		{name: "any/exponent_at_wrap", param: "any", lit: "1e19", wantInt: -8446744073709551616},
-		{
-			name: "any/big_int_out_of_range", param: "any", lit: "99999999999999999999999",
-			isDouble: true, wantDouble: 1e23,
-		},
-
-		// The mirror of that pair, one range down. A negative literal is
-		// lowered by negating what buildLiteralArg produced, which is the
-		// magnitude reinterpreted through int64 — so for a magnitude in
-		// (MaxInt64, MaxUint64] the negation flipped the sign straight back
-		// and `-18446744073709551615` reached the carrier as `int_value: 1`.
-		// These three are also one apart at each end of int64's range.
+		{name: "any/exponent_at_wrap", param: "any", lit: "1e19", isDouble: true, wantDouble: 1e19},
+		// MinInt64 is the last negative magnitude int_value holds, and it
+		// negates to itself. Everything past it is diagnosed rather than
+		// lowered (#194) and lives in
+		// TestTargetlessIntegerPastInt64IsDiagnosed.
 		{name: "any/negative_int64_min", param: "any", lit: "-9223372036854775808", wantInt: math.MinInt64},
-		{
-			name: "any/negative_past_int64_min", param: "any", lit: "-9223372036854775809",
-			isDouble: true, wantDouble: -9223372036854775809,
-		},
-		{
-			name: "any/negative_uint64_max", param: "any", lit: "-18446744073709551615",
-			isDouble: true, wantDouble: -18446744073709551615,
-		},
-		{
-			name: "any/negative_uint64_max_plus_one", param: "any", lit: "-18446744073709551616",
-			isDouble: true, wantDouble: -18446744073709551616,
-		},
 		{name: "any/negative_small", param: "any", lit: "-3", wantInt: -3},
 
 		// A negative fraction that ROUNDS to zero lowers as zero. It has to
@@ -1326,10 +1300,14 @@ func TestAnnotationUntypedArgRoutesByCarrier(t *testing.T) {
 		}
 	})
 
-	t.Run("out of uint64 range still lowers as double on any carrier", func(t *testing.T) {
+	t.Run("out of uint64 range converts only on a float carrier", func(t *testing.T) {
 		t.Parallel()
-		// #165's rule is independent of the carrier and keeps working.
-		for _, field := range []string{"uint64", "int64", "double"} {
+		// #165's rule was carrier-independent: 1e100 lowered to
+		// double_value everywhere, including onto integer fields that
+		// cannot hold it. Under #188 the target decides — a float carrier
+		// holds it, an integer carrier is a compile error — so only the
+		// float half is asserted here; ir pins the rejections.
+		for _, field := range []string{"double"} {
 			arg := fieldAnnotationArg(t, field, "1e100")
 			require.IsType(t, (*pwsv1.AnnotationArg_DoubleValue)(nil), arg.Value,
 				"%s field: want double_value, got %v", field, arg.Value)
@@ -1338,31 +1316,64 @@ func TestAnnotationUntypedArgRoutesByCarrier(t *testing.T) {
 	})
 }
 
-// TestAnnotationUntypedArgWithoutACarrierKeepsSpelling pins the other side:
-// an annotation on a message has no element type to route by, so the
-// literal's own spelling still decides. Nothing can be consulted there, and
-// a value in the band stays ambiguous — which is the documented limit of
-// the #172 fix rather than an oversight.
+// TestAnnotationUntypedArgWithoutACarrierKeepsSpelling pins the other
+// side: an annotation on a message has no element type to convert to, so
+// the literal's own type stands — which is what RFC-001 means by an `any`
+// argument carrying its own typing.
+//
+// This test used to assert the opposite, and was the last live instance of
+// #172's original symptom: `1e19` is written in floating-point notation
+// but the lexer does not count a positive exponent as a float (#191), so
+// it took the integer path and overflowed int64 to
+// -8446744073709551616. Carrier routing could not reach it, because there
+// is no carrier here — which is what showed the fix had been applied one
+// layer too high (#188).
 func TestAnnotationUntypedArgWithoutACarrierKeepsSpelling(t *testing.T) {
 	t.Parallel()
 
+	for _, tc := range []struct {
+		lit  string
+		want float64
+	}{
+		{"1e19", 1e19},
+		{"1.5", 1.5},
+		{"1e10", 1e10},
+	} {
+		f := compileForFDPTest(t, `syntax = "proto3";
+package test;
+
+annotation default(value: any);
+
+@default(`+tc.lit+`)
+message M {}
+`)
+		list, _ := proto.GetExtension(
+			f.GetMessageType()[0].Options, pwsv1.E_MessageAnnotations).(*pwsv1.AnnotationList)
+		require.NotNil(t, list, "carries no message annotations extension")
+		require.Len(t, list.Entries, 1)
+		require.Len(t, list.Entries[0].Args, 1)
+
+		arg := list.Entries[0].Args[0]
+		require.IsType(t, (*pwsv1.AnnotationArg_DoubleValue)(nil), arg.Value,
+			"%s is written as a float and has no target; got %v", tc.lit, arg.Value)
+		assert.InDelta(t, tc.want, arg.GetDoubleValue(), 0)
+	}
+
+	// An integer spelling still keeps its own type too.
 	f := compileForFDPTest(t, `syntax = "proto3";
 package test;
 
 annotation default(value: any);
 
-@default(1e19)
+@default(42)
 message M {}
 `)
 	list, _ := proto.GetExtension(
 		f.GetMessageType()[0].Options, pwsv1.E_MessageAnnotations).(*pwsv1.AnnotationList)
 	require.NotNil(t, list, "carries no message annotations extension")
-	require.Len(t, list.Entries, 1)
-	require.Len(t, list.Entries[0].Args, 1)
-
 	arg := list.Entries[0].Args[0]
 	require.IsType(t, (*pwsv1.AnnotationArg_IntValue)(nil), arg.Value)
-	assert.Equal(t, int64(-8446744073709551616), arg.GetIntValue())
+	assert.Equal(t, int64(42), arg.GetIntValue())
 }
 
 // wrapperAnnotationArg is [fieldAnnotationArg] for a field whose type is a
@@ -1872,6 +1883,471 @@ message M {
 `)
 	assert.Len(t, errs, 1,
 		"one bad argument, one diagnostic; two means the map entry was walked as a carrier too")
+}
+
+// TestAnyArgumentConvertsToItsTarget is #188's headline: one rule, not a
+// routing hint plus a bound that mirrors it.
+//
+// An `any` argument is typed by its own literal and then converted to the
+// type of the element it annotates. Every shape below reaches that rule
+// through a different path — a bare scalar, a wrapper message, a map
+// value, a repeated element, and no target at all — and one literal
+// therefore has one answer everywhere.
+func TestAnyArgumentConvertsToItsTarget(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a float target holds 1e19 whatever shape it arrives in", func(t *testing.T) {
+		t.Parallel()
+		for _, field := range []string{
+			"double",
+			"google.protobuf.DoubleValue",
+			"map<string, double>",
+			"repeated double",
+		} {
+			arg := fieldAnnotationArgImporting(t, field, "1e19")
+			require.IsType(t, (*pwsv1.AnnotationArg_DoubleValue)(nil), arg.Value,
+				"%s: want double_value, got %v", field, arg.Value)
+			assert.InDelta(t, 1e19, arg.GetDoubleValue(), 1)
+		}
+	})
+
+	t.Run("no target leaves the literal its own type", func(t *testing.T) {
+		t.Parallel()
+		f := compileForFDPTest(t, `syntax = "proto3";
+package test;
+
+annotation default(value: any);
+
+@default(1e19)
+message M {}
+`)
+		list, _ := proto.GetExtension(
+			f.GetMessageType()[0].Options, pwsv1.E_MessageAnnotations).(*pwsv1.AnnotationList)
+		require.NotNil(t, list, "carries no message annotations extension")
+		arg := list.Entries[0].Args[0]
+		require.IsType(t, (*pwsv1.AnnotationArg_DoubleValue)(nil), arg.Value)
+		assert.InDelta(t, 1e19, arg.GetDoubleValue(), 1)
+	})
+
+	t.Run("an integer target cannot hold 1e19", func(t *testing.T) {
+		t.Parallel()
+		for _, field := range []string{"int32", "int64"} {
+			_, errs := compileForFDPTestDiags(t, `syntax = "proto3";
+package test;
+
+annotation default(value: any);
+
+message M {
+  `+field+` f = 1 @default(1e19);
+}
+`)
+			require.NotEmpty(t, errs, "%s must reject 1e19", field)
+			assert.Contains(t, errs[0], "out of range",
+				"%s: the diagnostic must say what is wrong", field)
+			assert.Contains(t, errs[0], field,
+				"%s: the diagnostic must name the target type", field)
+		}
+	})
+
+	t.Run("a float spelling that is an integer converts to the target", func(t *testing.T) {
+		t.Parallel()
+		// The member follows the TARGET, not the spelling: `1e2` is 100,
+		// and an int32 field carries an integer.
+		arg := fieldAnnotationArg(t, "int32", "1e2")
+		require.IsType(t, (*pwsv1.AnnotationArg_IntValue)(nil), arg.Value,
+			"got %v", arg.Value)
+		assert.Equal(t, int64(100), arg.GetIntValue())
+	})
+
+	t.Run("a float spelling that is not an integer does not", func(t *testing.T) {
+		t.Parallel()
+		_, errs := compileForFDPTestDiags(t, `syntax = "proto3";
+package test;
+
+annotation default(value: any);
+
+message M {
+  int32 f = 1 @default(1.5);
+}
+`)
+		require.NotEmpty(t, errs)
+		assert.Contains(t, errs[0], "not an integer")
+	})
+}
+
+// TestAnyArgumentKindMismatchIsDiagnosed covers the cell the family never
+// had an answer for. Before #188 every one of these compiled with zero
+// diagnostics, and one of them emitted a descriptor that could not be
+// marshalled at all.
+func TestAnyArgumentKindMismatchIsDiagnosed(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct{ field, lit string }{
+		{"int32", `"hello"`},
+		{"int32", `"\xff\xfe"`},
+		{"int64", `"hello"`},
+		{"uint32", `"hello"`},
+		{"double", `"hello"`},
+		{"float", `"3.14"`},
+		{"bool", `"true"`},
+		{"string", "42"},
+		{"string", "true"},
+		{"bool", "42"},
+		{"int32", "true"},
+		{"bytes", "42"},
+	} {
+		t.Run(tc.field+"_"+tc.lit, func(t *testing.T) {
+			t.Parallel()
+			_, errs := compileForFDPTestDiags(t, `syntax = "proto3";
+package test;
+
+annotation default(value: any);
+
+message M {
+  `+tc.field+` f = 1 @default(`+tc.lit+`);
+}
+`)
+			require.NotEmpty(t, errs,
+				"%s carrier must reject %s", tc.field, tc.lit)
+			assert.Contains(t, errs[0], "cannot hold",
+				"the diagnostic must name the literal's type and the target")
+		})
+	}
+}
+
+// argOnFieldOfMessage is [fieldArg] for a file that declares more than one
+// message: a message-typed carrier needs a message to point at, so the
+// "exactly one message" shape those helpers assume does not hold.
+func argOnFieldOfMessage(
+	t helperT, f *descriptorpb.FileDescriptorProto, name string,
+) *pwsv1.AnnotationArg {
+	t.Helper()
+	for _, msg := range f.GetMessageType() {
+		if msg.GetName() != name {
+			continue
+		}
+		require.Len(t, msg.GetField(), 1)
+		opts := msg.GetField()[0].GetOptions()
+		require.NotNil(t, opts, "field carries no options")
+		list, _ := proto.GetExtension(opts, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+		require.NotNil(t, list, "field carries no AnnotationList extension")
+		require.Len(t, list.GetEntries(), 1)
+		require.Len(t, list.GetEntries()[0].GetArgs(), 1)
+		return list.GetEntries()[0].GetArgs()[0]
+	}
+	require.FailNow(t, "no message named "+name)
+	return nil
+}
+
+// TestAnyArgumentOnACarrierWithNoScalarKeepsItsOwnType is the arm the rest
+// of this family never enters: a carrier whose CarrierScalar() is
+// predeclared.Unknown.
+//
+// Every other carrier tested here — scalars, wrappers, maps, repeated
+// scalars — resolves to a known scalar, so the Unknown arm was written,
+// commented, and never run. It is not an exotic corner: a message-typed
+// field, an enum-typed field and a non-wrapper well-known type are all
+// ordinary schema, and Unknown is predeclared.Name's ZERO value, so this
+// is the un-set state of the very thing the conversion rule keys on.
+//
+// There is nothing to convert to there, so the literal keeps its own type
+// — which is what RFC-001 means by an `any` argument carrying its own
+// typing, and what ConvertArgKind's doc states for a target of Unknown.
+// checkCarrierRange substituted int64 before asking, so a string, a
+// boolean or a fraction on one of these was rejected as unable to fit
+// `int_value` while buildLiteralArg lowered it to string_value /
+// bool_value / double_value: the two sides argTarget's comment says "must
+// agree" disagreeing again, one layer down from where #188 fixed it.
+//
+// The sweep cannot see this. A wrongly-rejected cell does not compile, so
+// it is skipped rather than failed — "compiles and marshals" is blind to
+// anything that stops compiling. This asserts the member directly.
+func TestAnyArgumentOnACarrierWithNoScalarKeepsItsOwnType(t *testing.T) {
+	t.Parallel()
+
+	for _, carrier := range []string{
+		"Inner", "E", "google.protobuf.Timestamp",
+		"repeated Inner", "map<string, Inner>",
+	} {
+		for _, tc := range []struct {
+			lit  string
+			want any
+		}{
+			{`"hello"`, (*pwsv1.AnnotationArg_StringValue)(nil)},
+			{"true", (*pwsv1.AnnotationArg_BoolValue)(nil)},
+			{"false", (*pwsv1.AnnotationArg_BoolValue)(nil)},
+			{"1.5", (*pwsv1.AnnotationArg_DoubleValue)(nil)},
+			// Float-spelled: #191's spelling rule reaches here too, and
+			// double_value holds 1e19 exactly, so nothing wraps.
+			{"1e19", (*pwsv1.AnnotationArg_DoubleValue)(nil)},
+			{"42", (*pwsv1.AnnotationArg_IntValue)(nil)},
+		} {
+			t.Run(carrier+"_"+tc.lit, func(t *testing.T) {
+				t.Parallel()
+				f, errs := compileForFDPTestDiags(t, `syntax = "proto3";
+package test;
+
+import "google/protobuf/timestamp.proto";
+
+annotation default(value: any);
+
+enum E { E_ZERO = 0; }
+message Inner { string s = 1; }
+
+message M {
+  `+carrier+` f = 1 @default(`+tc.lit+`);
+}
+`)
+				require.Empty(t, errs,
+					"%s has no scalar reading, so %s keeps its own type", carrier, tc.lit)
+				require.IsType(t, tc.want, argOnFieldOfMessage(t, f, "M").Value)
+			})
+		}
+	}
+
+	// An integer past int64 is the one thing still rejected here, and for
+	// a reason that survives: it DOES land in int_value, where it wraps to
+	// a negative (#176). The bound is about the member, not the magnitude.
+	t.Run("a band literal that still reaches int_value is rejected", func(t *testing.T) {
+		t.Parallel()
+		_, errs := compileForFDPTestDiags(t, `syntax = "proto3";
+package test;
+
+annotation default(value: any);
+
+message Inner { string s = 1; }
+
+message M {
+  Inner f = 1 @default(10000000000000000000);
+}
+`)
+		require.NotEmpty(t, errs)
+		assert.Contains(t, errs[0], "out of range")
+	})
+}
+
+// TestNonValueAnnotationMustDeclareItsParameter records the cost Option A
+// accepts deliberately, so it is visible rather than discovered.
+//
+// `@since` carries a timestamp, not a value for the field. Left `any`, it
+// is converted to the annotated element's type and rejected. The remedy is
+// to declare what the parameter carries, which the diagnostic says.
+func TestNonValueAnnotationMustDeclareItsParameter(t *testing.T) {
+	t.Parallel()
+
+	_, errs := compileForFDPTestDiags(t, `syntax = "proto3";
+package test;
+
+annotation since(value: any);
+
+message M {
+  int32 f = 1 @since(20250101000000);
+}
+`)
+	require.NotEmpty(t, errs,
+		"an untyped argument is converted to the annotated element's type")
+
+	// Declaring the parameter is the fix, and it compiles.
+	_, errs = compileForFDPTestDiags(t, `syntax = "proto3";
+package test;
+
+annotation since(value: int64);
+
+message M {
+  int32 f = 1 @since(20250101000000);
+}
+`)
+	assert.Empty(t, errs, "a declared parameter converts against its declaration, not the carrier")
+}
+
+// fieldAnnotationArgImporting is [fieldAnnotationArg] for field types that
+// may need the wrappers import.
+func fieldAnnotationArgImporting(t *testing.T, fieldType, lit string) *pwsv1.AnnotationArg {
+	t.Helper()
+	imports := ""
+	if strings.Contains(fieldType, "google.protobuf.") {
+		imports = "import \"google/protobuf/wrappers.proto\";\n"
+	}
+	return fieldArg(t, compileForFDPTest(t, fmt.Sprintf(`syntax = "proto3";
+package test;
+
+%s
+annotation default(value: any);
+
+message M {
+  %s f = 1 @default(%s);
+}
+`, imports, fieldType, lit)))
+}
+
+// TestEverythingThatCompilesMarshals is the invariant underneath this
+// whole family, swept rather than sampled: whatever a file means, a
+// descriptor this compiler emits without diagnostics must serialize.
+//
+// #179 and #184 were each one cell where it did not. The sweep is what
+// makes the next cell fail here rather than downstream.
+func TestEverythingThatCompilesMarshals(t *testing.T) {
+	t.Parallel()
+
+	carriers := []string{
+		"double", "float", "int32", "int64", "uint32", "uint64",
+		"sint32", "sint64", "fixed32", "fixed64", "sfixed32", "sfixed64",
+		"bool", "string", "bytes",
+		"repeated int32", "repeated bytes", "repeated string",
+		"map<string, int32>", "map<string, bytes>", "map<string, double>",
+		// Carriers whose CarrierScalar() is predeclared.Unknown — where
+		// there is no type to convert to and the literal keeps its own.
+		// Every carrier above resolves to a known scalar, so without these
+		// the sweep never entered that arm at all, and it is the arm the
+		// kind check reads: a string on one of these was rejected as
+		// unable to fit `int_value` while fdp lowered it to `string_value`.
+		// A message, an enum, a non-wrapper WKT, and both containers of a
+		// message, since a map's value type and a repeated element are
+		// resolved separately.
+		"Inner", "E", "google.protobuf.Timestamp",
+		"repeated Inner", "map<string, Inner>",
+	}
+	literals := []string{
+		"42", "-42", "0", "1.5", "-1.5", "1e2", "1e19", "1e100",
+		"18446744073709551615", "-18446744073709551615",
+		"10000000000000000000", "1e400",
+		`"hello"`, `"\xff\xfe"`, `""`, "true", "false",
+		"[1, 2]", `["a", "b"]`, "[]",
+	}
+
+	compiled, marshalled := 0, 0
+	for _, carrier := range carriers {
+		for _, lit := range literals {
+			f, errs := compileForFDPTestDiags(t, `syntax = "proto3";
+package test;
+
+import "google/protobuf/timestamp.proto";
+
+annotation default(value: any);
+
+enum E { E_ZERO = 0; }
+message Inner { string s = 1; }
+
+message M {
+  `+carrier+` f = 1 @default(`+lit+`);
+}
+`)
+			if len(errs) > 0 || f == nil {
+				continue
+			}
+			compiled++
+			_, err := proto.Marshal(f)
+			if assert.NoError(t, err,
+				"%s @default(%s) compiled clean but does not serialize", carrier, lit) {
+				marshalled++
+			}
+		}
+	}
+
+	// A positive marker: if the fixtures stopped compiling for an
+	// unrelated reason this would silently assert nothing.
+	require.Greater(t, compiled, 100,
+		"the sweep must actually exercise cases; got %d of %d",
+		compiled, len(carriers)*len(literals))
+	assert.Equal(t, compiled, marshalled)
+	t.Logf("sweep: %d of %d cells compiled, %d marshalled",
+		compiled, len(carriers)*len(literals), marshalled)
+}
+
+// TestTargetlessIntegerPastInt64IsDiagnosed is #194.
+//
+// An annotation attached to nothing — a message, a service, a file — has
+// no conversion target, so the literal keeps its own type. For an integer
+// that type is `int_value`, and `int_value` is an int64: a magnitude past
+// it has no honest representation there.
+//
+// It used to lower anyway. `@default(18446744073709551615)` compiled clean
+// and reached a consumer as `int_value: -1`, while the identical literal
+// on a message-TYPED FIELD was rejected — same lowering, same absence of a
+// scalar, opposite outcomes. The two's-complement carry is recoverable
+// only where something downstream knows the target is unsigned, and here
+// there is no target for anything to know.
+//
+// These rows were pinned as intended behaviour in
+// TestAnnotationNumericRouting, citing #165. #165 was right that a wrap
+// and a saturation must be distinguishable; the answer is to reject both,
+// not to give them different members.
+func TestTargetlessIntegerPastInt64IsDiagnosed(t *testing.T) {
+	t.Parallel()
+
+	t.Run("rejected", func(t *testing.T) {
+		t.Parallel()
+		for _, lit := range []string{
+			"18446744073709551615", // MaxUint64: wrapped to int_value: -1
+			"18446744073709551616", // one past it: saturated to double_value
+			"99999999999999999999999",
+			"-9223372036854775809", // one past MinInt64
+			"-18446744073709551615",
+			"-18446744073709551616",
+		} {
+			_, errs := compileForFDPTestDiags(t, `syntax = "proto3";
+package test;
+
+annotation a(value: any);
+
+@a(`+lit+`)
+message M {}
+`)
+			assert.NotEmpty(t, errs,
+				"%s has no representation in int_value and must be diagnosed", lit)
+		}
+	})
+
+	t.Run("accepted", func(t *testing.T) {
+		t.Parallel()
+		for _, lit := range []string{
+			"9223372036854775807",  // MaxInt64
+			"-9223372036854775808", // MinInt64, negates to itself
+			"42", "-3", "0",
+			// A float spelling is not an integer literal: it keeps its own
+			// type, which is double_value, and a double holds these.
+			"1e19", "1e100", "-1e100",
+		} {
+			_, errs := compileForFDPTestDiags(t, `syntax = "proto3";
+package test;
+
+annotation a(value: any);
+
+@a(`+lit+`)
+message M {}
+`)
+			assert.Empty(t, errs, "%s must still compile: %v", lit, errs)
+		}
+	})
+
+	t.Run("agrees with a message-typed field", func(t *testing.T) {
+		t.Parallel()
+		// The inconsistency #194 is about: both lower into int_value and
+		// neither has a scalar target, so they must answer alike.
+		for _, lit := range []string{"18446744073709551615", "99999999999999999999999"} {
+			_, noTarget := compileForFDPTestDiags(t, `syntax = "proto3";
+package test;
+
+annotation a(value: any);
+
+@a(`+lit+`)
+message M {}
+`)
+			_, msgField := compileForFDPTestDiags(t, `syntax = "proto3";
+package test;
+
+annotation a(value: any);
+
+message Inner { int32 x = 1; }
+
+message M {
+  Inner f = 1 @a(`+lit+`);
+}
+`)
+			assert.Equal(t, len(msgField) > 0, len(noTarget) > 0,
+				"%s: message-level and message-typed-field must agree", lit)
+		}
+	})
 }
 
 // helperT is what the extraction helpers need from *testing.T: testify's

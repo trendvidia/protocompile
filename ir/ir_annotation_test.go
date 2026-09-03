@@ -1858,33 +1858,60 @@ func TestCarrierBoundRejectsWhatTheAnnotatedTypeCannotHold(t *testing.T) {
 	})
 }
 
-// TestCarrierBoundOnlyRejectsWhatLowersAsInt pins the guard the bound needs
-// to mirror: a literal routed to `double_value` must not be bounded by
-// int64's range.
+// TestCarrierBoundRejectsWhatCannotConvert replaces
+// TestCarrierBoundOnlyRejectsWhatLowersAsInt, which pinned the guard the
+// bound needed in order to MIRROR buildLiteralArg's routing: a literal
+// that lowered to `double_value` for reasons other than the carrier's
+// type had to escape int64's range.
 //
-// The bound restates buildLiteralArg's routing, so the two can drift. These
-// are the values that lower as a double for reasons OTHER than the
-// carrier's type — float spelling, past uint64, and a negative magnitude
-// past int64 — and every one of them must compile on a carrier whose own
-// range would reject it.
-func TestCarrierBoundOnlyRejectsWhatLowersAsInt(t *testing.T) {
+// There is no mirror left to protect. Both sides now ask
+// ConvertArgKind (#188), so a literal on an `int32` carrier converts to
+// an integer or is rejected, and the same values the old test required to
+// COMPILE are the ones that cannot convert:
+//
+//   - a fractional literal is not an integer, whatever its magnitude;
+//   - a literal past the target's range does not fit it, however it is
+//     spelled.
+//
+// Both were previously accepted and lowered as `double_value` onto an
+// `int32` field — the wrong member on a field that cannot hold it, which
+// is the defect #188 is about rather than a routing detail to preserve.
+func TestCarrierBoundRejectsWhatCannotConvert(t *testing.T) {
 	t.Parallel()
 
-	for _, lit := range []string{
-		"1.5", // float-spelled and inexact
-		// Float-spelled AND exact, and far outside the carrier's range.
-		// This is the pair the guard exists for: every other value here is
-		// caught by the exactness check instead, so without these two,
-		// deleting the IsFloat guard passes the whole suite.
-		"1.0e19",
-		"10000000000000000000.0",
-		"1e100",                   // past uint64, lowers as double (#165)
-		"99999999999999999999999", // same
-		"-18446744073709551615",   // negative magnitude past int64 (#166)
+	for _, tc := range []struct {
+		lit, why string
+	}{
+		{"1.5", "fractional"},
+		{"1.0e19", "float-spelled, exact, past int32"},
+		{"10000000000000000000.0", "float-spelled, exact, past int32"},
+		{"1e100", "past uint64 entirely"},
+		{"99999999999999999999999", "past uint64 entirely"},
+		{"-18446744073709551615", "negative magnitude past int64"},
 	} {
-		rep, diagnosed := compileCarrier(t, "int32", lit)
+		_, diagnosed := compileCarrier(t, "int32", tc.lit)
+		assert.True(t, diagnosed,
+			"%s (%s) cannot convert to int32 and must be rejected", tc.lit, tc.why)
+	}
+}
+
+// TestCarrierBoundAcceptsWhatConverts is the other half: a float-spelled
+// literal that IS an integer in range converts, and lands in int_value
+// because the target says so rather than the spelling.
+func TestCarrierBoundAcceptsWhatConverts(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range [][2]string{
+		{"int32", "1e2"},  // 100
+		{"int32", "-1e2"}, // -100
+		{"int64", "1e18"}, // fits
+		{"uint32", "4.294967295e9"},
+		{"double", "1e100"}, // a float target holds it
+		{"double", "1.5"},
+	} {
+		rep, diagnosed := compileCarrier(t, tc[0], tc[1])
 		assert.False(t, diagnosed,
-			"%s lowers as double_value and must not be bounded by int32: %v", lit, rep.Diagnostics)
+			"%s must accept %s: %v", tc[0], tc[1], rep.Diagnostics)
 	}
 }
 
@@ -1917,12 +1944,23 @@ message M { `+msg+` f = 1 @default(`+lit+`); }
 	}
 
 	for _, msg := range []string{"BigInt", "Decimal", "BigFloat"} {
-		_, diagnosed := compile(t, msg, "1e19")
+		_, diagnosed := compile(t, msg, "10000000000000000000")
 		assert.True(t, diagnosed, "pxf.%s must reject a band literal rather than sign-flip it", msg)
 
 		// Below the band these carriers were always exact, and stay so.
 		rep, diagnosed := compile(t, msg, "42")
 		assert.False(t, diagnosed, "pxf.%s must still accept 42: %v", msg, rep.Diagnostics)
+
+		// The same value written `1e19` is NOT rejected, and the
+		// difference is not arbitrary. These carriers have no scalar
+		// reading, so the literal keeps its own type; a float spelling is
+		// carried as `double_value: 1e19`, which is the author's value
+		// exactly. The sign flip this test exists for cannot happen
+		// there, and rejecting it would be a false positive.
+		rep, diagnosed = compile(t, msg, "1e19")
+		assert.False(t, diagnosed,
+			"pxf.%s: a float spelling lowers to double_value and does not wrap: %v",
+			msg, rep.Diagnostics)
 	}
 }
 
@@ -1949,6 +1987,13 @@ func TestCarrierBoundDescendsIntoListArguments(t *testing.T) {
 			{"int64", "[42, 1e19]"}, // the offending element is not first
 			{"uint64", "[-1]"},      // negative-on-unsigned, in a list
 			{"google.protobuf.Int64Value", "[1e19]"},
+			// Previously accepted, because each lowered to double_value
+			// for a reason other than the carrier: a fraction, a value
+			// past uint64, a negative magnitude past int64. Under #188
+			// the target decides, and an int32 holds none of them.
+			{"int32", "[1.5]"},
+			{"int32", "[1e100]"},
+			{"int32", "[-18446744073709551615]"},
 		} {
 			_, diagnosed := compileCarrier(t, tc[0], tc[1])
 			assert.True(t, diagnosed, "%s carrier must reject %s", tc[0], tc[1])
@@ -1962,7 +2007,7 @@ func TestCarrierBoundDescendsIntoListArguments(t *testing.T) {
 			{"uint64", "[1e19]"}, {"fixed64", "[1e19]"},
 			{"double", "[1e19]"}, {"float", "[1e19]"},
 			{"int64", "[42, 9223372036854775807]"},
-			{"int32", "[1.5, 1e100, -18446744073709551615]"},
+			{"int32", "[1e2, -1e2]"}, // float-spelled, exact, in range
 			{"int32", "[]"},
 			{"string", `["x", "y"]`},
 		} {
@@ -1992,6 +2037,11 @@ func TestCarrierBoundRejectsNegativeOnUnsignedCarrier(t *testing.T) {
 			{"uint64", "-0"}, {"uint32", "-0"},
 			{"google.protobuf.UInt64Value", "-1"},
 			{"google.protobuf.UInt32Value", "-0"},
+			// Previously accepted: a float-spelled negative was routed to
+			// double_value, so the unsigned arm never saw it. Under #188
+			// it converts to the target, and `-1.5` is not an integer at
+			// all — reported as that rather than as a sign error.
+			{"uint64", "-1.5"},
 		} {
 			_, diagnosed := compileCarrier(t, tc[0], tc[1])
 			assert.True(t, diagnosed, "%s carrier must reject %s", tc[0], tc[1])
@@ -2004,9 +2054,6 @@ func TestCarrierBoundRejectsNegativeOnUnsignedCarrier(t *testing.T) {
 			{"int64", "-1"}, {"int64", "-0"}, {"int32", "-0"},
 			{"int64", "-9223372036854775808"}, // MinInt64 negates to itself
 			{"double", "-1"}, {"float", "-0"},
-			// A float-spelled negative is routed to double_value, so the
-			// unsigned arm must not see it either.
-			{"uint64", "-1.5"},
 		} {
 			rep, diagnosed := compileCarrier(t, tc[0], tc[1])
 			assert.False(t, diagnosed, "%s must accept %s, got: %v", tc[0], tc[1], rep.Diagnostics)
@@ -2041,6 +2088,92 @@ func TestCarrierBoundNamesTheRightType(t *testing.T) {
 			}
 		}
 		assert.True(t, found, "want a diagnostic containing %q, got: %v", tc.want, rep.Diagnostics)
+	}
+}
+
+// TestCarrierWithNoScalarDoesNotAnswerTheKindQuestionAgainstInt64 pins the
+// separation the Unknown arm needs between a CONVERSION target and a RANGE
+// bound.
+//
+// checkCarrierRange substitutes int64 for a carrier with no scalar reading,
+// which is right for the range question — an integer literal there really
+// does land in `int_value` — and wrong for the kind question, because the
+// lowering converts against Unknown and keeps the literal's own type.
+// Asking ConvertArgKind with the substituted value rejected a string, a
+// boolean and a fraction on a message or enum carrier while
+// fdp.buildLiteralArg lowered each of them happily, so the two sides
+// argTarget's comment says "must agree" disagreed.
+//
+// The paired-diagnostic case is the tell: a non-UTF-8 string on a message
+// carrier produced both "cannot hold a string literal" and "is not valid
+// UTF-8" — one saying the literal never reaches string_value and the other
+// saying it does.
+func TestCarrierWithNoScalarDoesNotAnswerTheKindQuestionAgainstInt64(t *testing.T) {
+	t.Parallel()
+
+	compile := func(t *testing.T, carrier, lit string) *report.Report {
+		t.Helper()
+		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+import "google/protobuf/timestamp.proto";
+annotation note(value: any);
+enum E { E_ZERO = 0; }
+message Inner { string s = 1; }
+message M { `+carrier+` f = 1 @note(`+lit+`); }
+`)
+		return rep
+	}
+
+	t.Run("accepted", func(t *testing.T) {
+		t.Parallel()
+		for _, carrier := range []string{
+			"Inner", "E", "google.protobuf.Timestamp",
+			"repeated Inner", "map<string, Inner>",
+		} {
+			for _, lit := range []string{`"hello"`, "true", "false", "1.5", "1e19"} {
+				rep := compile(t, carrier, lit)
+				for _, d := range rep.Diagnostics {
+					if isError(d) {
+						t.Errorf("%s @note(%s): the literal keeps its own type here; got: %s",
+							carrier, lit, d.Message())
+					}
+				}
+			}
+		}
+	})
+
+	t.Run("a non-UTF-8 string is one fault, not two", func(t *testing.T) {
+		t.Parallel()
+		rep := compile(t, "Inner", `"\xff\xfe"`)
+		var errs []string
+		for _, d := range rep.Diagnostics {
+			if isError(d) {
+				errs = append(errs, d.Message())
+			}
+		}
+		require.Len(t, errs, 1, "want only the encoding fault, got: %v", errs)
+		assert.Contains(t, errs[0], "not valid UTF-8")
+	})
+}
+
+// TestOverflowingFloatIsOutOfRangeNotNonIntegral pins the wording of the
+// fault. `1e400` has no fractional part — it is as whole as `1e2` — so
+// reporting it as "not an integer" describes the wrong mistake; it is out
+// of range. Float saturates to infinity for it, which is exactly the case
+// Int has nothing to read, so the exactness arm cannot say it either.
+func TestOverflowingFloatIsOutOfRangeNotNonIntegral(t *testing.T) {
+	t.Parallel()
+
+	for _, carrier := range []string{"int32", "int64", "uint64"} {
+		for _, lit := range []string{"1e400", "-1e400"} {
+			rep, diagnosed := compileCarrier(t, carrier, lit)
+			require.True(t, diagnosed, "%s @default(%s) must be diagnosed", carrier, lit)
+			assert.True(t, hasErrorContaining(rep, "out of range"),
+				"%s @default(%s): want an out-of-range fault, got: %v",
+				carrier, lit, rep.Diagnostics)
+			assert.False(t, hasErrorContaining(rep, "not an integer"),
+				"%s @default(%s): it has no fractional part", carrier, lit)
+		}
 	}
 }
 
@@ -2210,13 +2343,33 @@ message M { E f = 1 @default(5000000000); }
 		}
 	}
 
-	// int64's bound still applies to it, so the band is caught.
+	// int64's bound still applies to what actually lands in `int_value`,
+	// so the band is caught. Spelled out rather than as `1e19`: an enum
+	// carrier has no scalar reading, so the literal keeps its own type,
+	// and a float SPELLING there converts to `double_value` — which holds
+	// 1e19 exactly and never reaches this bound. The bound is about the
+	// member, not about the magnitude.
 	_, rep2 := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+enum E { E_ZERO = 0; }
+annotation default(value: any);
+message M { E f = 1 @default(10000000000000000000); }
+`)
+	assert.True(t, hasErrorContaining(rep2, "out of range"),
+		"int64's own bound still applies: %v", rep2.Diagnostics)
+
+	// The float spelling is the other half, and it compiles: nothing wraps,
+	// so there is nothing to reject.
+	_, rep3 := compileForAnnotationTest(t, `syntax = "proto3";
 package test;
 enum E { E_ZERO = 0; }
 annotation default(value: any);
 message M { E f = 1 @default(1e19); }
 `)
-	assert.True(t, hasErrorContaining(rep2, "out of range"),
-		"int64's own bound still applies: %v", rep2.Diagnostics)
+	for _, d := range rep3.Diagnostics {
+		if isError(d) {
+			t.Errorf("a float-spelled literal on an enum carrier lowers to "+
+				"double_value and is not bounded by int64; got: %s", d.Message())
+		}
+	}
 }
