@@ -1796,7 +1796,7 @@ func countErrors(rep *report.Report) int {
 	return n
 }
 
-// compileCarrier compiles `@deflt(lit)` on a field of the given type and
+// compileCarrier compiles `@default(lit)` on a field of the given type and
 // reports whether it was diagnosed, without requiring a clean compile.
 func compileCarrier(t *testing.T, fieldType, lit string) (*report.Report, bool) {
 	t.Helper()
@@ -1806,8 +1806,8 @@ func compileCarrier(t *testing.T, fieldType, lit string) (*report.Report, bool) 
 	}
 	_, rep := compileForAnnotationTest(t, `syntax = "proto3";
 package test;
-`+imp+`annotation deflt(value: any);
-message M { `+fieldType+` f = 1 @deflt(`+lit+`); }
+`+imp+`annotation default(value: any);
+message M { `+fieldType+` f = 1 @default(`+lit+`); }
 `)
 	for _, d := range rep.Diagnostics {
 		if isError(d) {
@@ -1904,9 +1904,9 @@ func TestCarrierBoundRejectsOnArbitraryPrecisionCarriers(t *testing.T) {
 		t.Helper()
 		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
 package pxf;
-annotation deflt(value: any);
+annotation default(value: any);
 message `+msg+` { bytes abs = 1; bool negative = 2; }
-message M { `+msg+` f = 1 @deflt(`+lit+`); }
+message M { `+msg+` f = 1 @default(`+lit+`); }
 `)
 		for _, d := range rep.Diagnostics {
 			if isError(d) {
@@ -1930,8 +1930,8 @@ message M { `+msg+` f = 1 @deflt(`+lit+`); }
 // shape it first missed: a LIST argument.
 //
 // fdp's buildListLiteral hands every element to the same buildArgValue the
-// scalar form uses, with the same carrier, so `@deflt([1e19])` on an
-// `int64` field wrapped to -8446744073709551616 exactly as `@deflt(1e19)`
+// scalar form uses, with the same carrier, so `@default([1e19])` on an
+// `int64` field wrapped to -8446744073709551616 exactly as `@default(1e19)`
 // did — #177 verbatim, one shape over. A bound that only inspects the
 // argument expression itself leaves that open, and nesting has to recurse
 // because buildListElement lowers a nested list through buildArgValue too.
@@ -2033,7 +2033,7 @@ func TestCarrierBoundNamesTheRightType(t *testing.T) {
 				"`google.protobuf.UInt32Value` is unsigned"},
 	} {
 		rep, diagnosed := compileCarrier(t, tc.fieldType, tc.lit)
-		require.True(t, diagnosed, "%s @deflt(%s) must be diagnosed", tc.fieldType, tc.lit)
+		require.True(t, diagnosed, "%s @default(%s) must be diagnosed", tc.fieldType, tc.lit)
 		found := false
 		for _, d := range rep.Diagnostics {
 			if strings.Contains(d.Message(), tc.want) {
@@ -2060,10 +2060,10 @@ func TestCarrierBoundSkipsMembersWithNoElementType(t *testing.T) {
 
 	_, rep := compileForAnnotationTest(t, `syntax = "proto3";
 package test;
-annotation deflt(value: any);
+annotation default(value: any);
 enum E {
   E_ZERO = 0;
-  E_ONE = 1 @deflt(1e19);
+  E_ONE = 1 @default(1e19);
 }
 `)
 	for _, d := range rep.Diagnostics {
@@ -2201,8 +2201,8 @@ func TestCarrierBoundLeavesEnumAtInt64(t *testing.T) {
 	_, rep := compileForAnnotationTest(t, `syntax = "proto3";
 package test;
 enum E { E_ZERO = 0; }
-annotation deflt(value: any);
-message M { E f = 1 @deflt(5000000000); }
+annotation default(value: any);
+message M { E f = 1 @default(5000000000); }
 `)
 	for _, d := range rep.Diagnostics {
 		if isError(d) {
@@ -2214,8 +2214,8 @@ message M { E f = 1 @deflt(5000000000); }
 	_, rep2 := compileForAnnotationTest(t, `syntax = "proto3";
 package test;
 enum E { E_ZERO = 0; }
-annotation deflt(value: any);
-message M { E f = 1 @deflt(1e19); }
+annotation default(value: any);
+message M { E f = 1 @default(1e19); }
 `)
 	assert.True(t, hasErrorContaining(rep2, "out of range"),
 		"int64's own bound still applies: %v", rep2.Diagnostics)
