@@ -2071,3 +2071,152 @@ enum E {
 			"an enum value has no element type to bound against: %v", d.Message())
 	}
 }
+
+// TestCarrierBoundRejectsWhatFloatCannotHold is #180: #178 bounded every
+// integer carrier and exempted both float ones, which is right for `double`
+// — double_value IS a double — and wrong for `float`.
+//
+// double_value holds values float32 cannot, and assigning one yields +Inf,
+// indistinguishable from a literal that meant infinity.
+//
+// The bound asks the conversion rather than comparing against MaxFloat32,
+// because a value just above the maximum rounds DOWN to it and is fine;
+// only the ones that round to infinity are out of range. The pair either
+// side of that boundary is below.
+func TestCarrierBoundRejectsWhatFloatCannotHold(t *testing.T) {
+	t.Parallel()
+
+	t.Run("rejected", func(t *testing.T) {
+		t.Parallel()
+		for _, tc := range [][2]string{
+			{"float", "1e300"},
+			{"float", "1e39"},
+			{"float", "3.5e38"},
+			// The sign does not change whether the magnitude fits.
+			{"float", "-1e300"},
+			// And inside a list, where the bound reaches through the same
+			// recursion the integer case uses.
+			{"float", "[1e300]"},
+			{"float", "[3.4e38, 1e300]"},
+			// The wrapper follows through CarrierScalar.
+			{"google.protobuf.FloatValue", "1e300"},
+		} {
+			_, diagnosed := compileCarrier(t, tc[0], tc[1])
+			assert.True(t, diagnosed, "%s must reject %s", tc[0], tc[1])
+		}
+	})
+
+	t.Run("accepted", func(t *testing.T) {
+		t.Parallel()
+		for _, tc := range [][2]string{
+			// MaxFloat32 itself, and a value that rounds down to it.
+			{"float", "3.4028235e38"},
+			{"float", "3.4e38"},
+			{"float", "-3.4e38"},
+			// Underflow is a different question: 1e-50 becomes zero in
+			// float32, which is a value float32 has.
+			{"float", "1e-50"},
+			{"float", "42"},
+			{"float", "1.5"},
+			{"float", "[3.4e38]"},
+			{"google.protobuf.FloatValue", "42"},
+			// `double` needs no bound at all — double_value is a double.
+			{"double", "1e300"},
+			{"double", "1e308"},
+			{"double", "-1e308"},
+			{"google.protobuf.DoubleValue", "1e300"},
+		} {
+			rep, diagnosed := compileCarrier(t, tc[0], tc[1])
+			assert.False(t, diagnosed, "%s must accept %s: %v", tc[0], tc[1], rep.Diagnostics)
+		}
+	})
+}
+
+// TestCarrierBoundRoutesMapByValueType is #183's first item: a map field's
+// Element() is the synthesized `*Entry` message, so the carrier reported no
+// scalar and fell to the int_value bound — rejecting a literal that the
+// bare and repeated forms of the same type both accept.
+//
+// The three are asserted together rather than separately, because the
+// defect was precisely that they disagreed.
+func TestCarrierBoundRoutesMapByValueType(t *testing.T) {
+	t.Parallel()
+
+	t.Run("map agrees with bare and repeated", func(t *testing.T) {
+		t.Parallel()
+		for _, lit := range []string{"1e19", "1e300", "42", "1.5"} {
+			_, bare := compileCarrier(t, "double", lit)
+			_, repeated := compileCarrier(t, "repeated double", lit)
+			_, mapped := compileCarrier(t, "map<string, double>", lit)
+			assert.Equal(t, bare, mapped,
+				"map<string,double> and double must agree on %s", lit)
+			assert.Equal(t, repeated, mapped,
+				"map<string,double> and repeated double must agree on %s", lit)
+		}
+	})
+
+	t.Run("a value type that cannot hold it is still rejected", func(t *testing.T) {
+		t.Parallel()
+		for _, tc := range [][2]string{
+			{"map<string, int64>", "1e19"},
+			{"map<string, int32>", "5000000000"},
+			{"map<string, float>", "1e300"},
+			{"map<string, uint32>", "-3"},
+		} {
+			_, diagnosed := compileCarrier(t, tc[0], tc[1])
+			assert.True(t, diagnosed, "%s must reject %s", tc[0], tc[1])
+		}
+	})
+
+	t.Run("the diagnostic names the value type, not the entry message", func(t *testing.T) {
+		t.Parallel()
+		rep, diagnosed := compileCarrier(t, "map<string, int64>", "1e19")
+		require.True(t, diagnosed)
+		assert.True(t, hasErrorContaining(rep, "the map's value type"),
+			"got: %v", rep.Diagnostics)
+		assert.False(t, hasErrorContaining(rep, "Entry"),
+			"the synthesized entry message is not something the author wrote: %v", rep.Diagnostics)
+	})
+
+	// The key is never the carrier: a single literal cannot denote a pair,
+	// so a key type that could not hold the value is irrelevant.
+	t.Run("the key type is not consulted", func(t *testing.T) {
+		t.Parallel()
+		rep, diagnosed := compileCarrier(t, "map<int32, double>", "1e19")
+		assert.False(t, diagnosed,
+			"the int32 KEY must not bound a value for the double value type: %v", rep.Diagnostics)
+	})
+}
+
+// TestCarrierBoundLeavesEnumAtInt64 pins #183's second item as decided
+// rather than overlooked: an enum value is an int32, and this bound is
+// deliberately int64's.
+//
+// Tightening it would concentrate the false positive checkCarrierRange
+// documents — an enum field is the carrier most likely to hold an argument
+// that is not a value for it — so the downstream rejection is accepted.
+func TestCarrierBoundLeavesEnumAtInt64(t *testing.T) {
+	t.Parallel()
+
+	_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+enum E { E_ZERO = 0; }
+annotation deflt(value: any);
+message M { E f = 1 @deflt(5000000000); }
+`)
+	for _, d := range rep.Diagnostics {
+		if isError(d) {
+			t.Errorf("an enum carrier is bounded at int64 on purpose; got: %s", d.Message())
+		}
+	}
+
+	// int64's bound still applies to it, so the band is caught.
+	_, rep2 := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+enum E { E_ZERO = 0; }
+annotation deflt(value: any);
+message M { E f = 1 @deflt(1e19); }
+`)
+	assert.True(t, hasErrorContaining(rep2, "out of range"),
+		"int64's own bound still applies: %v", rep2.Diagnostics)
+}

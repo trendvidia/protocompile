@@ -1432,6 +1432,71 @@ func TestAnnotationWrapperCarrierMatchesItsScalar(t *testing.T) {
 	}
 }
 
+// TestAnnotationMapCarrierMatchesItsValueType pins #185 on the fdp side.
+//
+// A map field's element type is the synthesized `*Entry` message, so before
+// #183's second decision a map carrier reported no scalar and fell back to
+// the literal's own spelling — `map<string, bytes>` missed the bytes route
+// #179 added and produced a descriptor that would not marshal, while
+// `repeated bytes` was fine. The `ir` side pins the bound
+// (TestCarrierBoundRoutesMapByValueType); this pins the lowering, in the
+// shape the wrapper equivalence above uses: a map must agree with its own
+// value type, member and value both.
+func TestAnnotationMapCarrierMatchesItsValueType(t *testing.T) {
+	t.Parallel()
+
+	for _, pair := range []struct {
+		value    string
+		literals []string
+	}{
+		// A lone 0xff is not valid UTF-8, so bytes is the cell that
+		// decides whether the descriptor can be marshalled at all.
+		{"bytes", []string{`"\xff\xfe"`, `"ok"`}},
+		{"double", []string{"42", "1.5", "1e19"}},
+		{"uint64", []string{"42", "18446744073709551615"}},
+		{"int32", []string{"42", "-2147483648"}},
+		{"string", []string{`"hello"`}},
+		{"bool", []string{"true"}},
+	} {
+		t.Run(pair.value, func(t *testing.T) {
+			t.Parallel()
+			for _, lit := range pair.literals {
+				want := fieldAnnotationArg(t, pair.value, lit)
+				got := fieldAnnotationArg(t, "map<string, "+pair.value+">", lit)
+				assert.Equal(t, fmt.Sprintf("%T", want.Value), fmt.Sprintf("%T", got.Value),
+					"map<string, %s> and %s must pick the same oneof member for %s",
+					pair.value, pair.value, lit)
+				assert.True(t, proto.Equal(want, got),
+					"map<string, %s> and %s must lower %s identically: %v vs %v",
+					pair.value, pair.value, lit, want.Value, got.Value)
+			}
+		})
+	}
+}
+
+// TestAnnotationMapBytesCarrierMarshals states #185's headline symptom
+// outright: the unmarshallable descriptor, one carrier over from #179's.
+func TestAnnotationMapBytesCarrierMarshals(t *testing.T) {
+	t.Parallel()
+
+	f := compileForFDPTest(t, `syntax = "proto3";
+package test;
+
+annotation deflt(value: any);
+
+message M {
+  map<string, bytes> f = 1 @deflt("\xff\xfe");
+}
+`)
+	arg := fieldArg(t, f)
+	require.IsType(t, (*pwsv1.AnnotationArg_BytesValue)(nil), arg.Value,
+		"a map with a bytes value must not route through string_value")
+	assert.Equal(t, []byte{0xff, 0xfe}, arg.GetBytesValue())
+
+	_, err := proto.Marshal(f)
+	require.NoError(t, err, "the descriptor must serialize; this is the symptom #185 is about")
+}
+
 // TestAnnotationWrapperCarrierFixesTheBand states #174's headline outright,
 // so the reported symptom is visible in the test name and not only implied
 // by the equivalence above.
