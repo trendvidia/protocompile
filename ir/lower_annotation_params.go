@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/trendvidia/protocompile/ast"
 	"github.com/trendvidia/protocompile/ast/predeclared"
@@ -338,6 +339,12 @@ func validateAnnotationUseArg(
 		return
 	}
 
+	// Applies to every parameter kind, so it sits outside the switch: the
+	// question is only which oneof member the literal lands in, and a
+	// declared `string` parameter reaches string_value just as an untyped
+	// argument on a `string` carrier does.
+	checkStringLiteralUTF8(r, target, param, value, carrier)
+
 	switch {
 	case param.IsAny():
 		validateAnyArg(r, u, target, param, b.Arg)
@@ -355,6 +362,99 @@ func validateAnnotationUseArg(
 			validateMessageArg(r, u, target, param, b.Arg, ut)
 		}
 	}
+}
+
+// lowersToBytesValue reports whether a string literal bound to this
+// parameter reaches `bytes_value` rather than `string_value`.
+//
+// It mirrors the string branch of fdp.buildLiteralArg exactly. Mirroring
+// rather than sharing is the risk, as it is for checkCarrierRange;
+// TestNonUTF8IsDiagnosedExactlyWhereItReachesStringValue pins the pair
+// together.
+func lowersToBytesValue(param AnnotationParam, carrier Type) bool {
+	if param.IsScalar() {
+		return param.Scalar() == predeclared.Bytes
+	}
+	if !param.IsZero() && !param.IsAny() {
+		return false
+	}
+	// An annotation attached to nothing — a message, a service, a file —
+	// has no carrier to consult, so the literal keeps its own spelling and
+	// reaches string_value.
+	if carrier.IsZero() {
+		return false
+	}
+	return carrier.CarrierScalar() == predeclared.Bytes
+}
+
+// checkStringLiteralUTF8 rejects a string literal whose content is not
+// valid UTF-8 when it would reach `string_value`.
+//
+// `string_value` is a proto3 `string`, which cannot hold non-UTF-8 bytes:
+// the FileDescriptorProto this compiler emits then fails proto.Marshal
+// outright, breaking anything that writes the image rather than only
+// annotation-aware readers. #179 closed that for a `bytes` carrier by
+// routing to bytes_value; every other carrier still reached string_value
+// and still failed to marshal (#184).
+//
+// Diagnosing rather than re-routing is deliberate. Routing on the
+// literal's CONTENT would hand a consumer bytes_value from a parameter
+// its own declaration promises is a `string` — the type would depend on
+// whether the value happened to be valid UTF-8. There is no valid
+// string_value for these bytes, so the source cannot mean what it says,
+// and the only question is whether it is reported here or at marshal time
+// somewhere else. Carrying arbitrary content is what `bytes` is for.
+func checkStringLiteralUTF8(
+	r *report.Report,
+	target Annotation,
+	param AnnotationParam,
+	arg ast.ExprAny,
+	carrier Type,
+) {
+	if lowersToBytesValue(param, carrier) {
+		return
+	}
+	checkStringLiteralUTF8Value(r, target, param, arg)
+}
+
+func checkStringLiteralUTF8Value(
+	r *report.Report,
+	target Annotation,
+	param AnnotationParam,
+	arg ast.ExprAny,
+) {
+	// A list lowers each element through the same routing, so a bad
+	// element is as unmarshallable as a bad argument. Nested lists
+	// recurse for the same reason.
+	if arg.Kind() == ast.ExprKindArray {
+		for elem := range seq.Values(arg.AsArray().Elements()) {
+			checkStringLiteralUTF8Value(r, target, param, elem)
+		}
+		return
+	}
+	if arg.Kind() != ast.ExprKindLiteral {
+		return
+	}
+	lit := arg.AsLiteral()
+	if lit.Token.Kind() != token.String {
+		return
+	}
+	text := lit.Token.AsString().Text()
+	if utf8.ValidString(text) {
+		return
+	}
+
+	r.Errorf("argument %q for `%s` is not valid UTF-8",
+		param.Name(), target.FullName(),
+	).Apply(
+		report.Snippet(arg),
+		report.Snippetf(param.AST(), "parameter declared here"),
+		report.Notef("it is lowered into `string_value`, a protobuf `string`, "+
+			"which cannot carry these bytes — the descriptor would fail to "+
+			"serialize"),
+		report.Notef("declare the parameter `bytes`, or annotate a `bytes` "+
+			"member, to carry arbitrary content"),
+	)
 }
 
 // validateUseEnumArg checks a use-site argument bound to an enum-
@@ -663,6 +763,20 @@ func allAnnotationUses(file *File) func(yield func(AnnotationUse, Type) bool) {
 			return true
 		}
 		for ty := range seq.Values(file.AllTypes()) {
+			// A synthesized map entry reports the annotations of the field
+			// that produced it, so walking it yields every map-field
+			// annotation a second time — with the zero Type, because an
+			// entry message is not a member. Nothing an author wrote lives
+			// on an entry message: `@note` on `map<string, int32> f` was
+			// written on `f`, and is already emitted above through it.
+			//
+			// Harmless while the only zero-carrier check returned
+			// immediately; checkStringLiteralUTF8 is the first that does
+			// not, and saw a `map<string, bytes>` argument as though it
+			// were annotating a message.
+			if ty.IsMapEntry() {
+				continue
+			}
 			if !emit(ty.Annotations(), Type{}) {
 				return
 			}
