@@ -335,6 +335,23 @@ func buildLiteralArg(lit ast.ExprLiteral, param ir.AnnotationParam, carrier pred
 	// accepts.
 	untyped := param.IsZero() || param.IsAny()
 
+	// The type this argument converts to. A declared scalar names it; an
+	// untyped parameter takes it from the annotated element, and Unknown
+	// where there is no element type — the literal's own type then stands.
+	target := predeclared.Unknown
+	switch {
+	case param.IsScalar():
+		target = param.Scalar()
+	case untyped:
+		target = carrier
+	}
+
+	// The member comes from ir's conversion rule rather than from a copy
+	// of it here. A kind mismatch is diagnosed in ir before lowering runs,
+	// and ConvertArgKind still reports the literal's own member for one,
+	// so a file that will not compile still lowers to something.
+	member, _ := ir.ConvertArgKind(ir.ArgLiteralKindOf(tok), target)
+
 	switch tok.Kind() {
 	case token.String:
 		text := tok.AsString().Text()
@@ -359,8 +376,7 @@ func buildLiteralArg(lit ast.ExprLiteral, param ir.AnnotationParam, carrier pred
 		// therefore rejected outright, exactly as an untyped argument on a
 		// `string` carrier is; carrying arbitrary content is what `bytes`
 		// is for.
-		if (param.IsScalar() && param.Scalar() == predeclared.Bytes) ||
-			(untyped && carrier == predeclared.Bytes) {
+		if member == ir.ArgMemberBytes {
 			return &pwsv1.AnnotationArg{
 				Value: &pwsv1.AnnotationArg_BytesValue{BytesValue: []byte(text)},
 			}
@@ -390,9 +406,7 @@ func buildLiteralArg(lit ast.ExprLiteral, param ir.AnnotationParam, carrier pred
 		// float, so `@default(1e19)` on a message carrier was typed as an
 		// integer and overflowed to -8446744073709551616 — #172's symptom,
 		// surviving in the one place carrier routing cannot reach (#188).
-		if param.IsScalar() && isFloatScalar(param.Scalar()) ||
-			untyped && isFloatScalar(carrier) ||
-			untyped && num.IsFloatSpelling() {
+		if member == ir.ArgMemberDouble {
 			f, _ := num.Float()
 			return &pwsv1.AnnotationArg{
 				Value: &pwsv1.AnnotationArg_DoubleValue{DoubleValue: f},
@@ -431,12 +445,6 @@ func buildLiteralArg(lit ast.ExprLiteral, param ir.AnnotationParam, carrier pred
 		}
 	}
 	return nil
-}
-
-// isFloatScalar reports whether the predeclared scalar is `float` or
-// `double` — i.e., should be lowered into AnnotationArg.double_value.
-func isFloatScalar(n predeclared.Name) bool {
-	return n == predeclared.Float || n == predeclared.Double
 }
 
 // emitFileAnnotationDecls populates the [pwsv1.FileAnnotationDecls]

@@ -685,9 +685,17 @@ var wrapperScalars = map[string]predeclared.Name{
 	"google.protobuf.BytesValue":  predeclared.Bytes,
 }
 
-// CarrierScalar gives the scalar type an annotation attached to a member of
-// this type should be routed and bounded by, or [predeclared.Unknown] when
-// there is none.
+// CarrierScalar gives the scalar type an `any` annotation argument attached
+// to a member of this type is CONVERTED TO, or [predeclared.Unknown] when
+// there is none and the literal keeps its own type.
+//
+// It resolves a conversion TARGET. It began as a routing hint — something
+// consulted to pick an oneof member when the literal's spelling was
+// ambiguous — and the difference matters: a hint is harmless when wrong,
+// because the value survives in another member, while a target decides
+// whether the source compiles. Both the lowering and the diagnostics reach
+// it through [ConvertArgKind], so there is one answer rather than two that
+// have to agree (#188).
 //
 // A wrapper resolves to the scalar it wraps: `google.protobuf.DoubleValue`
 // is the canonical nullable double, and a `@default` on one is a value for

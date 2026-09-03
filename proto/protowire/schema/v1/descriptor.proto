@@ -63,6 +63,33 @@ message Annotation {
 }
 
 // AnnotationArg is a single argument. `name` is empty for positional args.
+//
+// # Choosing the member
+//
+// Which oneof member an argument lowers into is decided by TYPE — never by
+// the literal's magnitude, and never by its content.
+//
+// For a parameter with a declared type, the declaration decides: the
+// argument is converted to that type, and a literal the type cannot hold is
+// a compile error.
+//
+// For a parameter declared `any`, the argument is first typed by its own
+// literal — `1e19` is a float because it is spelled as one, `"x"` is a
+// string — and is then converted to the type of the element the annotation
+// is attached to: the field, enum value, or method it annotates. A literal
+// that cannot be converted to that type, in kind or in range, is a compile
+// error. Where there is no such type — a message-, service-, enum- or
+// file-level annotation — the literal's own type stands and no conversion
+// is attempted.
+//
+// `any` is therefore for annotations carrying a VALUE for the thing they
+// annotate. An annotation carrying a note, a timestamp or a limit declares
+// its parameter type and is converted against that declaration instead;
+// leaving such a parameter `any` binds it to the annotated element's type,
+// which is not what it means.
+//
+// Message literals are unaffected: their type comes from the declaration or
+// an explicit use-site type name, as `Literal` describes.
 message AnnotationArg {
   string name = 1;
 
@@ -211,6 +238,9 @@ enum ParamType {
   DOUBLE = 6;
   BOOL = 7;
   BYTES = 8;
+  // Accepts any literal shape; the argument is typed by its own literal
+  // and then converted to the annotated element's type. See AnnotationArg,
+  // "Choosing the member".
   ANY = 9;
   ENUM_OR_MESSAGE = 10;
 }

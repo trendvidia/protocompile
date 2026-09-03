@@ -364,27 +364,25 @@ func validateAnnotationUseArg(
 	}
 }
 
-// lowersToBytesValue reports whether a string literal bound to this
-// parameter reaches `bytes_value` rather than `string_value`.
+// argTarget is the type an argument converts to: the parameter's declared
+// scalar, or — for an untyped parameter, meaning none at all or `any` —
+// the annotated element's. Unknown means there is nothing to convert to
+// and the literal's own type stands.
 //
-// It mirrors the string branch of fdp.buildLiteralArg exactly. Mirroring
-// rather than sharing is the risk, as it is for checkCarrierRange;
-// TestNonUTF8IsDiagnosedExactlyWhereItReachesStringValue pins the pair
-// together.
-func lowersToBytesValue(param AnnotationParam, carrier Type) bool {
+// This is the same resolution fdp.buildLiteralArg performs, and the two
+// must agree; ConvertArgKind is what they share so the agreement is not a
+// matter of two comments promising each other.
+func argTarget(param AnnotationParam, carrier Type) predeclared.Name {
 	if param.IsScalar() {
-		return param.Scalar() == predeclared.Bytes
+		return param.Scalar()
 	}
 	if !param.IsZero() && !param.IsAny() {
-		return false
+		return predeclared.Unknown
 	}
-	// An annotation attached to nothing — a message, a service, a file —
-	// has no carrier to consult, so the literal keeps its own spelling and
-	// reaches string_value.
 	if carrier.IsZero() {
-		return false
+		return predeclared.Unknown
 	}
-	return carrier.CarrierScalar() == predeclared.Bytes
+	return carrier.CarrierScalar()
 }
 
 // checkStringLiteralUTF8 rejects a string literal whose content is not
@@ -411,7 +409,12 @@ func checkStringLiteralUTF8(
 	arg ast.ExprAny,
 	carrier Type,
 ) {
-	if lowersToBytesValue(param, carrier) {
+	// Only what actually reaches string_value. A `bytes` target takes the
+	// content as-is, and a target that cannot hold a string at all is
+	// already reported as a kind mismatch — saying it twice, once for the
+	// kind and once for the encoding, describes one mistake as two.
+	member, convertible := ConvertArgKind(ArgLiteralString, argTarget(param, carrier))
+	if !convertible || member != ArgMemberString {
 		return
 	}
 	checkStringLiteralUTF8Value(r, target, param, arg)
@@ -1189,13 +1192,6 @@ func checkCarrierRange(
 		describe = fmt.Sprintf("the scalar `%s` wrapped by the annotated type `%s`",
 			bound, carrier.FullName())
 	}
-	if bound == predeclared.Double {
-		// double_value IS a double, so there is nothing it cannot hold.
-		// `float` is not exempt: see the float32 case in
-		// checkCarrierRangeValue.
-		return
-	}
-
 	checkCarrierRangeValue(r, target, param, arg, bound, describe)
 }
 
@@ -1234,14 +1230,52 @@ func checkCarrierRangeValue(
 		negative = true
 		value = pref.Expr()
 	}
-	if value.Kind() != ast.ExprKindLiteral {
-		return
+	// Classify the argument by how it is WRITTEN, then ask the shared
+	// conversion rule what it converts to. A kind mismatch — a string on a
+	// numeric target, a number on a `bool` — is an error whatever the
+	// value: this is the half that did not exist before #188, and the one
+	// that made every cell of the #165–#187 family reachable.
+	kind := ArgLiteralNone
+	switch value.Kind() {
+	case ast.ExprKindLiteral:
+		kind = ArgLiteralKindOf(value.AsLiteral().Token)
+	case ast.ExprKindPath:
+		if name, ok := isSingleIdent(value.AsPath().Path); ok && (name == "true" || name == "false") {
+			kind = ArgLiteralBool
+		}
 	}
-	lit := value.AsLiteral()
-	if lit.Token.Kind() != token.Number {
+	if kind == ArgLiteralNone {
+		// An enum reference, a message literal: not this rule's business.
 		return
 	}
 
+	member, convertible := ConvertArgKind(kind, bound)
+	if !convertible {
+		r.Errorf("argument %q for `%s` is a %s literal, which %s cannot hold",
+			param.Name(), target.FullName(), kind, describe,
+		).Apply(
+			report.Snippet(arg),
+			report.Snippetf(param.AST(), "parameter declared here"),
+			report.Notef("an `any` argument is converted to the type of the element "+
+				"it annotates; declare the parameter's type if it does not carry a "+
+				"value for that element"),
+		)
+		return
+	}
+	if kind != ArgLiteralInt && kind != ArgLiteralFloat {
+		// Only numbers have a range or an integrality question.
+		return
+	}
+	if bound == predeclared.Double {
+		// double_value IS a double, so there is no numeric range it
+		// cannot hold. This used to skip the whole check, which also
+		// skipped the KIND question above and let `double f = 1
+		// @default("hello")` through — so it now skips only the range.
+		// `float` is not exempt: see the float32 case below.
+		return
+	}
+
+	lit := value.AsLiteral()
 	num0 := lit.Token.AsNumber()
 
 	// A float carrier is bounded by its OWN width, not by int_value's: its
@@ -1269,25 +1303,49 @@ func checkCarrierRangeValue(
 		return
 	}
 
-	// Bound only what actually lands in `int_value`. A float-spelled
-	// literal, and one that does not fit uint64, are routed to
-	// `double_value` instead (#149, #165) — and so is a NEGATIVE literal
-	// whose magnitude exceeds int64, because negating a reinterpreted
-	// magnitude would flip the sign back. Bounding those would reject
-	// values that lower correctly.
-	//
-	// Mirroring the lowering rather than restating it is the risk here: if
-	// buildLiteralArg's routing changes, this guard has to change with it.
-	// TestCarrierBoundOnlyRejectsWhatLowersAsInt pins the pair together.
+	// Bound only what actually lands in `int_value`. The member comes from
+	// the same ConvertArgKind the lowering uses, so this no longer mirrors
+	// buildLiteralArg and cannot drift from it.
 	num := lit.Token.AsNumber()
-	if num.IsFloatSpelling() {
+	if member != ArgMemberInt {
 		return
 	}
+
+	// A float-spelled literal converts to an integer target only if it IS
+	// an integer: `1e2` is 100, `1.5` is not an integer at all. Int rounds,
+	// so ask Float and compare rather than trusting the rounded value.
+	if kind == ArgLiteralFloat {
+		f, _ := num.Float()
+		if f != math.Trunc(f) || math.IsInf(f, 0) {
+			r.Errorf("argument %q for `%s` is not an integer, but %s is",
+				param.Name(), target.FullName(), describe,
+			).Apply(
+				report.Snippet(arg),
+				report.Notef("a floating-point literal converts to an integer "+
+					"target only when it has no fractional part"),
+			)
+			return
+		}
+	}
+
 	magnitude, exact := num.Int()
 	if !exact {
+		// The value does not fit uint64 at all, so integerRangeFault has
+		// nothing to read; report it against the target directly.
+		r.Errorf("argument %q for `%s` is out of range for %s",
+			param.Name(), target.FullName(), describe,
+		).Apply(report.Snippet(arg))
 		return
 	}
+	// A negative magnitude past int64 was skipped while the lowering's
+	// answer was `double_value` — buildArgValue still falls back to one,
+	// as a net under source that no longer compiles. The value is not
+	// representable in the target either way, so it is reported here now
+	// rather than silently changing member.
 	if negative && magnitude > 1<<63 {
+		r.Errorf("argument %q for `%s` is out of range for %s",
+			param.Name(), target.FullName(), describe,
+		).Apply(report.Snippet(arg))
 		return
 	}
 

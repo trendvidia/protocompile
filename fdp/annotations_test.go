@@ -1132,15 +1132,15 @@ message M {}
 			isDouble: true, wantDouble: 18446744073709551616,
 		},
 
-		// An exponent with integer value takes the integer path —
-		// IsFloat is false for it, as documented ("can only be used as a
-		// float literal, even if it has integer value"). So exactness,
-		// not spelling, is what separates these two.
-		{name: "any/exponent_in_range", param: "any", lit: "1e10", wantInt: 10000000000},
+		// An exponent is a FLOAT spelling, so with no target to convert to
+		// these keep their own type (#188). They used to take the integer
+		// path, because the lexer does not count a positive exponent as a
+		// float (#191) — which is how `1e19` reached a carrier as
+		// int_value: -8446744073709551616, the symptom that opened this
+		// whole family in #172.
+		{name: "any/exponent_in_range", param: "any", lit: "1e10", isDouble: true, wantDouble: 1e10},
 		{name: "any/exponent_out_of_range", param: "any", lit: "1e100", isDouble: true, wantDouble: 1e100},
-		// Exact, and large enough to wrap into a negative int64. Carried
-		// as two's complement by design, the same as uint64/max.
-		{name: "any/exponent_at_wrap", param: "any", lit: "1e19", wantInt: -8446744073709551616},
+		{name: "any/exponent_at_wrap", param: "any", lit: "1e19", isDouble: true, wantDouble: 1e19},
 		{
 			name: "any/big_int_out_of_range", param: "any", lit: "99999999999999999999999",
 			isDouble: true, wantDouble: 1e23,
@@ -1326,10 +1326,14 @@ func TestAnnotationUntypedArgRoutesByCarrier(t *testing.T) {
 		}
 	})
 
-	t.Run("out of uint64 range still lowers as double on any carrier", func(t *testing.T) {
+	t.Run("out of uint64 range converts only on a float carrier", func(t *testing.T) {
 		t.Parallel()
-		// #165's rule is independent of the carrier and keeps working.
-		for _, field := range []string{"uint64", "int64", "double"} {
+		// #165's rule was carrier-independent: 1e100 lowered to
+		// double_value everywhere, including onto integer fields that
+		// cannot hold it. Under #188 the target decides — a float carrier
+		// holds it, an integer carrier is a compile error — so only the
+		// float half is asserted here; ir pins the rejections.
+		for _, field := range []string{"double"} {
 			arg := fieldAnnotationArg(t, field, "1e100")
 			require.IsType(t, (*pwsv1.AnnotationArg_DoubleValue)(nil), arg.Value,
 				"%s field: want double_value, got %v", field, arg.Value)
@@ -1338,31 +1342,64 @@ func TestAnnotationUntypedArgRoutesByCarrier(t *testing.T) {
 	})
 }
 
-// TestAnnotationUntypedArgWithoutACarrierKeepsSpelling pins the other side:
-// an annotation on a message has no element type to route by, so the
-// literal's own spelling still decides. Nothing can be consulted there, and
-// a value in the band stays ambiguous — which is the documented limit of
-// the #172 fix rather than an oversight.
+// TestAnnotationUntypedArgWithoutACarrierKeepsSpelling pins the other
+// side: an annotation on a message has no element type to convert to, so
+// the literal's own type stands — which is what RFC-001 means by an `any`
+// argument carrying its own typing.
+//
+// This test used to assert the opposite, and was the last live instance of
+// #172's original symptom: `1e19` is written in floating-point notation
+// but the lexer does not count a positive exponent as a float (#191), so
+// it took the integer path and overflowed int64 to
+// -8446744073709551616. Carrier routing could not reach it, because there
+// is no carrier here — which is what showed the fix had been applied one
+// layer too high (#188).
 func TestAnnotationUntypedArgWithoutACarrierKeepsSpelling(t *testing.T) {
 	t.Parallel()
 
+	for _, tc := range []struct {
+		lit  string
+		want float64
+	}{
+		{"1e19", 1e19},
+		{"1.5", 1.5},
+		{"1e10", 1e10},
+	} {
+		f := compileForFDPTest(t, `syntax = "proto3";
+package test;
+
+annotation default(value: any);
+
+@default(`+tc.lit+`)
+message M {}
+`)
+		list, _ := proto.GetExtension(
+			f.GetMessageType()[0].Options, pwsv1.E_MessageAnnotations).(*pwsv1.AnnotationList)
+		require.NotNil(t, list, "carries no message annotations extension")
+		require.Len(t, list.Entries, 1)
+		require.Len(t, list.Entries[0].Args, 1)
+
+		arg := list.Entries[0].Args[0]
+		require.IsType(t, (*pwsv1.AnnotationArg_DoubleValue)(nil), arg.Value,
+			"%s is written as a float and has no target; got %v", tc.lit, arg.Value)
+		assert.InDelta(t, tc.want, arg.GetDoubleValue(), 0)
+	}
+
+	// An integer spelling still keeps its own type too.
 	f := compileForFDPTest(t, `syntax = "proto3";
 package test;
 
 annotation default(value: any);
 
-@default(1e19)
+@default(42)
 message M {}
 `)
 	list, _ := proto.GetExtension(
 		f.GetMessageType()[0].Options, pwsv1.E_MessageAnnotations).(*pwsv1.AnnotationList)
 	require.NotNil(t, list, "carries no message annotations extension")
-	require.Len(t, list.Entries, 1)
-	require.Len(t, list.Entries[0].Args, 1)
-
 	arg := list.Entries[0].Args[0]
 	require.IsType(t, (*pwsv1.AnnotationArg_IntValue)(nil), arg.Value)
-	assert.Equal(t, int64(-8446744073709551616), arg.GetIntValue())
+	assert.Equal(t, int64(42), arg.GetIntValue())
 }
 
 // wrapperAnnotationArg is [fieldAnnotationArg] for a field whose type is a
@@ -1872,6 +1909,247 @@ message M {
 `)
 	assert.Len(t, errs, 1,
 		"one bad argument, one diagnostic; two means the map entry was walked as a carrier too")
+}
+
+// TestAnyArgumentConvertsToItsTarget is #188's headline: one rule, not a
+// routing hint plus a bound that mirrors it.
+//
+// An `any` argument is typed by its own literal and then converted to the
+// type of the element it annotates. Every shape below reaches that rule
+// through a different path — a bare scalar, a wrapper message, a map
+// value, a repeated element, and no target at all — and one literal
+// therefore has one answer everywhere.
+func TestAnyArgumentConvertsToItsTarget(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a float target holds 1e19 whatever shape it arrives in", func(t *testing.T) {
+		t.Parallel()
+		for _, field := range []string{
+			"double",
+			"google.protobuf.DoubleValue",
+			"map<string, double>",
+			"repeated double",
+		} {
+			arg := fieldAnnotationArgImporting(t, field, "1e19")
+			require.IsType(t, (*pwsv1.AnnotationArg_DoubleValue)(nil), arg.Value,
+				"%s: want double_value, got %v", field, arg.Value)
+			assert.InDelta(t, 1e19, arg.GetDoubleValue(), 1)
+		}
+	})
+
+	t.Run("no target leaves the literal its own type", func(t *testing.T) {
+		t.Parallel()
+		f := compileForFDPTest(t, `syntax = "proto3";
+package test;
+
+annotation default(value: any);
+
+@default(1e19)
+message M {}
+`)
+		list, _ := proto.GetExtension(
+			f.GetMessageType()[0].Options, pwsv1.E_MessageAnnotations).(*pwsv1.AnnotationList)
+		require.NotNil(t, list, "carries no message annotations extension")
+		arg := list.Entries[0].Args[0]
+		require.IsType(t, (*pwsv1.AnnotationArg_DoubleValue)(nil), arg.Value)
+		assert.InDelta(t, 1e19, arg.GetDoubleValue(), 1)
+	})
+
+	t.Run("an integer target cannot hold 1e19", func(t *testing.T) {
+		t.Parallel()
+		for _, field := range []string{"int32", "int64"} {
+			_, errs := compileForFDPTestDiags(t, `syntax = "proto3";
+package test;
+
+annotation default(value: any);
+
+message M {
+  `+field+` f = 1 @default(1e19);
+}
+`)
+			require.NotEmpty(t, errs, "%s must reject 1e19", field)
+			assert.Contains(t, errs[0], "out of range",
+				"%s: the diagnostic must say what is wrong", field)
+			assert.Contains(t, errs[0], field,
+				"%s: the diagnostic must name the target type", field)
+		}
+	})
+
+	t.Run("a float spelling that is an integer converts to the target", func(t *testing.T) {
+		t.Parallel()
+		// The member follows the TARGET, not the spelling: `1e2` is 100,
+		// and an int32 field carries an integer.
+		arg := fieldAnnotationArg(t, "int32", "1e2")
+		require.IsType(t, (*pwsv1.AnnotationArg_IntValue)(nil), arg.Value,
+			"got %v", arg.Value)
+		assert.Equal(t, int64(100), arg.GetIntValue())
+	})
+
+	t.Run("a float spelling that is not an integer does not", func(t *testing.T) {
+		t.Parallel()
+		_, errs := compileForFDPTestDiags(t, `syntax = "proto3";
+package test;
+
+annotation default(value: any);
+
+message M {
+  int32 f = 1 @default(1.5);
+}
+`)
+		require.NotEmpty(t, errs)
+		assert.Contains(t, errs[0], "not an integer")
+	})
+}
+
+// TestAnyArgumentKindMismatchIsDiagnosed covers the cell the family never
+// had an answer for. Before #188 every one of these compiled with zero
+// diagnostics, and one of them emitted a descriptor that could not be
+// marshalled at all.
+func TestAnyArgumentKindMismatchIsDiagnosed(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct{ field, lit string }{
+		{"int32", `"hello"`},
+		{"int32", `"\xff\xfe"`},
+		{"int64", `"hello"`},
+		{"uint32", `"hello"`},
+		{"double", `"hello"`},
+		{"float", `"3.14"`},
+		{"bool", `"true"`},
+		{"string", "42"},
+		{"string", "true"},
+		{"bool", "42"},
+		{"int32", "true"},
+		{"bytes", "42"},
+	} {
+		t.Run(tc.field+"_"+tc.lit, func(t *testing.T) {
+			t.Parallel()
+			_, errs := compileForFDPTestDiags(t, `syntax = "proto3";
+package test;
+
+annotation default(value: any);
+
+message M {
+  `+tc.field+` f = 1 @default(`+tc.lit+`);
+}
+`)
+			require.NotEmpty(t, errs,
+				"%s carrier must reject %s", tc.field, tc.lit)
+			assert.Contains(t, errs[0], "cannot hold",
+				"the diagnostic must name the literal's type and the target")
+		})
+	}
+}
+
+// TestNonValueAnnotationMustDeclareItsParameter records the cost Option A
+// accepts deliberately, so it is visible rather than discovered.
+//
+// `@since` carries a timestamp, not a value for the field. Left `any`, it
+// is converted to the annotated element's type and rejected. The remedy is
+// to declare what the parameter carries, which the diagnostic says.
+func TestNonValueAnnotationMustDeclareItsParameter(t *testing.T) {
+	t.Parallel()
+
+	_, errs := compileForFDPTestDiags(t, `syntax = "proto3";
+package test;
+
+annotation since(value: any);
+
+message M {
+  int32 f = 1 @since(20250101000000);
+}
+`)
+	require.NotEmpty(t, errs,
+		"an untyped argument is converted to the annotated element's type")
+
+	// Declaring the parameter is the fix, and it compiles.
+	_, errs = compileForFDPTestDiags(t, `syntax = "proto3";
+package test;
+
+annotation since(value: int64);
+
+message M {
+  int32 f = 1 @since(20250101000000);
+}
+`)
+	assert.Empty(t, errs, "a declared parameter converts against its declaration, not the carrier")
+}
+
+// fieldAnnotationArgImporting is [fieldAnnotationArg] for field types that
+// may need the wrappers import.
+func fieldAnnotationArgImporting(t *testing.T, fieldType, lit string) *pwsv1.AnnotationArg {
+	t.Helper()
+	imports := ""
+	if strings.Contains(fieldType, "google.protobuf.") {
+		imports = "import \"google/protobuf/wrappers.proto\";\n"
+	}
+	return fieldArg(t, compileForFDPTest(t, fmt.Sprintf(`syntax = "proto3";
+package test;
+
+%s
+annotation default(value: any);
+
+message M {
+  %s f = 1 @default(%s);
+}
+`, imports, fieldType, lit)))
+}
+
+// TestEverythingThatCompilesMarshals is the invariant underneath this
+// whole family, swept rather than sampled: whatever a file means, a
+// descriptor this compiler emits without diagnostics must serialize.
+//
+// #179 and #184 were each one cell where it did not. The sweep is what
+// makes the next cell fail here rather than downstream.
+func TestEverythingThatCompilesMarshals(t *testing.T) {
+	t.Parallel()
+
+	carriers := []string{
+		"double", "float", "int32", "int64", "uint32", "uint64",
+		"sint32", "sint64", "fixed32", "fixed64", "sfixed32", "sfixed64",
+		"bool", "string", "bytes",
+		"repeated int32", "repeated bytes", "repeated string",
+		"map<string, int32>", "map<string, bytes>", "map<string, double>",
+	}
+	literals := []string{
+		"42", "-42", "0", "1.5", "-1.5", "1e2", "1e19", "1e100",
+		"18446744073709551615", "-18446744073709551615",
+		`"hello"`, `"\xff\xfe"`, `""`, "true", "false",
+		"[1, 2]", `["a", "b"]`, "[]",
+	}
+
+	compiled, marshalled := 0, 0
+	for _, carrier := range carriers {
+		for _, lit := range literals {
+			f, errs := compileForFDPTestDiags(t, `syntax = "proto3";
+package test;
+
+annotation default(value: any);
+
+message M {
+  `+carrier+` f = 1 @default(`+lit+`);
+}
+`)
+			if len(errs) > 0 || f == nil {
+				continue
+			}
+			compiled++
+			_, err := proto.Marshal(f)
+			if assert.NoError(t, err,
+				"%s @default(%s) compiled clean but does not serialize", carrier, lit) {
+				marshalled++
+			}
+		}
+	}
+
+	// A positive marker: if the fixtures stopped compiling for an
+	// unrelated reason this would silently assert nothing.
+	require.Greater(t, compiled, 100,
+		"the sweep must actually exercise cases; got %d of %d",
+		compiled, len(carriers)*len(literals))
+	assert.Equal(t, compiled, marshalled)
+	t.Logf("sweep: %d of %d cells compiled, %d marshalled",
+		compiled, len(carriers)*len(literals), marshalled)
 }
 
 // helperT is what the extraction helpers need from *testing.T: testify's
