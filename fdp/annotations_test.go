@@ -1251,7 +1251,7 @@ function f() [ratio = 1.5, whole = 2.0, count = 3, negative = -2];
 // returns the lowered argument.
 func fieldAnnotationArg(t *testing.T, fieldType, lit string) *pwsv1.AnnotationArg {
 	t.Helper()
-	f := compileForFDPTest(t, fmt.Sprintf(`syntax = "proto3";
+	return fieldArg(t, compileForFDPTest(t, fmt.Sprintf(`syntax = "proto3";
 package test;
 
 annotation deflt(value: any);
@@ -1259,17 +1259,7 @@ annotation deflt(value: any);
 message M {
   %s f = 1 @deflt(%s);
 }
-`, fieldType, lit))
-	require.Len(t, f.GetMessageType(), 1)
-	require.Len(t, f.GetMessageType()[0].GetField(), 1)
-	fdp := f.GetMessageType()[0].GetField()[0]
-	require.NotNil(t, fdp.Options)
-	list, ok := proto.GetExtension(fdp.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
-	require.True(t, ok)
-	require.NotNil(t, list)
-	require.Len(t, list.Entries, 1)
-	require.Len(t, list.Entries[0].Args, 1)
-	return list.Entries[0].Args[0]
+`, fieldType, lit)))
 }
 
 // TestAnnotationUntypedArgRoutesByCarrier pins the rule issue #172 is about:
@@ -1382,7 +1372,7 @@ message M {}
 // google.protobuf wrapper, which needs the import.
 func wrapperAnnotationArg(t *testing.T, wrapper, lit string) *pwsv1.AnnotationArg {
 	t.Helper()
-	f := compileForFDPTest(t, fmt.Sprintf(`syntax = "proto3";
+	return fieldArg(t, compileForFDPTest(t, fmt.Sprintf(`syntax = "proto3";
 package test;
 
 import "google/protobuf/wrappers.proto";
@@ -1392,14 +1382,7 @@ annotation deflt(value: any);
 message M {
   google.protobuf.%s f = 1 @deflt(%s);
 }
-`, wrapper, lit))
-	fdp := f.GetMessageType()[0].GetField()[0]
-	require.NotNil(t, fdp.Options)
-	list, ok := proto.GetExtension(fdp.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
-	require.True(t, ok)
-	require.Len(t, list.Entries, 1)
-	require.Len(t, list.Entries[0].Args, 1)
-	return list.Entries[0].Args[0]
+`, wrapper, lit)))
 }
 
 // TestAnnotationWrapperCarrierMatchesItsScalar pins #174 as the property it
@@ -1459,4 +1442,178 @@ func TestAnnotationWrapperCarrierFixesTheBand(t *testing.T) {
 	require.IsType(t, (*pwsv1.AnnotationArg_DoubleValue)(nil), arg.Value,
 		"got %v — a DoubleValue field must not receive the two's-complement int", arg.Value)
 	assert.InDelta(t, 1e19, arg.GetDoubleValue(), 1)
+}
+
+// TestAnnotationBytesCarrierTakesBytesValue is #179.
+//
+// `string_value` is a proto3 string and so must be valid UTF-8. A bytes
+// default frequently is not, and the untyped path sent every string literal
+// there regardless of the carrier — so `@default("\xff\xfe")` on a `bytes`
+// field put raw ff fe into a string field and the descriptor could no
+// longer be MARSHALLED. That breaks anything writing the image out, not
+// only annotation-aware readers, which is why the assertion below is on
+// proto.Marshal rather than on the member alone.
+func TestAnnotationBytesCarrierTakesBytesValue(t *testing.T) {
+	t.Parallel()
+
+	// A lone 0xff is not valid UTF-8 in any position.
+	const nonUTF8 = `"\xff\xfe"`
+
+	t.Run("bytes carrier", func(t *testing.T) {
+		t.Parallel()
+		f := compileForFDPTest(t, `syntax = "proto3";
+package test;
+
+annotation deflt(value: any);
+
+message M {
+  bytes f = 1 @deflt(`+nonUTF8+`);
+}
+`)
+		arg := fieldArg(t, f)
+		require.IsType(t, (*pwsv1.AnnotationArg_BytesValue)(nil), arg.Value,
+			"a bytes carrier must not route through string_value")
+		assert.Equal(t, []byte{0xff, 0xfe}, arg.GetBytesValue())
+
+		_, err := proto.Marshal(f)
+		require.NoError(t, err, "the descriptor must serialize; this is the symptom #179 is about")
+	})
+
+	t.Run("BytesValue wrapper carrier", func(t *testing.T) {
+		t.Parallel()
+		f := compileForFDPTest(t, `syntax = "proto3";
+package test;
+
+import "google/protobuf/wrappers.proto";
+
+annotation deflt(value: any);
+
+message M {
+  google.protobuf.BytesValue f = 1 @deflt(`+nonUTF8+`);
+}
+`)
+		arg := fieldArg(t, f)
+		require.IsType(t, (*pwsv1.AnnotationArg_BytesValue)(nil), arg.Value)
+		assert.Equal(t, []byte{0xff, 0xfe}, arg.GetBytesValue())
+		_, err := proto.Marshal(f)
+		require.NoError(t, err)
+	})
+
+	// A string carrier is unchanged: string_value is right for it, and
+	// routing it to bytes would be the mirror-image defect.
+	for _, carrier := range []string{"string", "google.protobuf.StringValue"} {
+		t.Run(carrier+" carrier is unchanged", func(t *testing.T) {
+			t.Parallel()
+			imp := ""
+			if strings.HasPrefix(carrier, "google.protobuf.") {
+				imp = "import \"google/protobuf/wrappers.proto\";\n"
+			}
+			f := compileForFDPTest(t, `syntax = "proto3";
+package test;
+`+imp+`
+annotation deflt(value: any);
+
+message M {
+  `+carrier+` f = 1 @deflt("hello");
+}
+`)
+			arg := fieldArg(t, f)
+			require.IsType(t, (*pwsv1.AnnotationArg_StringValue)(nil), arg.Value)
+			assert.Equal(t, "hello", arg.GetStringValue())
+		})
+	}
+
+	// A DECLARED bytes parameter was already correct and must stay so —
+	// it is the route the carrier path now reuses.
+	t.Run("declared bytes parameter is unchanged", func(t *testing.T) {
+		t.Parallel()
+		f := compileForFDPTest(t, `syntax = "proto3";
+package test;
+
+annotation raw(value: bytes);
+
+message M {
+  bytes f = 1 @raw(`+nonUTF8+`);
+}
+`)
+		arg := fieldArg(t, f)
+		require.IsType(t, (*pwsv1.AnnotationArg_BytesValue)(nil), arg.Value)
+		assert.Equal(t, []byte{0xff, 0xfe}, arg.GetBytesValue())
+		_, err := proto.Marshal(f)
+		require.NoError(t, err)
+	})
+
+	// A list argument reaches buildLiteralArg through buildListElement with
+	// the SAME carrier, so the route has to hold element by element. The
+	// scalar shape is not evidence for the list one: #178 landed the
+	// carrier bound on the argument and had to be fixed in review to
+	// descend into list elements, and nesting is the shape after that.
+	t.Run("list elements follow the bytes carrier", func(t *testing.T) {
+		t.Parallel()
+		f := compileForFDPTest(t, `syntax = "proto3";
+package test;
+
+annotation deflt(value: any);
+
+message M {
+  bytes f = 1 @deflt([`+nonUTF8+`]);
+}
+`)
+		elems := fieldArg(t, f).GetLiteral().GetList().GetElements()
+		require.Len(t, elems, 1)
+		require.IsType(t, (*pwsv1.LiteralValue_BytesValue)(nil), elems[0].Kind,
+			"a list element on a bytes carrier must not route through string_value")
+		assert.Equal(t, []byte{0xff, 0xfe}, elems[0].GetBytesValue())
+
+		_, err := proto.Marshal(f)
+		require.NoError(t, err)
+	})
+
+	// A list of lists is the shape after that: buildListElement lowers a
+	// nested list back through buildArgValue, so the carrier has to survive
+	// the second descent as well.
+	t.Run("nested list elements follow the bytes carrier", func(t *testing.T) {
+		t.Parallel()
+		f := compileForFDPTest(t, `syntax = "proto3";
+package test;
+
+annotation deflt(value: any);
+
+message M {
+  bytes f = 1 @deflt([[`+nonUTF8+`]]);
+}
+`)
+		outer := fieldArg(t, f).GetLiteral().GetList().GetElements()
+		require.Len(t, outer, 1)
+		inner := outer[0].GetLiteral().GetList().GetElements()
+		require.Len(t, inner, 1)
+		require.IsType(t, (*pwsv1.LiteralValue_BytesValue)(nil), inner[0].Kind)
+		assert.Equal(t, []byte{0xff, 0xfe}, inner[0].GetBytesValue())
+
+		_, err := proto.Marshal(f)
+		require.NoError(t, err)
+	})
+}
+
+// fieldArg returns the single annotation argument on the single field of
+// the single message in f.
+//
+// The absent-extension state is asserted against the VALUE, not against a
+// type assertion: proto.GetExtension hands back a typed nil for a
+// message-typed extension that is not set, so `v, ok := …
+// .(*pwsv1.AnnotationList)` succeeds with ok == true and a nil list. That
+// assertion can never fail, and the field access after it panics instead
+// of reporting — on precisely the state these tests exist to catch, a
+// carrier that stopped emitting its AnnotationList.
+func fieldArg(t *testing.T, f *descriptorpb.FileDescriptorProto) *pwsv1.AnnotationArg {
+	t.Helper()
+	require.Len(t, f.GetMessageType(), 1)
+	require.Len(t, f.GetMessageType()[0].GetField(), 1)
+	fdp := f.GetMessageType()[0].GetField()[0]
+	require.NotNil(t, fdp.GetOptions(), "field carries no options")
+	list, _ := proto.GetExtension(fdp.GetOptions(), pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+	require.NotNil(t, list, "field carries no AnnotationList extension")
+	require.Len(t, list.GetEntries(), 1)
+	require.Len(t, list.GetEntries()[0].GetArgs(), 1)
+	return list.GetEntries()[0].GetArgs()[0]
 }
