@@ -253,8 +253,8 @@ service Orders {
 	requireNoErrors(t, rep)
 	mdp := f.GetService()[0].GetMethod()[0]
 
-	carrier, ok := proto.GetExtension(mdp.GetOptions(), pwsv1.E_MethodAnnotations).(*pwsv1.AnnotationList)
-	require.True(t, ok)
+	carrier, _ := proto.GetExtension(mdp.GetOptions(), pwsv1.E_MethodAnnotations).(*pwsv1.AnnotationList)
+	require.NotNil(t, carrier, "carries no method annotations extension")
 	require.Len(t, carrier.GetEntries(), 1)
 	assert.Equal(t, "protowire.schema.v1.http", carrier.GetEntries()[0].GetName())
 	assert.Len(t, carrier.GetEntries()[0].GetArgs(), 6,
@@ -320,8 +320,8 @@ service Orders {
 	mdp := f.GetService()[0].GetMethod()[0]
 
 	assert.Nil(t, httpRuleOf(mdp), "opted out, so no google.api.http")
-	carrier, ok := proto.GetExtension(mdp.GetOptions(), pwsv1.E_MethodAnnotations).(*pwsv1.AnnotationList)
-	require.True(t, ok)
+	carrier, _ := proto.GetExtension(mdp.GetOptions(), pwsv1.E_MethodAnnotations).(*pwsv1.AnnotationList)
+	require.NotNil(t, carrier, "carries no method annotations extension")
 	assert.Len(t, carrier.GetEntries(), 1, "the carrier is unaffected by the opt-out")
 }
 
@@ -350,8 +350,8 @@ service Orders {
 	mdp := f.GetService()[0].GetMethod()[0]
 
 	assert.Nil(t, httpRuleOf(mdp))
-	carrier, ok := proto.GetExtension(mdp.GetOptions(), pwsv1.E_MethodAnnotations).(*pwsv1.AnnotationList)
-	require.True(t, ok)
+	carrier, _ := proto.GetExtension(mdp.GetOptions(), pwsv1.E_MethodAnnotations).(*pwsv1.AnnotationList)
+	require.NotNil(t, carrier, "carries no method annotations extension")
 	require.Len(t, carrier.GetEntries(), 1)
 	assert.Equal(t, "fixtures.http.http", carrier.GetEntries()[0].GetName())
 }
@@ -411,9 +411,8 @@ service Orders {
 	opts := new(descriptorpb.MethodOptions)
 	require.NoError(t, proto.Unmarshal(raw, opts))
 
-	rule, ok := proto.GetExtension(opts, annotations.E_Http).(*annotations.HttpRule)
-	require.True(t, ok)
-	require.NotNil(t, rule)
+	rule, _ := proto.GetExtension(opts, annotations.E_Http).(*annotations.HttpRule)
+	require.NotNil(t, rule, "carries no http extension")
 	assert.Equal(t, "/authored/{order_id}", rule.GetGet(),
 		"the authored rule stands; the lowering does not add a second one")
 	assert.Empty(t, rule.GetAdditionalBindings())

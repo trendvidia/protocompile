@@ -109,9 +109,8 @@ message M {}
 	mdp := f.GetMessageType()[0]
 	require.NotNil(t, mdp.Options, "message M should have an Options message")
 
-	list, ok := proto.GetExtension(mdp.Options, pwsv1.E_MessageAnnotations).(*pwsv1.AnnotationList)
-	require.True(t, ok)
-	require.NotNil(t, list)
+	list, _ := proto.GetExtension(mdp.Options, pwsv1.E_MessageAnnotations).(*pwsv1.AnnotationList)
+	require.NotNil(t, list, "carries no message annotations extension")
 	require.Len(t, list.Entries, 1)
 	entry := list.Entries[0]
 	assert.Equal(t, "test.tag", entry.Name)
@@ -140,8 +139,8 @@ message M {}
 	f := compileForFDPTest(t, src)
 	mdp := f.GetMessageType()[0]
 	require.NotNil(t, mdp.Options)
-	list, ok := proto.GetExtension(mdp.Options, pwsv1.E_MessageAnnotations).(*pwsv1.AnnotationList)
-	require.True(t, ok)
+	list, _ := proto.GetExtension(mdp.Options, pwsv1.E_MessageAnnotations).(*pwsv1.AnnotationList)
+	require.NotNil(t, list, "carries no message annotations extension")
 	require.Len(t, list.Entries, 1)
 	args := list.Entries[0].Args
 	require.Len(t, args, 1)
@@ -177,8 +176,8 @@ message M {}
 
 	f := compileForFDPTest(t, src)
 	mdp := f.GetMessageType()[0]
-	list, ok := proto.GetExtension(mdp.Options, pwsv1.E_MessageAnnotations).(*pwsv1.AnnotationList)
-	require.True(t, ok)
+	list, _ := proto.GetExtension(mdp.Options, pwsv1.E_MessageAnnotations).(*pwsv1.AnnotationList)
+	require.NotNil(t, list, "carries no message annotations extension")
 	require.Len(t, list.Entries, 1)
 	args := list.Entries[0].Args
 	require.Len(t, args, 1)
@@ -222,8 +221,8 @@ message Account {
 	require.Len(t, fields, 4)
 
 	annotationOf := func(i int) *pwsv1.Annotation {
-		list, ok := proto.GetExtension(fields[i].Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
-		require.True(t, ok, "field %d should carry the annotations extension", i)
+		list, _ := proto.GetExtension(fields[i].Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+		require.NotNil(t, list, "carries no field annotations extension")
 		require.Len(t, list.Entries, 1)
 		return list.Entries[0]
 	}
@@ -280,8 +279,8 @@ message M {}
 
 	f := compileForFDPTest(t, src)
 	mdp := f.GetMessageType()[0]
-	list, ok := proto.GetExtension(mdp.Options, pwsv1.E_MessageAnnotations).(*pwsv1.AnnotationList)
-	require.True(t, ok)
+	list, _ := proto.GetExtension(mdp.Options, pwsv1.E_MessageAnnotations).(*pwsv1.AnnotationList)
+	require.NotNil(t, list, "carries no message annotations extension")
 	require.Len(t, list.Entries, 1)
 	args := list.Entries[0].Args
 	require.Len(t, args, 1)
@@ -317,14 +316,14 @@ enum Tier {
 	f := compileForFDPTest(t, src)
 
 	field := f.GetMessageType()[0].GetField()[0]
-	list, ok := proto.GetExtension(field.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
-	require.True(t, ok, "field should carry the annotations extension")
+	list, _ := proto.GetExtension(field.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+	require.NotNil(t, list, "carries no field annotations extension")
 	require.Len(t, list.Entries, 1)
 	assert.Equal(t, "test.required", list.Entries[0].Name)
 
 	ev := f.GetEnumType()[0].GetValue()[0]
-	list, ok = proto.GetExtension(ev.Options, pwsv1.E_EnumValueAnnotations).(*pwsv1.AnnotationList)
-	require.True(t, ok, "enum value should carry the annotations extension")
+	list, _ = proto.GetExtension(ev.Options, pwsv1.E_EnumValueAnnotations).(*pwsv1.AnnotationList)
+	require.NotNil(t, list, "carries no enum value annotations extension")
 	require.Len(t, list.Entries, 1)
 	assert.Equal(t, "test.description", list.Entries[0].Name)
 	require.Len(t, list.Entries[0].Args, 1)
@@ -347,8 +346,8 @@ message M {}
 
 	f := compileForFDPTest(t, src)
 	mdp := f.GetMessageType()[0]
-	list, ok := proto.GetExtension(mdp.Options, pwsv1.E_MessageAnnotations).(*pwsv1.AnnotationList)
-	require.True(t, ok)
+	list, _ := proto.GetExtension(mdp.Options, pwsv1.E_MessageAnnotations).(*pwsv1.AnnotationList)
+	require.NotNil(t, list, "carries no message annotations extension")
 	require.Len(t, list.Entries, 1)
 	args := list.Entries[0].Args
 	require.Len(t, args, 1)
@@ -376,9 +375,8 @@ annotation contact(via: Email);
 	f := compileForFDPTest(t, src)
 	require.NotNil(t, f.Options, "file should carry an Options message for the decls extension")
 
-	decls, ok := proto.GetExtension(f.Options, pwsv1.E_AnnotationDecls).(*pwsv1.FileAnnotationDecls)
-	require.True(t, ok)
-	require.NotNil(t, decls)
+	decls, _ := proto.GetExtension(f.Options, pwsv1.E_AnnotationDecls).(*pwsv1.FileAnnotationDecls)
+	require.NotNil(t, decls, "carries no annotation decls extension")
 
 	byName := map[string]*pwsv1.AnnotationDecl{}
 	for _, d := range decls.Declarations {
@@ -440,8 +438,8 @@ annotation tag(
 
 	f := compileForFDPTest(t, src)
 	require.NotNil(t, f.Options)
-	decls, ok := proto.GetExtension(f.Options, pwsv1.E_AnnotationDecls).(*pwsv1.FileAnnotationDecls)
-	require.True(t, ok)
+	decls, _ := proto.GetExtension(f.Options, pwsv1.E_AnnotationDecls).(*pwsv1.FileAnnotationDecls)
+	require.NotNil(t, decls, "carries no annotation decls extension")
 	require.Len(t, decls.Declarations, 1)
 	params := decls.Declarations[0].Params
 	require.Len(t, params, 4)
@@ -467,8 +465,8 @@ function matches(value: string, pattern: string);
 
 	f := compileForFDPTest(t, src)
 	require.NotNil(t, f.Options)
-	fns, ok := proto.GetExtension(f.Options, pwsv1.E_Functions).(*pwsv1.FileFunctions)
-	require.True(t, ok)
+	fns, _ := proto.GetExtension(f.Options, pwsv1.E_Functions).(*pwsv1.FileFunctions)
+	require.NotNil(t, fns, "carries no functions extension")
 	require.Len(t, fns.Declarations, 2)
 
 	assert.Equal(t, "test.is_e164", fns.Declarations[0].Name)
@@ -503,8 +501,8 @@ function plain();
 
 	f := compileForFDPTest(t, src)
 	require.NotNil(t, f.Options)
-	fns, ok := proto.GetExtension(f.Options, pwsv1.E_Functions).(*pwsv1.FileFunctions)
-	require.True(t, ok)
+	fns, _ := proto.GetExtension(f.Options, pwsv1.E_Functions).(*pwsv1.FileFunctions)
+	require.NotNil(t, fns, "carries no functions extension")
 	require.Len(t, fns.Declarations, 3)
 
 	matches := fns.Declarations[0]
@@ -558,8 +556,8 @@ type Chain = Email;
 
 	f := compileForFDPTest(t, src)
 	require.NotNil(t, f.Options)
-	decls, ok := proto.GetExtension(f.Options, pwsv1.E_TypeDecls).(*pwsv1.FileTypeDecls)
-	require.True(t, ok)
+	decls, _ := proto.GetExtension(f.Options, pwsv1.E_TypeDecls).(*pwsv1.FileTypeDecls)
+	require.NotNil(t, decls, "carries no type decls extension")
 	require.Len(t, decls.Declarations, 5)
 
 	byName := map[string]*pwsv1.TypeDecl{}
@@ -694,8 +692,8 @@ message Order {
 	require.Len(t, fields, 3)
 
 	argOf := func(i int) *pwsv1.AnnotationArg {
-		list, ok := proto.GetExtension(fields[i].Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
-		require.True(t, ok)
+		list, _ := proto.GetExtension(fields[i].Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+		require.NotNil(t, list, "carries no field annotations extension")
 		require.Len(t, list.Entries, 1)
 		require.Len(t, list.Entries[0].Args, 1)
 		return list.Entries[0].Args[0]
@@ -748,8 +746,8 @@ message B {}
 	f := compileForFDPTest(t, src)
 	for i, want := range []string{"EUR", "GBP"} {
 		mdp := f.GetMessageType()[i+1]
-		list, ok := proto.GetExtension(mdp.Options, pwsv1.E_MessageAnnotations).(*pwsv1.AnnotationList)
-		require.True(t, ok)
+		list, _ := proto.GetExtension(mdp.Options, pwsv1.E_MessageAnnotations).(*pwsv1.AnnotationList)
+		require.NotNil(t, list, "carries no message annotations extension")
 		require.Len(t, list.Entries, 1)
 		anyMsg := list.Entries[0].Args[0].GetLiteral().GetMessage()
 		require.NotNil(t, anyMsg)
@@ -778,8 +776,8 @@ message M {
 
 	f := compileForFDPTest(t, src)
 	field := f.GetMessageType()[0].GetField()[0]
-	list, ok := proto.GetExtension(field.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
-	require.True(t, ok)
+	list, _ := proto.GetExtension(field.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+	require.NotNil(t, list, "carries no field annotations extension")
 	require.Len(t, list.Entries, 1)
 	entry := list.Entries[0]
 
@@ -818,8 +816,8 @@ type Email = string;
 	f := compileForFDPTest(t, src)
 	require.NotNil(t, f.Options)
 
-	anns, ok := proto.GetExtension(f.Options, pwsv1.E_AnnotationDecls).(*pwsv1.FileAnnotationDecls)
-	require.True(t, ok)
+	anns, _ := proto.GetExtension(f.Options, pwsv1.E_AnnotationDecls).(*pwsv1.FileAnnotationDecls)
+	require.NotNil(t, anns, "carries no annotation decls extension")
 	require.Len(t, anns.Declarations, 1)
 	loc := anns.Declarations[0].Location
 	require.NotNil(t, loc, "AnnotationDecl.location should be populated")
@@ -827,8 +825,8 @@ type Email = string;
 	assert.Equal(t, int32(4), loc.GetLine())
 	assert.Equal(t, int32(12), loc.GetColumn(), "anchored at the `since` name token")
 
-	fns, ok := proto.GetExtension(f.Options, pwsv1.E_Functions).(*pwsv1.FileFunctions)
-	require.True(t, ok)
+	fns, _ := proto.GetExtension(f.Options, pwsv1.E_Functions).(*pwsv1.FileFunctions)
+	require.NotNil(t, fns, "carries no functions extension")
 	require.Len(t, fns.Declarations, 1)
 	loc = fns.Declarations[0].Location
 	require.NotNil(t, loc, "FunctionDecl.location should be populated")
@@ -836,8 +834,8 @@ type Email = string;
 	assert.Equal(t, int32(6), loc.GetLine())
 	assert.Equal(t, int32(10), loc.GetColumn(), "anchored at the `is_e164` name token")
 
-	types, ok := proto.GetExtension(f.Options, pwsv1.E_TypeDecls).(*pwsv1.FileTypeDecls)
-	require.True(t, ok)
+	types, _ := proto.GetExtension(f.Options, pwsv1.E_TypeDecls).(*pwsv1.FileTypeDecls)
+	require.NotNil(t, types, "carries no type decls extension")
 	require.Len(t, types.Declarations, 1)
 	loc = types.Declarations[0].Location
 	require.NotNil(t, loc, "TypeDecl.location should be populated")
@@ -889,8 +887,8 @@ message User {
 	require.NoError(t, err)
 
 	field := out.GetMessageType()[0].GetField()[0]
-	list, ok := proto.GetExtension(field.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
-	require.True(t, ok)
+	list, _ := proto.GetExtension(field.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+	require.NotNil(t, list, "carries no field annotations extension")
 	require.Len(t, list.Entries, 1)
 	entry := list.Entries[0]
 
@@ -920,8 +918,8 @@ annotation plan(t: Tier = Tier.TIER_FREE);
 
 	f := compileForFDPTest(t, src)
 	require.NotNil(t, f.Options)
-	decls, ok := proto.GetExtension(f.Options, pwsv1.E_AnnotationDecls).(*pwsv1.FileAnnotationDecls)
-	require.True(t, ok)
+	decls, _ := proto.GetExtension(f.Options, pwsv1.E_AnnotationDecls).(*pwsv1.FileAnnotationDecls)
+	require.NotNil(t, decls, "carries no annotation decls extension")
 	require.Len(t, decls.Declarations, 1)
 	require.Len(t, decls.Declarations[0].Params, 1)
 
@@ -959,8 +957,8 @@ message Nested {}
 	f := compileForFDPTest(t, src)
 
 	argOf := func(i int) *pwsv1.AnnotationArg {
-		list, ok := proto.GetExtension(f.GetMessageType()[i].Options, pwsv1.E_MessageAnnotations).(*pwsv1.AnnotationList)
-		require.True(t, ok)
+		list, _ := proto.GetExtension(f.GetMessageType()[i].Options, pwsv1.E_MessageAnnotations).(*pwsv1.AnnotationList)
+		require.NotNil(t, list, "carries no message annotations extension")
 		require.Len(t, list.Entries, 1)
 		require.Len(t, list.Entries[0].Args, 1)
 		return list.Entries[0].Args[0]
@@ -1001,9 +999,8 @@ func annotationArg(t *testing.T, src string) *pwsv1.AnnotationArg {
 	require.Len(t, f.GetMessageType(), 1)
 	mdp := f.GetMessageType()[0]
 	require.NotNil(t, mdp.Options, "message M should have an Options message")
-	list, ok := proto.GetExtension(mdp.Options, pwsv1.E_MessageAnnotations).(*pwsv1.AnnotationList)
-	require.True(t, ok)
-	require.NotNil(t, list)
+	list, _ := proto.GetExtension(mdp.Options, pwsv1.E_MessageAnnotations).(*pwsv1.AnnotationList)
+	require.NotNil(t, list, "carries no message annotations extension")
 	require.Len(t, list.Entries, 1)
 	require.Len(t, list.Entries[0].Args, 1)
 	return list.Entries[0].Args[0]
@@ -1232,8 +1229,8 @@ function f() [ratio = 1.5, whole = 2.0, count = 3, negative = -2];
 
 	f := compileForFDPTest(t, src)
 	require.NotNil(t, f.Options)
-	fns, ok := proto.GetExtension(f.Options, pwsv1.E_Functions).(*pwsv1.FileFunctions)
-	require.True(t, ok)
+	fns, _ := proto.GetExtension(f.Options, pwsv1.E_Functions).(*pwsv1.FileFunctions)
+	require.NotNil(t, fns, "carries no functions extension")
 	require.Len(t, fns.Declarations, 1)
 	opts := fns.Declarations[0].Options
 
@@ -1357,9 +1354,9 @@ annotation deflt(value: any);
 @deflt(1e19)
 message M {}
 `)
-	list, ok := proto.GetExtension(
+	list, _ := proto.GetExtension(
 		f.GetMessageType()[0].Options, pwsv1.E_MessageAnnotations).(*pwsv1.AnnotationList)
-	require.True(t, ok)
+	require.NotNil(t, list, "carries no message annotations extension")
 	require.Len(t, list.Entries, 1)
 	require.Len(t, list.Entries[0].Args, 1)
 
@@ -1660,6 +1657,96 @@ message M {
 	})
 }
 
+// failNowSentinel is what recorderT.FailNow panics with, so a require
+// failure unwinds the helper the way testify's runtime.Goexit would
+// instead of letting it run on into the nil dereference under test.
+type failNowSentinel struct{}
+
+// recorderT stands in for *testing.T and records failures instead of
+// aborting the test, so a guard's failure can itself be asserted on.
+type recorderT struct{ msgs []string }
+
+func (r *recorderT) Errorf(format string, args ...any) {
+	r.msgs = append(r.msgs, fmt.Sprintf(format, args...))
+}
+func (r *recorderT) FailNow() { panic(failNowSentinel{}) }
+func (r *recorderT) Helper()  {}
+
+// run reports whatever fn panicked with, treating a FailNow as a clean
+// return. A non-nil result is a real panic — the failure mode #187 is
+// about.
+func (r *recorderT) run(fn func()) (panicked any) {
+	defer func() {
+		if v := recover(); v != nil {
+			if _, ok := v.(failNowSentinel); !ok {
+				panicked = v
+			}
+		}
+	}()
+	fn()
+	return nil
+}
+
+// entriesSink defeats any elision of the nil dereference below.
+var entriesSink []*pwsv1.Annotation
+
+// TestExtensionGuardReportsRatherThanPanics is #187's done-when: a
+// fixture whose carrier emits no extension at all, showing the guard
+// reporting a clean failure where the assertion it replaced could not
+// fail and left the next line to panic.
+//
+// No other test in this package reaches this state — every fixture emits
+// an annotation — which is why the 48 assertions swept here had no check
+// exercising them.
+func TestExtensionGuardReportsRatherThanPanics(t *testing.T) {
+	t.Parallel()
+
+	// Options present (so the earlier options guard is not what fires),
+	// but no annotation extension on them.
+	f := compileForFDPTest(t, `syntax = "proto3";
+package test;
+
+message M {
+  int32 f = 1 [deprecated = true];
+}
+`)
+	field := f.GetMessageType()[0].GetField()[0]
+	require.NotNil(t, field.GetOptions(), "fixture must carry options")
+
+	t.Run("the replaced assertion could not have failed", func(t *testing.T) {
+		t.Parallel()
+		list, ok := proto.GetExtension(
+			field.GetOptions(), pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+		assert.True(t, ok,
+			"the type assertion succeeds on an unset extension, which is why "+
+				"asserting on it has no teeth")
+		assert.Nil(t, list, "and yields a typed nil")
+		assert.Panics(t, func() { entriesSink = list.Entries },
+			"the field access after it panics — the pre-#187 failure mode")
+	})
+
+	t.Run("the guard reports instead", func(t *testing.T) {
+		t.Parallel()
+		rec := new(recorderT)
+		panicked := rec.run(func() { fieldArg(rec, f) })
+		assert.Nil(t, panicked, "fieldArg must report the missing extension, not panic")
+		require.NotEmpty(t, rec.msgs, "fieldArg must record a failure")
+		assert.Contains(t, strings.Join(rec.msgs, "\n"), "field carries no AnnotationList extension",
+			"the failure must name what was missing")
+	})
+}
+
+// helperT is what the extraction helpers need from *testing.T: testify's
+// assertion surface plus Helper(). Taking the interface rather than the
+// concrete type lets TestExtensionGuardReportsRatherThanPanics drive
+// fieldArg with a recorder and observe the failure a real *testing.T
+// would abort on — the only way to prove the guards added for #187
+// actually report.
+type helperT interface {
+	require.TestingT
+	Helper()
+}
+
 // fieldArg returns the single annotation argument on the single field of
 // the single message in f.
 //
@@ -1670,7 +1757,7 @@ message M {
 // assertion can never fail, and the field access after it panics instead
 // of reporting — on precisely the state these tests exist to catch, a
 // carrier that stopped emitting its AnnotationList.
-func fieldArg(t *testing.T, f *descriptorpb.FileDescriptorProto) *pwsv1.AnnotationArg {
+func fieldArg(t helperT, f *descriptorpb.FileDescriptorProto) *pwsv1.AnnotationArg {
 	t.Helper()
 	require.Len(t, f.GetMessageType(), 1)
 	require.Len(t, f.GetMessageType()[0].GetField(), 1)
