@@ -139,7 +139,6 @@ func (n NumberToken) IsFloat() bool {
 // overflows int64 and silently changes the value (#188). IsFloat remains
 // the right predicate where the question is whether a value must be
 // represented as a float.
-
 func (n NumberToken) IsFloatSpelling() bool {
 	return n.IsFloat() || n.ExpBase() != 1
 }

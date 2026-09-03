@@ -1944,12 +1944,23 @@ message M { `+msg+` f = 1 @default(`+lit+`); }
 	}
 
 	for _, msg := range []string{"BigInt", "Decimal", "BigFloat"} {
-		_, diagnosed := compile(t, msg, "1e19")
+		_, diagnosed := compile(t, msg, "10000000000000000000")
 		assert.True(t, diagnosed, "pxf.%s must reject a band literal rather than sign-flip it", msg)
 
 		// Below the band these carriers were always exact, and stay so.
 		rep, diagnosed := compile(t, msg, "42")
 		assert.False(t, diagnosed, "pxf.%s must still accept 42: %v", msg, rep.Diagnostics)
+
+		// The same value written `1e19` is NOT rejected, and the
+		// difference is not arbitrary. These carriers have no scalar
+		// reading, so the literal keeps its own type; a float spelling is
+		// carried as `double_value: 1e19`, which is the author's value
+		// exactly. The sign flip this test exists for cannot happen
+		// there, and rejecting it would be a false positive.
+		rep, diagnosed = compile(t, msg, "1e19")
+		assert.False(t, diagnosed,
+			"pxf.%s: a float spelling lowers to double_value and does not wrap: %v",
+			msg, rep.Diagnostics)
 	}
 }
 
@@ -2077,6 +2088,92 @@ func TestCarrierBoundNamesTheRightType(t *testing.T) {
 			}
 		}
 		assert.True(t, found, "want a diagnostic containing %q, got: %v", tc.want, rep.Diagnostics)
+	}
+}
+
+// TestCarrierWithNoScalarDoesNotAnswerTheKindQuestionAgainstInt64 pins the
+// separation the Unknown arm needs between a CONVERSION target and a RANGE
+// bound.
+//
+// checkCarrierRange substitutes int64 for a carrier with no scalar reading,
+// which is right for the range question — an integer literal there really
+// does land in `int_value` — and wrong for the kind question, because the
+// lowering converts against Unknown and keeps the literal's own type.
+// Asking ConvertArgKind with the substituted value rejected a string, a
+// boolean and a fraction on a message or enum carrier while
+// fdp.buildLiteralArg lowered each of them happily, so the two sides
+// argTarget's comment says "must agree" disagreed.
+//
+// The paired-diagnostic case is the tell: a non-UTF-8 string on a message
+// carrier produced both "cannot hold a string literal" and "is not valid
+// UTF-8" — one saying the literal never reaches string_value and the other
+// saying it does.
+func TestCarrierWithNoScalarDoesNotAnswerTheKindQuestionAgainstInt64(t *testing.T) {
+	t.Parallel()
+
+	compile := func(t *testing.T, carrier, lit string) *report.Report {
+		t.Helper()
+		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+import "google/protobuf/timestamp.proto";
+annotation note(value: any);
+enum E { E_ZERO = 0; }
+message Inner { string s = 1; }
+message M { `+carrier+` f = 1 @note(`+lit+`); }
+`)
+		return rep
+	}
+
+	t.Run("accepted", func(t *testing.T) {
+		t.Parallel()
+		for _, carrier := range []string{
+			"Inner", "E", "google.protobuf.Timestamp",
+			"repeated Inner", "map<string, Inner>",
+		} {
+			for _, lit := range []string{`"hello"`, "true", "false", "1.5", "1e19"} {
+				rep := compile(t, carrier, lit)
+				for _, d := range rep.Diagnostics {
+					if isError(d) {
+						t.Errorf("%s @note(%s): the literal keeps its own type here; got: %s",
+							carrier, lit, d.Message())
+					}
+				}
+			}
+		}
+	})
+
+	t.Run("a non-UTF-8 string is one fault, not two", func(t *testing.T) {
+		t.Parallel()
+		rep := compile(t, "Inner", `"\xff\xfe"`)
+		var errs []string
+		for _, d := range rep.Diagnostics {
+			if isError(d) {
+				errs = append(errs, d.Message())
+			}
+		}
+		require.Len(t, errs, 1, "want only the encoding fault, got: %v", errs)
+		assert.Contains(t, errs[0], "not valid UTF-8")
+	})
+}
+
+// TestOverflowingFloatIsOutOfRangeNotNonIntegral pins the wording of the
+// fault. `1e400` has no fractional part — it is as whole as `1e2` — so
+// reporting it as "not an integer" describes the wrong mistake; it is out
+// of range. Float saturates to infinity for it, which is exactly the case
+// Int has nothing to read, so the exactness arm cannot say it either.
+func TestOverflowingFloatIsOutOfRangeNotNonIntegral(t *testing.T) {
+	t.Parallel()
+
+	for _, carrier := range []string{"int32", "int64", "uint64"} {
+		for _, lit := range []string{"1e400", "-1e400"} {
+			rep, diagnosed := compileCarrier(t, carrier, lit)
+			require.True(t, diagnosed, "%s @default(%s) must be diagnosed", carrier, lit)
+			assert.True(t, hasErrorContaining(rep, "out of range"),
+				"%s @default(%s): want an out-of-range fault, got: %v",
+				carrier, lit, rep.Diagnostics)
+			assert.False(t, hasErrorContaining(rep, "not an integer"),
+				"%s @default(%s): it has no fractional part", carrier, lit)
+		}
 	}
 }
 
@@ -2246,13 +2343,33 @@ message M { E f = 1 @default(5000000000); }
 		}
 	}
 
-	// int64's bound still applies to it, so the band is caught.
+	// int64's bound still applies to what actually lands in `int_value`,
+	// so the band is caught. Spelled out rather than as `1e19`: an enum
+	// carrier has no scalar reading, so the literal keeps its own type,
+	// and a float SPELLING there converts to `double_value` — which holds
+	// 1e19 exactly and never reaches this bound. The bound is about the
+	// member, not about the magnitude.
 	_, rep2 := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+enum E { E_ZERO = 0; }
+annotation default(value: any);
+message M { E f = 1 @default(10000000000000000000); }
+`)
+	assert.True(t, hasErrorContaining(rep2, "out of range"),
+		"int64's own bound still applies: %v", rep2.Diagnostics)
+
+	// The float spelling is the other half, and it compiles: nothing wraps,
+	// so there is nothing to reject.
+	_, rep3 := compileForAnnotationTest(t, `syntax = "proto3";
 package test;
 enum E { E_ZERO = 0; }
 annotation default(value: any);
 message M { E f = 1 @default(1e19); }
 `)
-	assert.True(t, hasErrorContaining(rep2, "out of range"),
-		"int64's own bound still applies: %v", rep2.Diagnostics)
+	for _, d := range rep3.Diagnostics {
+		if isError(d) {
+			t.Errorf("a float-spelled literal on an enum carrier lowers to "+
+				"double_value and is not bounded by int64; got: %s", d.Message())
+		}
+	}
 }

@@ -1177,7 +1177,27 @@ func checkCarrierRange(
 	// `google.protobuf.Int64Value` field would be a lie. With no scalar at
 	// all it is int_value itself, because that is what the literal becomes
 	// and the annotated type is a message.
-	bound := carrier.CarrierScalar()
+	// The CONVERSION target and the RANGE bound are two different things
+	// on a carrier with no scalar reading, and conflating them was a bug.
+	//
+	// convertTo is what the argument is converted to, and it is exactly
+	// what fdp.buildLiteralArg passes to ConvertArgKind — Unknown for a
+	// message, an enum or an unmapped WKT, meaning the literal's own type
+	// stands. Substituting int64 there answered the KIND question against
+	// a type the lowering never consults, so `Inner f = 1 @note("hello")`
+	// was rejected as unable to fit `int_value` while fdp lowered it to
+	// `string_value`: the two sides argTarget's comment says "must agree"
+	// disagreeing again, one layer down.
+	//
+	// bound keeps the substitution, because it is a different question:
+	// what an integer literal that DOES land in `int_value` has to fit
+	// (#176). Only values whose member is int_value ever reach it.
+	// Resolved through argTarget rather than by calling CarrierScalar
+	// again: two resolutions that have to agree is the shape this whole
+	// family kept failing in, and checkStringLiteralUTF8 already reaches
+	// the target that way.
+	convertTo := argTarget(param, carrier)
+	bound := convertTo
 	describe := fmt.Sprintf("the annotated type `%s`", bound)
 	switch {
 	case bound == predeclared.Unknown:
@@ -1192,7 +1212,7 @@ func checkCarrierRange(
 		describe = fmt.Sprintf("the scalar `%s` wrapped by the annotated type `%s`",
 			bound, carrier.FullName())
 	}
-	checkCarrierRangeValue(r, target, param, arg, bound, describe)
+	checkCarrierRangeValue(r, target, param, arg, convertTo, bound, describe)
 }
 
 // checkCarrierRangeValue applies a resolved carrier bound to one argument
@@ -1210,12 +1230,13 @@ func checkCarrierRangeValue(
 	target Annotation,
 	param AnnotationParam,
 	arg ast.ExprAny,
+	convertTo predeclared.Name,
 	bound predeclared.Name,
 	describe string,
 ) {
 	if arg.Kind() == ast.ExprKindArray {
 		for elem := range seq.Values(arg.AsArray().Elements()) {
-			checkCarrierRangeValue(r, target, param, elem, bound, describe)
+			checkCarrierRangeValue(r, target, param, elem, convertTo, bound, describe)
 		}
 		return
 	}
@@ -1249,7 +1270,7 @@ func checkCarrierRangeValue(
 		return
 	}
 
-	member, convertible := ConvertArgKind(kind, bound)
+	member, convertible := ConvertArgKind(kind, convertTo)
 	if !convertible {
 		r.Errorf("argument %q for `%s` is a %s literal, which %s cannot hold",
 			param.Name(), target.FullName(), kind, describe,
@@ -1316,7 +1337,19 @@ func checkCarrierRangeValue(
 	// so ask Float and compare rather than trusting the rounded value.
 	if kind == ArgLiteralFloat {
 		f, _ := num.Float()
-		if f != math.Trunc(f) || math.IsInf(f, 0) {
+		// A literal that overflows float64 has no fractional part to
+		// object to — `1e400` is as whole as `1e2` — so calling it "not
+		// an integer" names the wrong fault. It is out of range, and the
+		// `!exact` arm below cannot say so for it either, because Float
+		// saturating to infinity is exactly the case Int has nothing to
+		// read. Report it here, in the words that fit.
+		if math.IsInf(f, 0) {
+			r.Errorf("argument %q for `%s` is out of range for %s",
+				param.Name(), target.FullName(), describe,
+			).Apply(report.Snippet(arg))
+			return
+		}
+		if f != math.Trunc(f) {
 			r.Errorf("argument %q for `%s` is not an integer, but %s is",
 				param.Name(), target.FullName(), describe,
 			).Apply(

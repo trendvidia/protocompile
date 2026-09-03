@@ -2041,6 +2041,117 @@ message M {
 	}
 }
 
+// argOnFieldOfMessage is [fieldArg] for a file that declares more than one
+// message: a message-typed carrier needs a message to point at, so the
+// "exactly one message" shape those helpers assume does not hold.
+func argOnFieldOfMessage(
+	t helperT, f *descriptorpb.FileDescriptorProto, name string,
+) *pwsv1.AnnotationArg {
+	t.Helper()
+	for _, msg := range f.GetMessageType() {
+		if msg.GetName() != name {
+			continue
+		}
+		require.Len(t, msg.GetField(), 1)
+		opts := msg.GetField()[0].GetOptions()
+		require.NotNil(t, opts, "field carries no options")
+		list, _ := proto.GetExtension(opts, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+		require.NotNil(t, list, "field carries no AnnotationList extension")
+		require.Len(t, list.GetEntries(), 1)
+		require.Len(t, list.GetEntries()[0].GetArgs(), 1)
+		return list.GetEntries()[0].GetArgs()[0]
+	}
+	require.FailNow(t, "no message named "+name)
+	return nil
+}
+
+// TestAnyArgumentOnACarrierWithNoScalarKeepsItsOwnType is the arm the rest
+// of this family never enters: a carrier whose CarrierScalar() is
+// predeclared.Unknown.
+//
+// Every other carrier tested here — scalars, wrappers, maps, repeated
+// scalars — resolves to a known scalar, so the Unknown arm was written,
+// commented, and never run. It is not an exotic corner: a message-typed
+// field, an enum-typed field and a non-wrapper well-known type are all
+// ordinary schema, and Unknown is predeclared.Name's ZERO value, so this
+// is the un-set state of the very thing the conversion rule keys on.
+//
+// There is nothing to convert to there, so the literal keeps its own type
+// — which is what RFC-001 means by an `any` argument carrying its own
+// typing, and what ConvertArgKind's doc states for a target of Unknown.
+// checkCarrierRange substituted int64 before asking, so a string, a
+// boolean or a fraction on one of these was rejected as unable to fit
+// `int_value` while buildLiteralArg lowered it to string_value /
+// bool_value / double_value: the two sides argTarget's comment says "must
+// agree" disagreeing again, one layer down from where #188 fixed it.
+//
+// The sweep cannot see this. A wrongly-rejected cell does not compile, so
+// it is skipped rather than failed — "compiles and marshals" is blind to
+// anything that stops compiling. This asserts the member directly.
+func TestAnyArgumentOnACarrierWithNoScalarKeepsItsOwnType(t *testing.T) {
+	t.Parallel()
+
+	for _, carrier := range []string{
+		"Inner", "E", "google.protobuf.Timestamp",
+		"repeated Inner", "map<string, Inner>",
+	} {
+		for _, tc := range []struct {
+			lit  string
+			want any
+		}{
+			{`"hello"`, (*pwsv1.AnnotationArg_StringValue)(nil)},
+			{"true", (*pwsv1.AnnotationArg_BoolValue)(nil)},
+			{"false", (*pwsv1.AnnotationArg_BoolValue)(nil)},
+			{"1.5", (*pwsv1.AnnotationArg_DoubleValue)(nil)},
+			// Float-spelled: #191's spelling rule reaches here too, and
+			// double_value holds 1e19 exactly, so nothing wraps.
+			{"1e19", (*pwsv1.AnnotationArg_DoubleValue)(nil)},
+			{"42", (*pwsv1.AnnotationArg_IntValue)(nil)},
+		} {
+			t.Run(carrier+"_"+tc.lit, func(t *testing.T) {
+				t.Parallel()
+				f, errs := compileForFDPTestDiags(t, `syntax = "proto3";
+package test;
+
+import "google/protobuf/timestamp.proto";
+
+annotation default(value: any);
+
+enum E { E_ZERO = 0; }
+message Inner { string s = 1; }
+
+message M {
+  `+carrier+` f = 1 @default(`+tc.lit+`);
+}
+`)
+				require.Empty(t, errs,
+					"%s has no scalar reading, so %s keeps its own type", carrier, tc.lit)
+				require.IsType(t, tc.want, argOnFieldOfMessage(t, f, "M").Value)
+			})
+		}
+	}
+
+	// An integer past int64 is the one thing still rejected here, and for
+	// a reason that survives: it DOES land in int_value, where it wraps to
+	// a negative (#176). The bound is about the member, not the magnitude.
+	t.Run("a band literal that still reaches int_value is rejected", func(t *testing.T) {
+		t.Parallel()
+		_, errs := compileForFDPTestDiags(t, `syntax = "proto3";
+package test;
+
+annotation default(value: any);
+
+message Inner { string s = 1; }
+
+message M {
+  Inner f = 1 @default(10000000000000000000);
+}
+`)
+		require.NotEmpty(t, errs)
+		assert.Contains(t, errs[0], "out of range")
+	})
+}
+
 // TestNonValueAnnotationMustDeclareItsParameter records the cost Option A
 // accepts deliberately, so it is visible rather than discovered.
 //
@@ -2110,10 +2221,22 @@ func TestEverythingThatCompilesMarshals(t *testing.T) {
 		"bool", "string", "bytes",
 		"repeated int32", "repeated bytes", "repeated string",
 		"map<string, int32>", "map<string, bytes>", "map<string, double>",
+		// Carriers whose CarrierScalar() is predeclared.Unknown — where
+		// there is no type to convert to and the literal keeps its own.
+		// Every carrier above resolves to a known scalar, so without these
+		// the sweep never entered that arm at all, and it is the arm the
+		// kind check reads: a string on one of these was rejected as
+		// unable to fit `int_value` while fdp lowered it to `string_value`.
+		// A message, an enum, a non-wrapper WKT, and both containers of a
+		// message, since a map's value type and a repeated element are
+		// resolved separately.
+		"Inner", "E", "google.protobuf.Timestamp",
+		"repeated Inner", "map<string, Inner>",
 	}
 	literals := []string{
 		"42", "-42", "0", "1.5", "-1.5", "1e2", "1e19", "1e100",
 		"18446744073709551615", "-18446744073709551615",
+		"10000000000000000000", "1e400",
 		`"hello"`, `"\xff\xfe"`, `""`, "true", "false",
 		"[1, 2]", `["a", "b"]`, "[]",
 	}
@@ -2124,7 +2247,12 @@ func TestEverythingThatCompilesMarshals(t *testing.T) {
 			f, errs := compileForFDPTestDiags(t, `syntax = "proto3";
 package test;
 
+import "google/protobuf/timestamp.proto";
+
 annotation default(value: any);
+
+enum E { E_ZERO = 0; }
+message Inner { string s = 1; }
 
 message M {
   `+carrier+` f = 1 @default(`+lit+`);
