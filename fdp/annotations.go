@@ -384,9 +384,15 @@ func buildLiteralArg(lit ast.ExprLiteral, param ir.AnnotationParam, carrier pred
 		// value from its own type, and a carrier with no scalar type —
 		// a message, a service — falls back to the literal's spelling
 		// because there is nothing else to consult.
+		//
+		// That fallback is why the spelling test is IsFloatSpelling and
+		// not IsFloat: the lexer does not treat a positive exponent as a
+		// float, so `@default(1e19)` on a message carrier was typed as an
+		// integer and overflowed to -8446744073709551616 — #172's symptom,
+		// surviving in the one place carrier routing cannot reach (#188).
 		if param.IsScalar() && isFloatScalar(param.Scalar()) ||
 			untyped && isFloatScalar(carrier) ||
-			untyped && num.IsFloat() {
+			untyped && num.IsFloatSpelling() {
 			f, _ := num.Float()
 			return &pwsv1.AnnotationArg{
 				Value: &pwsv1.AnnotationArg_DoubleValue{DoubleValue: f},

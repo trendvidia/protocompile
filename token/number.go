@@ -125,6 +125,25 @@ func (n NumberToken) IsFloat() bool {
 	return n.Raw() != nil && n.Raw().IsFloat
 }
 
+// IsFloatSpelling reports whether this token is WRITTEN as a float, which
+// includes any literal carrying an exponent.
+//
+// This is deliberately wider than [NumberToken.IsFloat], which the lexer
+// sets from `.` and `-` alone — "positive exponents are not necessarily
+// floats" — so `1e19` and the hex float `0x1p4` both report false there
+// despite being spelled in floating-point notation.
+//
+// Use this where the literal's SPELLING is what carries its type, as it
+// does for an annotation argument bound to an `any` parameter: `1e19` is a
+// float because that is how it was written, and typing it as an integer
+// overflows int64 and silently changes the value (#188). IsFloat remains
+// the right predicate where the question is whether a value must be
+// represented as a float.
+
+func (n NumberToken) IsFloatSpelling() bool {
+	return n.IsFloat() || n.ExpBase() != 1
+}
+
 // HasSeparators returns whether this token contains thousands separator
 // runes.
 func (n NumberToken) HasSeparators() bool {

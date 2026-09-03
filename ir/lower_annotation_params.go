@@ -1280,7 +1280,7 @@ func checkCarrierRangeValue(
 	// buildLiteralArg's routing changes, this guard has to change with it.
 	// TestCarrierBoundOnlyRejectsWhatLowersAsInt pins the pair together.
 	num := lit.Token.AsNumber()
-	if num.IsFloat() {
+	if num.IsFloatSpelling() {
 		return
 	}
 	magnitude, exact := num.Int()
