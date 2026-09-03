@@ -1244,17 +1244,17 @@ function f() [ratio = 1.5, whole = 2.0, count = 3, negative = -2];
 	assert.Equal(t, int64(-2), opts["negative"].GetIntValue())
 }
 
-// fieldAnnotationArg compiles a single field carrying `@deflt(lit)` and
+// fieldAnnotationArg compiles a single field carrying `@default(lit)` and
 // returns the lowered argument.
 func fieldAnnotationArg(t *testing.T, fieldType, lit string) *pwsv1.AnnotationArg {
 	t.Helper()
 	return fieldArg(t, compileForFDPTest(t, fmt.Sprintf(`syntax = "proto3";
 package test;
 
-annotation deflt(value: any);
+annotation default(value: any);
 
 message M {
-  %s f = 1 @deflt(%s);
+  %s f = 1 @default(%s);
 }
 `, fieldType, lit)))
 }
@@ -1266,7 +1266,7 @@ message M {
 // The band above MaxInt64 is why. `int_value` is an int64, so a value in
 // (MaxInt64, MaxUint64] is stored two's-complement — recoverable only by a
 // consumer that knows the target is unsigned. A `double` target does not,
-// and applied the negative number it was handed: `@deflt(1e19)` on a double
+// and applied the negative number it was handed: `@default(1e19)` on a double
 // field produced -8446744073709551616.
 //
 // The bound is exercised from both sides against both kinds of target,
@@ -1349,9 +1349,9 @@ func TestAnnotationUntypedArgWithoutACarrierKeepsSpelling(t *testing.T) {
 	f := compileForFDPTest(t, `syntax = "proto3";
 package test;
 
-annotation deflt(value: any);
+annotation default(value: any);
 
-@deflt(1e19)
+@default(1e19)
 message M {}
 `)
 	list, _ := proto.GetExtension(
@@ -1374,10 +1374,10 @@ package test;
 
 import "google/protobuf/wrappers.proto";
 
-annotation deflt(value: any);
+annotation default(value: any);
 
 message M {
-  google.protobuf.%s f = 1 @deflt(%s);
+  google.protobuf.%s f = 1 @default(%s);
 }
 `, wrapper, lit)))
 }
@@ -1479,10 +1479,10 @@ func TestAnnotationMapBytesCarrierMarshals(t *testing.T) {
 	f := compileForFDPTest(t, `syntax = "proto3";
 package test;
 
-annotation deflt(value: any);
+annotation default(value: any);
 
 message M {
-  map<string, bytes> f = 1 @deflt("\xff\xfe");
+  map<string, bytes> f = 1 @default("\xff\xfe");
 }
 `)
 	arg := fieldArg(t, f)
@@ -1526,10 +1526,10 @@ func TestAnnotationBytesCarrierTakesBytesValue(t *testing.T) {
 		f := compileForFDPTest(t, `syntax = "proto3";
 package test;
 
-annotation deflt(value: any);
+annotation default(value: any);
 
 message M {
-  bytes f = 1 @deflt(`+nonUTF8+`);
+  bytes f = 1 @default(`+nonUTF8+`);
 }
 `)
 		arg := fieldArg(t, f)
@@ -1548,10 +1548,10 @@ package test;
 
 import "google/protobuf/wrappers.proto";
 
-annotation deflt(value: any);
+annotation default(value: any);
 
 message M {
-  google.protobuf.BytesValue f = 1 @deflt(`+nonUTF8+`);
+  google.protobuf.BytesValue f = 1 @default(`+nonUTF8+`);
 }
 `)
 		arg := fieldArg(t, f)
@@ -1573,10 +1573,10 @@ message M {
 			f := compileForFDPTest(t, `syntax = "proto3";
 package test;
 `+imp+`
-annotation deflt(value: any);
+annotation default(value: any);
 
 message M {
-  `+carrier+` f = 1 @deflt("hello");
+  `+carrier+` f = 1 @default("hello");
 }
 `)
 			arg := fieldArg(t, f)
@@ -1615,10 +1615,10 @@ message M {
 		f := compileForFDPTest(t, `syntax = "proto3";
 package test;
 
-annotation deflt(value: any);
+annotation default(value: any);
 
 message M {
-  bytes f = 1 @deflt([`+nonUTF8+`]);
+  bytes f = 1 @default([`+nonUTF8+`]);
 }
 `)
 		elems := fieldArg(t, f).GetLiteral().GetList().GetElements()
@@ -1639,10 +1639,10 @@ message M {
 		f := compileForFDPTest(t, `syntax = "proto3";
 package test;
 
-annotation deflt(value: any);
+annotation default(value: any);
 
 message M {
-  bytes f = 1 @deflt([[`+nonUTF8+`]]);
+  bytes f = 1 @default([[`+nonUTF8+`]]);
 }
 `)
 		outer := fieldArg(t, f).GetLiteral().GetList().GetElements()
