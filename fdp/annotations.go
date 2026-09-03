@@ -423,6 +423,14 @@ func buildLiteralArg(lit ast.ExprLiteral, param ir.AnnotationParam, carrier pred
 		// `@default(1e100)` reaches the carrier as `int_value: -1` —
 		// indistinguishable from `@default(18446744073709551615)`, which
 		// means it exactly.
+		// Since #194 this is a NET, not a route: a target-less integer
+		// literal past int64 is diagnosed, and one on a carrier was
+		// already bounded, so no source that compiles reaches it. It is
+		// kept because lowering still runs over a file that does not
+		// compile, and writing the saturated value as the author's would
+		// be worse than writing a double. That is what keeps the schema's
+		// "never by the literal's magnitude" true of everything a
+		// consumer can actually receive.
 		u, exact := num.Int()
 		if untyped && !exact {
 			f, _ := num.Float()

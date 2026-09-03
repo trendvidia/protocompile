@@ -1117,20 +1117,13 @@ message M {}
 		// exactly; this is by design, not the #149 defect.
 		{name: "uint64/max", param: "uint64", lit: "18446744073709551615", wantInt: -1},
 
-		// #165. `Int` reports exactness, and it is false precisely when
-		// the value does not fit — the big-integer path saturates to
-		// MaxUint64 and says so. Discarding that flag wrote the saturated
-		// value as if the author had asked for it.
-		//
-		// The pair below is the whole defect: they are ONE apart, and
-		// before the fix both reached the carrier as `int_value: -1`, so
-		// a consumer could not tell a literal that means MaxUint64 from
-		// one that overflowed past it.
-		{name: "any/uint64_max_exact", param: "any", lit: "18446744073709551615", wantInt: -1},
-		{
-			name: "any/uint64_max_plus_one", param: "any", lit: "18446744073709551616",
-			isDouble: true, wantDouble: 18446744073709551616,
-		},
+		// #165's pair — 18446744073709551615 and ...616, one apart, one
+		// wrapping to int_value: -1 and one saturating to double_value —
+		// is no longer here. Neither lowers: a target-less integer literal
+		// past int64 is now diagnosed, because `int_value` is an int64 and
+		// nothing downstream can tell a wrap from a value that means it
+		// (#194). They are pinned in
+		// TestTargetlessIntegerPastInt64IsDiagnosed instead.
 
 		// An exponent is a FLOAT spelling, so with no target to convert to
 		// these keep their own type (#188). They used to take the integer
@@ -1141,30 +1134,11 @@ message M {}
 		{name: "any/exponent_in_range", param: "any", lit: "1e10", isDouble: true, wantDouble: 1e10},
 		{name: "any/exponent_out_of_range", param: "any", lit: "1e100", isDouble: true, wantDouble: 1e100},
 		{name: "any/exponent_at_wrap", param: "any", lit: "1e19", isDouble: true, wantDouble: 1e19},
-		{
-			name: "any/big_int_out_of_range", param: "any", lit: "99999999999999999999999",
-			isDouble: true, wantDouble: 1e23,
-		},
-
-		// The mirror of that pair, one range down. A negative literal is
-		// lowered by negating what buildLiteralArg produced, which is the
-		// magnitude reinterpreted through int64 — so for a magnitude in
-		// (MaxInt64, MaxUint64] the negation flipped the sign straight back
-		// and `-18446744073709551615` reached the carrier as `int_value: 1`.
-		// These three are also one apart at each end of int64's range.
+		// MinInt64 is the last negative magnitude int_value holds, and it
+		// negates to itself. Everything past it is diagnosed rather than
+		// lowered (#194) and lives in
+		// TestTargetlessIntegerPastInt64IsDiagnosed.
 		{name: "any/negative_int64_min", param: "any", lit: "-9223372036854775808", wantInt: math.MinInt64},
-		{
-			name: "any/negative_past_int64_min", param: "any", lit: "-9223372036854775809",
-			isDouble: true, wantDouble: -9223372036854775809,
-		},
-		{
-			name: "any/negative_uint64_max", param: "any", lit: "-18446744073709551615",
-			isDouble: true, wantDouble: -18446744073709551615,
-		},
-		{
-			name: "any/negative_uint64_max_plus_one", param: "any", lit: "-18446744073709551616",
-			isDouble: true, wantDouble: -18446744073709551616,
-		},
 		{name: "any/negative_small", param: "any", lit: "-3", wantInt: -3},
 
 		// A negative fraction that ROUNDS to zero lowers as zero. It has to
@@ -2278,6 +2252,102 @@ message M {
 	assert.Equal(t, compiled, marshalled)
 	t.Logf("sweep: %d of %d cells compiled, %d marshalled",
 		compiled, len(carriers)*len(literals), marshalled)
+}
+
+// TestTargetlessIntegerPastInt64IsDiagnosed is #194.
+//
+// An annotation attached to nothing — a message, a service, a file — has
+// no conversion target, so the literal keeps its own type. For an integer
+// that type is `int_value`, and `int_value` is an int64: a magnitude past
+// it has no honest representation there.
+//
+// It used to lower anyway. `@default(18446744073709551615)` compiled clean
+// and reached a consumer as `int_value: -1`, while the identical literal
+// on a message-TYPED FIELD was rejected — same lowering, same absence of a
+// scalar, opposite outcomes. The two's-complement carry is recoverable
+// only where something downstream knows the target is unsigned, and here
+// there is no target for anything to know.
+//
+// These rows were pinned as intended behaviour in
+// TestAnnotationNumericRouting, citing #165. #165 was right that a wrap
+// and a saturation must be distinguishable; the answer is to reject both,
+// not to give them different members.
+func TestTargetlessIntegerPastInt64IsDiagnosed(t *testing.T) {
+	t.Parallel()
+
+	t.Run("rejected", func(t *testing.T) {
+		t.Parallel()
+		for _, lit := range []string{
+			"18446744073709551615", // MaxUint64: wrapped to int_value: -1
+			"18446744073709551616", // one past it: saturated to double_value
+			"99999999999999999999999",
+			"-9223372036854775809", // one past MinInt64
+			"-18446744073709551615",
+			"-18446744073709551616",
+		} {
+			_, errs := compileForFDPTestDiags(t, `syntax = "proto3";
+package test;
+
+annotation a(value: any);
+
+@a(`+lit+`)
+message M {}
+`)
+			assert.NotEmpty(t, errs,
+				"%s has no representation in int_value and must be diagnosed", lit)
+		}
+	})
+
+	t.Run("accepted", func(t *testing.T) {
+		t.Parallel()
+		for _, lit := range []string{
+			"9223372036854775807",  // MaxInt64
+			"-9223372036854775808", // MinInt64, negates to itself
+			"42", "-3", "0",
+			// A float spelling is not an integer literal: it keeps its own
+			// type, which is double_value, and a double holds these.
+			"1e19", "1e100", "-1e100",
+		} {
+			_, errs := compileForFDPTestDiags(t, `syntax = "proto3";
+package test;
+
+annotation a(value: any);
+
+@a(`+lit+`)
+message M {}
+`)
+			assert.Empty(t, errs, "%s must still compile: %v", lit, errs)
+		}
+	})
+
+	t.Run("agrees with a message-typed field", func(t *testing.T) {
+		t.Parallel()
+		// The inconsistency #194 is about: both lower into int_value and
+		// neither has a scalar target, so they must answer alike.
+		for _, lit := range []string{"18446744073709551615", "99999999999999999999999"} {
+			_, noTarget := compileForFDPTestDiags(t, `syntax = "proto3";
+package test;
+
+annotation a(value: any);
+
+@a(`+lit+`)
+message M {}
+`)
+			_, msgField := compileForFDPTestDiags(t, `syntax = "proto3";
+package test;
+
+annotation a(value: any);
+
+message Inner { int32 x = 1; }
+
+message M {
+  Inner f = 1 @a(`+lit+`);
+}
+`)
+			assert.Equal(t, len(msgField) > 0, len(noTarget) > 0,
+				"%s: message-level and message-typed-field must agree", lit)
+		}
+	})
 }
 
 // helperT is what the extraction helpers need from *testing.T: testify's

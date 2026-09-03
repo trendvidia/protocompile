@@ -88,6 +88,14 @@ message Annotation {
 // leaving such a parameter `any` binds it to the annotated element's type,
 // which is not what it means.
 //
+// A literal no member can represent is a compile error, not a different
+// member. An integer past `int_value`'s 64-bit range has nowhere honest to
+// go: carrying it as `double_value` instead would make the member depend on
+// the magnitude, and carrying it wrapped would hand a consumer a value the
+// author did not write, with nothing to distinguish the wrap from a literal
+// that means it. That is what keeps the rule above true rather than
+// aspirational.
+//
 // Message literals are unaffected: their type comes from the declaration or
 // an explicit use-site type name, as `Literal` describes.
 message AnnotationArg {

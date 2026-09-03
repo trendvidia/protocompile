@@ -1160,12 +1160,19 @@ func checkCarrierRange(
 	arg ast.ExprAny,
 	carrier Type,
 ) {
-	if carrier.IsZero() {
-		// Not attached to a member — a message, a service, a declaration.
-		// There is no type to bound against, and the literal's ambiguity
-		// there is the documented limit of carrier routing (#172).
-		return
-	}
+	// An annotation attached to nothing — a message, a service, a file —
+	// used to return here, on the reasoning that there is no type to bound
+	// against. There is no CONVERSION target, which is a different thing:
+	// an integer literal still lands in `int_value`, and `int_value` is an
+	// int64 whatever the annotation is attached to.
+	//
+	// Skipping it meant `@default(18446744073709551615) message M {}`
+	// compiled clean and reached a consumer as `int_value: -1`, while the
+	// identical literal on a message-TYPED FIELD was rejected — same
+	// lowering, same absence of a scalar, opposite outcomes. The wrap is
+	// two's complement "by design" only where something downstream knows
+	// the target is unsigned, and here there is no target for anything to
+	// know (#194).
 
 	// `describe` names what the literal has to fit, in the reader's terms,
 	// and is phrased so it reads as the subject of "… is unsigned" as well
@@ -1200,6 +1207,10 @@ func checkCarrierRange(
 	bound := convertTo
 	describe := fmt.Sprintf("the annotated type `%s`", bound)
 	switch {
+	case bound == predeclared.Unknown && carrier.IsZero():
+		bound = predeclared.Int64
+		describe = "the 64-bit signed `int_value` an untyped argument " +
+			"with no annotated type is lowered into"
 	case bound == predeclared.Unknown:
 		bound = predeclared.Int64
 		describe = "the 64-bit signed `int_value` an untyped argument " +
