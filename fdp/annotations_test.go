@@ -1736,6 +1736,144 @@ message M {
 	})
 }
 
+// compileForFDPTestDiags compiles src and returns the descriptor together
+// with every diagnostic at Error level or worse. Unlike compileForFDPTest
+// it does not fail on diagnostics, so a test can assert that source IS
+// rejected — and how many times, which is what catches a carrier being
+// visited twice.
+func compileForFDPTestDiags(t *testing.T, src string) (*descriptorpb.FileDescriptorProto, []string) {
+	t.Helper()
+	opener := source.NewMap(map[string]*source.File{
+		"x.proto": source.NewFile("x.proto", src),
+	})
+	results, rep, err := incremental.Run(t.Context(), incremental.New(), queries.IR{
+		Opener:  &source.Openers{opener, source.WKTs()},
+		Session: new(ir.Session),
+		Path:    "x.proto",
+	})
+	require.NoError(t, err)
+
+	var errs []string
+	for _, d := range rep.Diagnostics {
+		if d.Level() <= report.Error {
+			errs = append(errs, d.Message())
+		}
+	}
+	if len(results) == 0 || results[0].Value == nil {
+		return nil, errs
+	}
+	out, err := fdp.DescriptorProto(results[0].Value)
+	require.NoError(t, err)
+	return out, errs
+}
+
+// TestNonUTF8IsDiagnosedExactlyWhereItReachesStringValue is #184.
+//
+// #179 fixed a non-UTF-8 literal on a `bytes` carrier by routing it to
+// bytes_value. Every other carrier still reached string_value, which is a
+// protobuf `string` and cannot hold those bytes, so the descriptor still
+// failed to marshal — the same symptom, one carrier over.
+//
+// The remedy is to diagnose rather than to re-route on content: see
+// checkStringLiteralUTF8 in ir for why. This pins the rule from both
+// sides, and pins it against the lowering: a case that is NOT diagnosed
+// must marshal.
+func TestNonUTF8IsDiagnosedExactlyWhereItReachesStringValue(t *testing.T) {
+	t.Parallel()
+
+	// A lone 0xff is not valid UTF-8 in any position.
+	const bad = `"\xff\xfe"`
+
+	t.Run("rejected where it reaches string_value", func(t *testing.T) {
+		t.Parallel()
+		for _, tc := range []struct{ name, src string }{
+			{"non-bytes scalar carrier", `annotation d(value: any);
+message M { int32 f = 1 @d(` + bad + `); }`},
+			{"string carrier", `annotation d(value: any);
+message M { string f = 1 @d(` + bad + `); }`},
+			{"no carrier at all", `annotation d(value: any);
+@d(` + bad + `)
+message M {}`},
+			{"declared string parameter", `annotation d(value: string);
+message M { int32 f = 1 @d(` + bad + `); }`},
+			{"list element", `annotation d(value: any);
+message M { int32 f = 1 @d([` + bad + `]); }`},
+			{"map with a non-bytes value type", `annotation d(value: any);
+message M { map<string, int32> f = 1 @d(` + bad + `); }`},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+				_, errs := compileForFDPTestDiags(t, `syntax = "proto3";
+package test;
+
+`+tc.src+`
+`)
+				assert.NotEmpty(t, errs,
+					"a non-UTF-8 literal reaching string_value must be diagnosed")
+			})
+		}
+	})
+
+	t.Run("accepted where it reaches bytes_value, and marshals", func(t *testing.T) {
+		t.Parallel()
+		for _, tc := range []struct{ name, src string }{
+			{"bytes carrier", `annotation d(value: any);
+message M { bytes f = 1 @d(` + bad + `); }`},
+			{"declared bytes parameter", `annotation d(value: bytes);
+message M { int32 f = 1 @d(` + bad + `); }`},
+			{"BytesValue wrapper carrier", `import "google/protobuf/wrappers.proto";
+annotation d(value: any);
+message M { google.protobuf.BytesValue f = 1 @d(` + bad + `); }`},
+			{"map with a bytes value type", `annotation d(value: any);
+message M { map<string, bytes> f = 1 @d(` + bad + `); }`},
+			{"repeated bytes carrier", `annotation d(value: any);
+message M { repeated bytes f = 1 @d(` + bad + `); }`},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+				f, errs := compileForFDPTestDiags(t, `syntax = "proto3";
+package test;
+
+`+tc.src+`
+`)
+				assert.Empty(t, errs,
+					"a bytes target carries arbitrary content and must not be diagnosed")
+				require.NotNil(t, f)
+				_, err := proto.Marshal(f)
+				require.NoError(t, err,
+					"anything that compiles clean must serialize; this is what #184 is about")
+			})
+		}
+	})
+}
+
+// TestMapFieldAnnotationIsVisitedOnce pins the walk fix this change needed.
+//
+// A synthesized map entry reports the annotations of the field that
+// produced it, so allAnnotationUses yielded every map-field annotation
+// twice — once through the field, once through the entry message with the
+// zero carrier. That was invisible while the only zero-carrier check
+// returned immediately; checkStringLiteralUTF8 is the first that does not.
+//
+// The descriptor was never wrong — the duplicate lived only in the ir
+// walk — so asserting on the descriptor would not catch this. Counting
+// the diagnostics does: a doubly-visited argument is reported twice.
+func TestMapFieldAnnotationIsVisitedOnce(t *testing.T) {
+	t.Parallel()
+
+	_, errs := compileForFDPTestDiags(t, `syntax = "proto3";
+package test;
+
+annotation d(value: any);
+
+message M {
+  map<string, int32> f = 1 @d("\xff\xfe");
+}
+`)
+	assert.Len(t, errs, 1,
+		"one bad argument, one diagnostic; two means the map entry was walked as a carrier too")
+}
+
 // helperT is what the extraction helpers need from *testing.T: testify's
 // assertion surface plus Helper(). Taking the interface rather than the
 // concrete type lets TestExtensionGuardReportsRatherThanPanics drive

@@ -347,6 +347,18 @@ func buildLiteralArg(lit ast.ExprLiteral, param ir.AnnotationParam, carrier pred
 		// A declared `bytes` parameter already took the bytes route; the
 		// carrier gets the same treatment, for the same reason the numeric
 		// routing consults it.
+		//
+		// Everything else reaching string_value with non-UTF-8 content is
+		// DIAGNOSED, not re-routed here (#184): ir.checkStringLiteralUTF8
+		// rejects it, so by the time this runs the content is either valid
+		// UTF-8 or bound for bytes_value. Routing on the literal's content
+		// instead would make the member depend on the value — a declared
+		// `string` parameter would hand its consumers bytes_value whenever
+		// the argument happened not to be valid UTF-8, contradicting what
+		// the declaration promises them. A declared `string` parameter is
+		// therefore rejected outright, exactly as an untyped argument on a
+		// `string` carrier is; carrying arbitrary content is what `bytes`
+		// is for.
 		if (param.IsScalar() && param.Scalar() == predeclared.Bytes) ||
 			(untyped && carrier == predeclared.Bytes) {
 			return &pwsv1.AnnotationArg{
