@@ -50,9 +50,8 @@ message M {
 `
 	f := compileForFDPTest(t, src)
 	require.NotNil(t, f.Options)
-	sm, ok := proto.GetExtension(f.Options, pwsv1.E_SourceMap).(*pwsv1.SourceMap)
-	require.True(t, ok)
-	require.NotNil(t, sm)
+	sm, _ := proto.GetExtension(f.Options, pwsv1.E_SourceMap).(*pwsv1.SourceMap)
+	require.NotNil(t, sm, "carries no source map extension")
 	assert.Equal(t, "x.proto", sm.GetFile())
 
 	byPath := map[string]*pwsv1.SourceEntry{}
@@ -103,9 +102,8 @@ annotation b;
 message M {}
 `
 	f := compileForFDPTest(t, src)
-	sm, ok := proto.GetExtension(f.Options, pwsv1.E_SourceMap).(*pwsv1.SourceMap)
-	require.True(t, ok)
-	require.NotNil(t, sm)
+	sm, _ := proto.GetExtension(f.Options, pwsv1.E_SourceMap).(*pwsv1.SourceMap)
+	require.NotNil(t, sm, "carries no source map extension")
 
 	paths := make([]string, 0, len(sm.GetEntries()))
 	for _, e := range sm.GetEntries() {
@@ -166,9 +164,8 @@ message User {
 `
 	f := compileForFDPTest(t, src)
 	require.NotNil(t, f.Options)
-	sm, ok := proto.GetExtension(f.Options, pwsv1.E_SourceMap).(*pwsv1.SourceMap)
-	require.True(t, ok)
-	require.NotNil(t, sm)
+	sm, _ := proto.GetExtension(f.Options, pwsv1.E_SourceMap).(*pwsv1.SourceMap)
+	require.NotNil(t, sm, "carries no source map extension")
 
 	var refinements []*pwsv1.SourceEntry
 	for _, e := range sm.GetEntries() {
@@ -214,9 +211,8 @@ message M {
 }
 `
 	f := compileForFDPTest(t, src)
-	sm, ok := proto.GetExtension(f.Options, pwsv1.E_SourceMap).(*pwsv1.SourceMap)
-	require.True(t, ok)
-	require.NotNil(t, sm)
+	sm, _ := proto.GetExtension(f.Options, pwsv1.E_SourceMap).(*pwsv1.SourceMap)
+	require.NotNil(t, sm, "carries no source map extension")
 
 	var refinement *pwsv1.SourceEntry
 	for _, e := range sm.GetEntries() {
@@ -253,9 +249,8 @@ message Book {
 }
 `
 	f := compileForFDPTest(t, src)
-	sm, ok := proto.GetExtension(f.Options, pwsv1.E_SourceMap).(*pwsv1.SourceMap)
-	require.True(t, ok)
-	require.NotNil(t, sm)
+	sm, _ := proto.GetExtension(f.Options, pwsv1.E_SourceMap).(*pwsv1.SourceMap)
+	require.NotNil(t, sm, "carries no source map extension")
 
 	var refinements []*pwsv1.SourceEntry
 	for _, e := range sm.GetEntries() {
@@ -297,9 +292,8 @@ message M {
 `
 	f := compileForFDPTest(t, src)
 	require.NotNil(t, f.Options)
-	sm, ok := proto.GetExtension(f.Options, pwsv1.E_SourceMap).(*pwsv1.SourceMap)
-	require.True(t, ok)
-	require.NotNil(t, sm)
+	sm, _ := proto.GetExtension(f.Options, pwsv1.E_SourceMap).(*pwsv1.SourceMap)
+	require.NotNil(t, sm, "carries no source map extension")
 
 	for _, e := range sm.GetEntries() {
 		assert.NotEqual(t, pwsv1.EntryKind_TYPE_REFINEMENT, e.GetKind(),
@@ -351,9 +345,8 @@ message M {
 	out, err := fdp.DescriptorProto(results[0].Value)
 	require.NoError(t, err)
 	require.NotNil(t, out.Options)
-	sm, ok := proto.GetExtension(out.Options, pwsv1.E_SourceMap).(*pwsv1.SourceMap)
-	require.True(t, ok)
-	require.NotNil(t, sm)
+	sm, _ := proto.GetExtension(out.Options, pwsv1.E_SourceMap).(*pwsv1.SourceMap)
+	require.NotNil(t, sm, "carries no source map extension")
 
 	var refinement *pwsv1.SourceEntry
 	for _, e := range sm.GetEntries() {
@@ -428,9 +421,8 @@ message User {
 	out, err := fdp.DescriptorProto(results[0].Value)
 	require.NoError(t, err)
 	require.NotNil(t, out.Options)
-	sm, ok := proto.GetExtension(out.Options, pwsv1.E_SourceMap).(*pwsv1.SourceMap)
-	require.True(t, ok)
-	require.NotNil(t, sm)
+	sm, _ := proto.GetExtension(out.Options, pwsv1.E_SourceMap).(*pwsv1.SourceMap)
+	require.NotNil(t, sm, "carries no source map extension")
 	assert.Equal(t, "user.proto", sm.GetFile(),
 		"SourceMap.file is the emitting file, not the use's source file")
 
@@ -479,9 +471,8 @@ message Account {
 `
 	f := compileForFDPTest(t, src)
 	require.NotNil(t, f.Options)
-	sm, ok := proto.GetExtension(f.Options, pwsv1.E_SourceMap).(*pwsv1.SourceMap)
-	require.True(t, ok)
-	require.NotNil(t, sm)
+	sm, _ := proto.GetExtension(f.Options, pwsv1.E_SourceMap).(*pwsv1.SourceMap)
+	require.NotNil(t, sm, "carries no source map extension")
 
 	byPath := map[string]*pwsv1.SourceEntry{}
 	for _, e := range sm.GetEntries() {
@@ -548,9 +539,8 @@ enum Tier {
 }
 `
 	f := compileForFDPTest(t, src)
-	sm, ok := proto.GetExtension(f.Options, pwsv1.E_SourceMap).(*pwsv1.SourceMap)
-	require.True(t, ok)
-	require.NotNil(t, sm)
+	sm, _ := proto.GetExtension(f.Options, pwsv1.E_SourceMap).(*pwsv1.SourceMap)
+	require.NotNil(t, sm, "carries no source map extension")
 
 	byPath := map[string]*pwsv1.SourceEntry{}
 	for _, e := range sm.GetEntries() {
@@ -601,10 +591,10 @@ message User {
 	second := marshal(&reparsed)
 	require.Equal(t, first, second, "descriptor must re-marshal byte-identically")
 
-	sm1, ok := proto.GetExtension(f.Options, pwsv1.E_SourceMap).(*pwsv1.SourceMap)
-	require.True(t, ok)
-	sm2, ok := proto.GetExtension(reparsed.Options, pwsv1.E_SourceMap).(*pwsv1.SourceMap)
-	require.True(t, ok)
+	sm1, _ := proto.GetExtension(f.Options, pwsv1.E_SourceMap).(*pwsv1.SourceMap)
+	require.NotNil(t, sm1, "carries no source map extension")
+	sm2, _ := proto.GetExtension(reparsed.Options, pwsv1.E_SourceMap).(*pwsv1.SourceMap)
+	require.NotNil(t, sm2, "carries no source map extension")
 	require.Equal(t, marshal(sm1), marshal(sm2), "source map must survive the round trip byte-identically")
 	require.NotEmpty(t, sm1.GetEntries())
 }

@@ -132,9 +132,8 @@ message User {
 	field := f.GetMessageType()[0].GetField()[0]
 	require.NotNil(t, field.Options, "field should have Options with annotation list")
 
-	list, ok := proto.GetExtension(field.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
-	require.True(t, ok)
-	require.NotNil(t, list)
+	list, _ := proto.GetExtension(field.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+	require.NotNil(t, list, "carries no field annotations extension")
 	require.Len(t, list.Entries, 2,
 		"both the alias-level @validate and the field-level @doc should be present")
 
@@ -202,9 +201,8 @@ message User {
 	require.NotNil(t, field.Options,
 		"cross-file alias annotation should produce field Options")
 
-	list, ok := proto.GetExtension(field.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
-	require.True(t, ok)
-	require.NotNil(t, list)
+	list, _ := proto.GetExtension(field.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+	require.NotNil(t, list, "carries no field annotations extension")
 	require.Len(t, list.Entries, 1,
 		"the alias's @validate should be propagated to the cross-file field")
 	entry := list.Entries[0]
@@ -264,8 +262,8 @@ message M {
 	field := out.GetMessageType()[0].GetField()[0]
 	assert.Equal(t, descriptorpb.FieldDescriptorProto_TYPE_STRING, field.GetType())
 	require.NotNil(t, field.Options)
-	list, ok := proto.GetExtension(field.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
-	require.True(t, ok)
+	list, _ := proto.GetExtension(field.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+	require.NotNil(t, list, "carries no field annotations extension")
 	require.Len(t, list.Entries, 2,
 		"both local @a and cross-file @b should be propagated")
 	// Base-most link (B) first, then A.
@@ -305,8 +303,8 @@ message Book {
 		"the map field still lowers to its synthetic entry type")
 
 	require.NotNil(t, field.Options)
-	list, ok := proto.GetExtension(field.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
-	require.True(t, ok)
+	list, _ := proto.GetExtension(field.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+	require.NotNil(t, list, "carries no field annotations extension")
 	require.Len(t, list.Entries, 2,
 		"value-alias @validate plus field-level @doc")
 	assert.Equal(t, "test.validate", list.Entries[0].Name,
@@ -363,8 +361,8 @@ message Book {
 	}
 	require.NotNil(t, keyField)
 	require.NotNil(t, keyField.Options, "key-alias rule lowers onto the entry's key field")
-	list, ok := proto.GetExtension(keyField.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
-	require.True(t, ok)
+	list, _ := proto.GetExtension(keyField.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+	require.NotNil(t, list, "carries no field annotations extension")
 	require.Len(t, list.GetEntries(), 1)
 	assert.Equal(t, "test.validate", list.GetEntries()[0].Name)
 }
@@ -435,8 +433,8 @@ message M {
 	require.Len(t, f.GetMessageType(), 1)
 	field := f.GetMessageType()[0].GetField()[0]
 	require.NotNil(t, field.Options)
-	list, ok := proto.GetExtension(field.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
-	require.True(t, ok)
+	list, _ := proto.GetExtension(field.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+	require.NotNil(t, list, "carries no field annotations extension")
 	require.Len(t, list.Entries, 2)
 	names := []string{list.Entries[0].Name, list.Entries[1].Name}
 	assert.Equal(t, []string{"test.b", "test.a"}, names,
@@ -468,8 +466,8 @@ message User {
 	require.Len(t, f.GetMessageType(), 1)
 	field := f.GetMessageType()[0].GetField()[0]
 	require.NotNil(t, field.Options)
-	list, ok := proto.GetExtension(field.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
-	require.True(t, ok)
+	list, _ := proto.GetExtension(field.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+	require.NotNil(t, list, "carries no field annotations extension")
 	require.Len(t, list.Entries, 3)
 
 	codes := make([]string, len(list.Entries))
