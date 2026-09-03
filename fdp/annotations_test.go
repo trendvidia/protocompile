@@ -1517,6 +1517,114 @@ func TestAnnotationWrapperCarrierFixesTheBand(t *testing.T) {
 	assert.InDelta(t, 1e19, arg.GetDoubleValue(), 1)
 }
 
+// TestBytesDefaultSpelling pins what the SOURCE TEXT of a `bytes`
+// argument means, which nothing here covered.
+//
+// A bytes literal in protobuf source is an escaped byte string, so
+// `"\001\002\003"` is three bytes and `"AQID"` is four characters. The
+// annotation form carries a typed value — `bytes_value`, already decoded —
+// so what the author wrote is what a consumer receives, with no encoding
+// layer in between.
+//
+// The bracket form cannot do that. `(pxf.default)` is declared
+// `string default = 1315`, and a `string` option cannot carry arbitrary
+// bytes, so protowire-go spells a bytes default there in base64 and
+// decodes it on the way in. Applying that same decode to `bytes_value`
+// would decode something that was never encoded: it read `@default("AQID")`
+// as {1, 2, 3} rather than the four characters written (#195).
+//
+// This test exists because that divergence surfaced in a downstream repo's
+// test suite rather than in this one. Nothing here asserted a bytes
+// argument's spelling, so #181 could change what it means and pass every
+// gate.
+func TestBytesDefaultSpelling(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name, lit string
+		want      []byte
+	}{
+		{"escaped octal", `"\001\002\003"`, []byte{1, 2, 3}},
+		{"escaped hex", `"\x01\x02\x03"`, []byte{1, 2, 3}},
+		{
+			// Base64 text is not decoded. It is four characters, and a
+			// consumer that treats it as base64 is applying the bracket
+			// form's encoding to a value that never used it.
+			"base64 text is literal", `"AQID"`, []byte{0x41, 0x51, 0x49, 0x44},
+		},
+		{"empty", `""`, []byte{}},
+		{"plain ascii", `"hi"`, []byte{0x68, 0x69}},
+		// Not valid UTF-8, and the reason bytes_value exists (#179).
+		{"non-utf8", `"\xff\xfe"`, []byte{0xff, 0xfe}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Both routes to bytes_value: an untyped argument on a bytes
+			// carrier, and a declared `bytes` parameter. They must agree —
+			// the spelling is a property of the literal, not of how the
+			// target was reached.
+			carrier := fieldArg(t, compileForFDPTest(t, `syntax = "proto3";
+package test;
+
+annotation default(value: any);
+
+message M {
+  bytes token = 5 @default(`+tc.lit+`);
+}
+`))
+			require.IsType(t, (*pwsv1.AnnotationArg_BytesValue)(nil), carrier.Value,
+				"got %v", carrier.Value)
+			assert.Equal(t, tc.want, carrier.GetBytesValue(),
+				"a bytes carrier must carry the literal's own bytes")
+
+			declared := fieldArg(t, compileForFDPTest(t, `syntax = "proto3";
+package test;
+
+annotation default(value: bytes);
+
+message M {
+  int32 token = 5 @default(`+tc.lit+`);
+}
+`))
+			require.IsType(t, (*pwsv1.AnnotationArg_BytesValue)(nil), declared.Value)
+			assert.Equal(t, tc.want, declared.GetBytesValue(),
+				"a declared bytes parameter must agree with a bytes carrier")
+		})
+	}
+}
+
+// TestBytesAndStringSpellingAgree pins the other half: the same literal on
+// a `string` target carries the same characters, so the two members differ
+// in TYPE and not in content. A consumer decoding one and not the other is
+// the mistake #195 is about.
+func TestBytesAndStringSpellingAgree(t *testing.T) {
+	t.Parallel()
+
+	for _, lit := range []string{`"AQID"`, `"hi"`, `""`, `"\001\002\003"`} {
+		asBytes := fieldArg(t, compileForFDPTest(t, `syntax = "proto3";
+package test;
+
+annotation default(value: any);
+
+message M {
+  bytes token = 5 @default(`+lit+`);
+}
+`))
+		asString := fieldArg(t, compileForFDPTest(t, `syntax = "proto3";
+package test;
+
+annotation default(value: any);
+
+message M {
+  string token = 5 @default(`+lit+`);
+}
+`))
+		assert.Equal(t, []byte(asString.GetStringValue()), asBytes.GetBytesValue(),
+			"%s: bytes_value and string_value must carry the same octets", lit)
+	}
+}
+
 // TestAnnotationBytesCarrierTakesBytesValue is #179.
 //
 // `string_value` is a proto3 string and so must be valid UTF-8. A bytes
