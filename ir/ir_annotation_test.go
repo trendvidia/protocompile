@@ -818,6 +818,74 @@ message M {}
 	}
 }
 
+// TestAnnotationArgTypoIsAcceptedAsABuiltin pins the hole in the two tests
+// above, as a known limitation rather than an oversight.
+//
+// TestAnnotationArgBuiltinsUndiagnosed uses names the schema never
+// declares, which is the case the "presume builtin" default exists for.
+// This is the other one: a MISSPELLING of a function the schema does
+// declare. It is indistinguishable from a builtin here -- both are simply
+// names that do not resolve -- so it compiles.
+//
+// The default is right. RFC-001 section 9.1 gives a project one engine,
+// and engines have builtins the schema never declares (CEL's size(),
+// startsWith()), so an unresolvable name is usually legitimate. Rejecting
+// them would break every valid rule that uses one. The cost is that the
+// one case where the author is wrong looks exactly like the common case
+// where they are right, and `this` binds to the value under validation --
+// so a rule that never runs is a constraint that silently does not exist.
+//
+// Closing this needs the engine's builtin inventory, which lives in the
+// engine: trendvidia/protolsp#275. Stated in the schema beside
+// ParamType.EXPRESSION (trendvidia/protowire#268) so a schema author can
+// learn it without reading this file.
+//
+// If a future change diagnoses `mathces` here, this test is what it will
+// break, and that is the point: the boundary should not move silently.
+func TestAnnotationArgTypoIsAcceptedAsABuiltin(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+function matches(value: string, pattern: string);
+
+annotation validate(rule: expression);
+
+message M {
+  // "matches" is declared right above; this is one transposition
+  // away from it, and compiles.
+  string email = 1 @validate(mathces(this, "^[^@]+@[^@]+$"));
+}
+`
+
+	_, rep := compileForAnnotationTest(t, src)
+	for _, d := range rep.Diagnostics {
+		if isError(d) {
+			t.Errorf("a misspelled name is presumed an engine builtin, "+
+				"not diagnosed; got: %s", d.Message())
+		}
+	}
+
+	// The same call spelled correctly, with the wrong arity, IS caught --
+	// so the boundary is exactly "does the name resolve", and this test
+	// is not passing merely because nothing is checked at all.
+	_, rep = compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+
+function matches(value: string, pattern: string);
+
+annotation validate(rule: expression);
+
+message M {
+  string email = 1 @validate(matches(this));
+}
+`)
+	assert.True(t,
+		hasErrorContaining(rep, "test.matches", "1 argument(s)", "declares 2"),
+		"a resolvable name is arity-checked: %v", rep.Diagnostics)
+}
+
 // TestAnnotationArgNamedBinding verifies named-argument binding and
 // its diagnostics: unknown names, positional-after-named, and double
 // binding.
