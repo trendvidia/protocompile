@@ -64,6 +64,20 @@ and cost the signal a reviewer uses to decide.
 `make ci-local` is still the right thing to run before you push. It is
 now a fast first opinion rather than the only one.
 
+The same distinction cost us a second gate. `checkspecdrift` verifies that
+the vendored copies of protowire's schema still match canonical — the check
+that exists because v0.19.0 shipped stale bindings without one (#116). It
+ran in no workflow at all, and locally it printed a notice and exited 0
+whenever a sibling protowire checkout was absent, so "all gates passed"
+was true of a gate that had not run (#198). It is now a `specdrift` job on
+every PR, and `scripts/checkspecdrift.sh` fetches canonical at `SPEC_REF`
+(default `main`, resolved to a commit it prints) rather than assuming a
+checkout. It never skips: no network and no `PROTOWIRE_DIR` is a failure,
+not a pass. Pass `PROTOWIRE_DIR=../protowire` to compare against a local
+checkout instead — its branch and commit are printed, because "whatever
+the sibling checkout happens to be on" was the ambiguity that let a
+schema change be verified against its own branch.
+
 The two expensive legs stay off pull requests, each in its own workflow
 whose trigger says so:
 
