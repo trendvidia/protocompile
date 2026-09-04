@@ -1,8 +1,13 @@
 name: windows
-# Cost-conscious trigger policy — see ci.yaml and CONTRIBUTING.md for the
-# full rationale. windows runners are particularly expensive, so this
-# workflow is even more restrictive than ci.yaml: it fires only on
-# release events, tag pushes, and manual dispatch.
+# Runs on a self-hosted Windows runner (protocompile-omen), so the
+# GitHub-hosted cost that once justified the narrow trigger no longer
+# applies. The triggers are unchanged for now — release events, tag pushes,
+# and manual dispatch — because broadening them is a separate decision;
+# see #197.
+#
+# This workflow was disabled_manually from 2026-07-17 to 2026-09-03 after
+# three red runs, while both this file and CONTRIBUTING.md continued to
+# describe it as gating releases. Five releases shipped in that window.
 on:
   release:
     types: [published]
@@ -17,7 +22,16 @@ jobs:
     env:
       PROTOC_ARTIFACT_SUFFIX: win64
       PATH_SEP: ;
-    runs-on: windows-latest
+      # Scoped to this job rather than `git config --global`. The runner
+      # service runs as NT AUTHORITY\NETWORK SERVICE, whose global git
+      # config is shared with the eight other repositories' runners on this
+      # machine — writing core.autocrlf there would reach all of them.
+      GIT_CONFIG_COUNT: "2"
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: "false"
+      GIT_CONFIG_KEY_1: core.eol
+      GIT_CONFIG_VALUE_1: lf
+    runs-on: [self-hosted, Windows, X64]
     strategy:
       matrix:
         go-version:
@@ -26,10 +40,6 @@ jobs:
           - name: previous
             version: 1.25.x
     steps:
-      - name: Set git to use LF
-        run: |
-          git config --global core.autocrlf false
-          git config --global core.eol lf
       - uses: actions/checkout@v7
         with:
           fetch-depth: 1
