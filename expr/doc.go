@@ -13,7 +13,29 @@
 // limitations under the License.
 
 // Package expr provides an abstract syntax tree implementation for an
-// expression language shared by various parts of the compiler.
+// expression language.
+//
+// # Status in this fork
+//
+// Nothing in this repository uses it. It is inherited from upstream's
+// `experimental/` tree, promoted to the top level by Track C (#44), and
+// upstream is in the same position: bufbuild/protocompile's only importer
+// of expr is experimental/internal/exprx, which nothing imports in turn.
+// Wiring it to a consumer is upstream's design question, not this fork's.
+//
+// It said "shared by various parts of the compiler" until #199, which is
+// how an audit came to read the package as dead code and propose deleting
+// it. It is not dead; it is unfinished, and upstream's.
+//
+// Two things follow for anyone reading it here. The package is not covered
+// by this repository's test suite, so nothing pins the behaviour described
+// below. And it is NOT the implementation of RFC-001's `expression`
+// parameter type, despite the name: that type is defined as an opaque text
+// payload validated by the configured engine at run time, never parsed by
+// protocompile (see ir.AnnotationParam.IsExpression). The grammar here —
+// `func`, `for ... in`, `break`/`continue`/`return`, and the assignment
+// operators — describes a general-purpose imperative language, which is
+// more than either a validation predicate or a computed default needs.
 //
 // # Node Types
 //
