@@ -365,6 +365,16 @@ func buildLiteralArg(lit ast.ExprLiteral, param ir.AnnotationParam, carrier pred
 		// carrier gets the same treatment, for the same reason the numeric
 		// routing consults it.
 		//
+		// The bytes written here are the LITERAL's own, verbatim: a proto
+		// string literal spells bytes with escapes, so `@default("\001")`
+		// is one byte and `@default("AQID")` is four characters. A consumer
+		// must not decode them again. protowire-go did, because the BRACKET
+		// form has to encode — `(pxf.default)` is declared `string`, and a
+		// string option cannot carry arbitrary bytes — so it read
+		// `@default("AQID")` as the three bytes that base64-decodes to
+		// (#195). The two spellings differ by necessity and both are
+		// correct; descriptor.proto now says so beside `bytes_value`.
+		//
 		// Everything else reaching string_value with non-UTF-8 content is
 		// DIAGNOSED, not re-routed here (#184): ir.checkStringLiteralUTF8
 		// rejects it, so by the time this runs the content is either valid

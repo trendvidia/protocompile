@@ -96,6 +96,20 @@ message Annotation {
 // that means it. That is what keeps the rule above true rather than
 // aspirational.
 //
+// `bytes_value` carries the literal's own octets, verbatim. A consumer must
+// not decode it again: the bytes are already the value, and applying an
+// encoding to them produces something the author did not write.
+//
+// This needs saying because the bracket form cannot do the same. An option
+// extension typed `string` -- `(pxf.default)`, for one -- has no way to
+// carry arbitrary bytes, so a port spells a bytes default there in some
+// text encoding and decodes it on the way in. That encoding belongs to the
+// bracket form alone. `bytes token = 5 @default("\001\002\003")` and
+// `bytes token = 5 [(pxf.default) = "AQID"]` therefore SPELL the same three
+// bytes differently, and both are correct; a consumer that applies the
+// bracket form's decoding to `bytes_value` read the first as four
+// characters (trendvidia/protocompile#195).
+//
 // Message literals are unaffected: their type comes from the declaration or
 // an explicit use-site type name, as `Literal` describes.
 message AnnotationArg {
