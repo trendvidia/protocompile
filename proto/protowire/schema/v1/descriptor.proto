@@ -36,6 +36,7 @@ package protowire.schema.v1;
 
 import "google/protobuf/any.proto";
 import "google/protobuf/descriptor.proto";
+import "pxf/bignum.proto";
 
 // ── Annotation carrier ────────────────────────────────────────────────────
 
@@ -122,6 +123,22 @@ message AnnotationArg {
     bool   bool_value    = 13;
     bytes  bytes_value   = 14;
     Literal literal      = 15; // enum name, message literal, list literal
+
+    // Arbitrary-precision members, for values no scalar above holds
+    // faithfully. An annotation on a `pxf.BigInt`, `pxf.Decimal` or
+    // `pxf.BigFloat` element uses these rather than int_value or
+    // double_value, whatever the magnitude: those types exist to carry
+    // what int64 and double cannot, and routing them through either is
+    // the loss they were declared to avoid.
+    //
+    // There was no such member before #263. `pxf.BigInt x = 1
+    // @default(10000000000000000000)` was carried as a NEGATIVE int_value
+    // -- the two's-complement bits -- on the one type in the language
+    // whose stated purpose is holding values above int64.
+    pxf.BigInt   big_int_value   = 16;
+    pxf.Decimal  decimal_value   = 17;
+    pxf.BigFloat big_float_value = 18;
+
     Expression expression = 20; // for annotation params typed `expression`
   }
 }
@@ -173,6 +190,9 @@ message LiteralValue {
     bool   bool_value    = 13;
     bytes  bytes_value   = 14;
     Literal literal      = 15; // enum value, message, or nested list
+    pxf.BigInt   big_int_value   = 16;
+    pxf.Decimal  decimal_value   = 17;
+    pxf.BigFloat big_float_value = 18;
   }
 }
 

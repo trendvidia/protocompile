@@ -1,0 +1,58 @@
+// Copyright 2020-2026 Buf Technologies, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// PXF arbitrary-precision number types.
+//
+// Vendored from `trendvidia/protowire` (`proto/pxf/bignum.proto`) at commit
+// c1089eb5d80e7c38175a8ad71348887ce97baf16.
+//
+// Vendored because `protowire/schema/v1/descriptor.proto` imports it:
+// AnnotationArg and LiteralValue carry these three types directly, so an
+// annotation argument on a `pxf.BigInt`, `pxf.Decimal` or `pxf.BigFloat`
+// element can hold a value `int64` and `double` cannot (protowire#263).
+//
+// This is the only pxf file protocompile vendors. It is here as a load-time
+// dependency of the carrier schema, not because protocompile implements PXF.
+// The vendored copy and the upstream are byte-identical (modulo this header)
+// from `syntax = "proto3"` down.
+
+syntax = "proto3";
+package pxf;
+
+// Arbitrary-precision signed integer.
+// Wire: unsigned big-endian absolute value + sign flag.
+// PXF text: bare integer literal.
+message BigInt {
+  bytes abs = 1;
+  bool negative = 2;
+}
+
+// Arbitrary-precision exact decimal: value = (-1)^negative × unscaled × 10^(-scale).
+// Wire: unsigned big-endian unscaled value + scale + sign flag.
+// PXF text: decimal literal preserving exact scale (e.g. "1.00" has scale=2).
+message Decimal {
+  bytes unscaled = 1;
+  int32 scale = 2;
+  bool negative = 3;
+}
+
+// Arbitrary-precision binary floating point.
+// Wire: unsigned big-endian integer mantissa + binary exponent + precision + sign flag.
+// PXF text: float literal with arbitrary mantissa precision.
+message BigFloat {
+  bytes mantissa = 1;
+  int32 exponent = 2;
+  uint32 prec = 3;
+  bool negative = 4;
+}

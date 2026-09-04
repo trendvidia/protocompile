@@ -13,6 +13,10 @@ inputs:
     paths:
       - proto/protowire/schema/v1/descriptor.proto
       - proto/protowire/schema/v1/report.proto
+      # AnnotationArg and LiteralValue carry pxf.BigInt / Decimal /
+      # BigFloat directly (protowire#263), so the public carrier types
+      # cannot be used without these.
+      - proto/pxf/bignum.proto
 managed:
   enabled: true
   override:

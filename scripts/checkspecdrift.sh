@@ -47,6 +47,7 @@ PROTOWIRE_DIR="${PROTOWIRE_DIR:-}"
 PAIRS=(
   "proto/protowire/schema/v1/report.proto:proto/schema/v1/report.proto"
   "proto/protowire/schema/v1/descriptor.proto:proto/schema/v1/descriptor.proto"
+  "proto/pxf/bignum.proto:proto/pxf/bignum.proto"
   "internal/proto/protowire/schema/config/v1/config.proto:proto/schema/config/v1/config.proto"
   "internal/proto/protowire/schema/catalog/v1/catalog.proto:proto/schema/catalog/v1/catalog.proto"
 )

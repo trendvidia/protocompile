@@ -58,6 +58,9 @@ const (
 	ArgMemberBool
 	ArgMemberString
 	ArgMemberBytes
+	ArgMemberBigInt
+	ArgMemberDecimal
+	ArgMemberBigFloat
 )
 
 // String names the member as a consumer sees it, for diagnostics.
@@ -73,6 +76,12 @@ func (m ArgMember) String() string {
 		return "string_value"
 	case ArgMemberBytes:
 		return "bytes_value"
+	case ArgMemberBigInt:
+		return "big_int_value"
+	case ArgMemberDecimal:
+		return "decimal_value"
+	case ArgMemberBigFloat:
+		return "big_float_value"
 	}
 	return "none"
 }
@@ -105,7 +114,7 @@ func (k ArgLiteralKind) String() string {
 // string is not a number however it is spelled. Range and integrality are
 // separate questions, asked only once the kind fits, because they depend
 // on the value rather than on how it was written.
-func ConvertArgKind(kind ArgLiteralKind, target predeclared.Name) (ArgMember, bool) {
+func ConvertArgKind(kind ArgLiteralKind, target predeclared.Name, pxf PxfNumber) (ArgMember, bool) {
 	own := func() ArgMember {
 		switch kind {
 		case ArgLiteralInt:
@@ -123,6 +132,28 @@ func ConvertArgKind(kind ArgLiteralKind, target predeclared.Name) (ArgMember, bo
 	if kind == ArgLiteralNone {
 		return ArgMemberNone, true
 	}
+
+	// An arbitrary-precision carrier takes its own member for any numeric
+	// literal, whatever the magnitude — see Type.PxfNumber. It is checked
+	// before `target`, because CarrierScalar deliberately reports Unknown
+	// for these three and the literal's own type is exactly what must not
+	// stand here.
+	if pxf != PxfNone {
+		if kind == ArgLiteralInt || kind == ArgLiteralFloat {
+			switch pxf {
+			case PxfBigInt:
+				return ArgMemberBigInt, true
+			case PxfDecimal:
+				return ArgMemberDecimal, true
+			case PxfBigFloat:
+				return ArgMemberBigFloat, true
+			}
+		}
+		// A string or a bool is no more a value for one of these than for
+		// an int32, and falls through to the kind mismatch below.
+		return own(), false
+	}
+
 	if target == predeclared.Unknown {
 		return own(), true
 	}

@@ -385,6 +385,25 @@ func argTarget(param AnnotationParam, carrier Type) predeclared.Name {
 	return carrier.CarrierScalar()
 }
 
+// argPxf is argTarget's companion: which arbitrary-precision type the
+// argument converts to, if any.
+//
+// A DECLARED parameter type wins, as it does everywhere else — an
+// `annotation n(value: int64)` on a `pxf.BigInt` field converts against
+// int64, because that is what the declaration promises its consumers.
+func argPxf(param AnnotationParam, carrier Type) PxfNumber {
+	if param.IsScalar() {
+		return PxfNone
+	}
+	if !param.IsZero() && !param.IsAny() {
+		return PxfNone
+	}
+	if carrier.IsZero() {
+		return PxfNone
+	}
+	return carrier.PxfNumber()
+}
+
 // checkStringLiteralUTF8 rejects a string literal whose content is not
 // valid UTF-8 when it would reach `string_value`.
 //
@@ -413,7 +432,7 @@ func checkStringLiteralUTF8(
 	// content as-is, and a target that cannot hold a string at all is
 	// already reported as a kind mismatch — saying it twice, once for the
 	// kind and once for the encoding, describes one mistake as two.
-	member, convertible := ConvertArgKind(ArgLiteralString, argTarget(param, carrier))
+	member, convertible := ConvertArgKind(ArgLiteralString, argTarget(param, carrier), argPxf(param, carrier))
 	if !convertible || member != ArgMemberString {
 		return
 	}
@@ -1204,9 +1223,16 @@ func checkCarrierRange(
 	// family kept failing in, and checkStringLiteralUTF8 already reaches
 	// the target that way.
 	convertTo := argTarget(param, carrier)
+	pxf := argPxf(param, carrier)
 	bound := convertTo
 	describe := fmt.Sprintf("the annotated type `%s`", bound)
 	switch {
+	case pxf != PxfNone:
+		// Naming int_value here would be false: these carriers lower into
+		// their own member. The #193 review caught the same shape once
+		// already -- a diagnostic describing a type the lowering never
+		// consults -- so it is named from the member, not the substitution.
+		describe = fmt.Sprintf("the annotated type `%s`", carrier.FullName())
 	case bound == predeclared.Unknown && carrier.IsZero():
 		bound = predeclared.Int64
 		describe = "the 64-bit signed `int_value` an untyped argument " +
@@ -1223,7 +1249,7 @@ func checkCarrierRange(
 		describe = fmt.Sprintf("the scalar `%s` wrapped by the annotated type `%s`",
 			bound, carrier.FullName())
 	}
-	checkCarrierRangeValue(r, target, param, arg, convertTo, bound, describe)
+	checkCarrierRangeValue(r, target, param, arg, convertTo, pxf, bound, describe)
 }
 
 // checkCarrierRangeValue applies a resolved carrier bound to one argument
@@ -1242,12 +1268,13 @@ func checkCarrierRangeValue(
 	param AnnotationParam,
 	arg ast.ExprAny,
 	convertTo predeclared.Name,
+	pxf PxfNumber,
 	bound predeclared.Name,
 	describe string,
 ) {
 	if arg.Kind() == ast.ExprKindArray {
 		for elem := range seq.Values(arg.AsArray().Elements()) {
-			checkCarrierRangeValue(r, target, param, elem, convertTo, bound, describe)
+			checkCarrierRangeValue(r, target, param, elem, convertTo, pxf, bound, describe)
 		}
 		return
 	}
@@ -1281,7 +1308,7 @@ func checkCarrierRangeValue(
 		return
 	}
 
-	member, convertible := ConvertArgKind(kind, convertTo)
+	member, convertible := ConvertArgKind(kind, convertTo, pxf)
 	if !convertible {
 		r.Errorf("argument %q for `%s` is a %s literal, which %s cannot hold",
 			param.Name(), target.FullName(), kind, describe,
@@ -1335,10 +1362,32 @@ func checkCarrierRangeValue(
 		return
 	}
 
+	num := lit.Token.AsNumber()
+
+	// pxf.BigInt is an INTEGER of arbitrary precision. No magnitude is out
+	// of range for it, so the bound below does not apply — but a fractional
+	// literal is still not an integer, and that is the one thing it cannot
+	// hold. pxf.Decimal and pxf.BigFloat take fractions, so they are not
+	// checked here at all.
+	if member == ArgMemberBigInt {
+		if kind == ArgLiteralFloat {
+			f, _ := num.Float()
+			if f != math.Trunc(f) || math.IsInf(f, 0) {
+				r.Errorf("argument %q for `%s` is not an integer, but %s is",
+					param.Name(), target.FullName(), describe,
+				).Apply(
+					report.Snippet(arg),
+					report.Notef("a floating-point literal converts to an integer "+
+						"target only when it has no fractional part"),
+				)
+			}
+		}
+		return
+	}
+
 	// Bound only what actually lands in `int_value`. The member comes from
 	// the same ConvertArgKind the lowering uses, so this no longer mirrors
 	// buildLiteralArg and cannot drift from it.
-	num := lit.Token.AsNumber()
 	if member != ArgMemberInt {
 		return
 	}
