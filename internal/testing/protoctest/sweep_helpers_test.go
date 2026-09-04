@@ -30,6 +30,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 
@@ -38,7 +39,11 @@ import (
 
 var pointerRegex = regexp.MustCompile(`0x[0-9a-f]+`)
 
-var absPathRegex = regexp.MustCompile(`/[^ :]*/protocompile/`)
+// The optional `[A-Za-z]:` is a Windows drive letter. Without it the
+// pattern starts at `/` and `[^ :]*` cannot cross the colon, so a path
+// protoc printed as `C:/Users/.../protocompile/...` had everything after
+// the drive scrubbed and `C:` left stranded in the report (#197).
+var absPathRegex = regexp.MustCompile(`(?:[A-Za-z]:)?/[^ :]*/protocompile/`)
 
 // sweepRepoRoot is the checkout root, found from this package's location
 // rather than from the checkout's name. absPathRegex alone scrubs a path
@@ -191,8 +196,19 @@ func oneLine(s string) string {
 	s = pointerRegex.ReplaceAllString(s, "<ptr>")
 	if sweepRepoRoot != "" {
 		s = strings.ReplaceAll(s, sweepRepoRoot+string(filepath.Separator), "<repo>/")
+		// protoc prints forward slashes on Windows even though
+		// filepath.Separator there is a backslash, so the replacement
+		// above never fires and the path reaches absPathRegex instead.
+		// Handled here so the report does not depend on which of the two
+		// happens to match.
+		s = strings.ReplaceAll(s, filepath.ToSlash(sweepRepoRoot)+"/", "<repo>/")
 	}
 	s = absPathRegex.ReplaceAllString(s, "<repo>/")
+	// protoc's stderr is CRLF on Windows. Dropping \r keeps the golden
+	// report identical across platforms rather than one carriage return
+	// per diagnostic different.
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "")
 	s = strings.ReplaceAll(s, "\n", " ")
 	s = strings.ReplaceAll(s, "\t", " ")
 	for strings.Contains(s, "  ") {
@@ -226,4 +242,43 @@ func summarizeDiff(diff string) string {
 		return fmt.Sprintf("%d-/%d+ lines", minus, plus)
 	}
 	return fmt.Sprintf("%d-/%d+ lines; first field: %s", minus, plus, firstField)
+}
+
+// TestOneLineIsPlatformIndependent pins the normalisation the sweep report
+// depends on, using synthetic input so it runs everywhere rather than only
+// where the platform in question is.
+//
+// Both cases below drifted the report on Windows the first time the lane
+// ran on self-hosted hardware (#197): the drive letter survived because
+// absPathRegex could not cross the colon, and protoc's CRLF stderr left a
+// carriage return in every diagnostic.
+func TestOneLineIsPlatformIndependent(t *testing.T) {
+	t.Parallel()
+
+	const want = "<repo>/internal/testdata/a.proto:12:1: Expected top-level statement."
+	for _, tc := range []struct{ name, in string }{
+		{
+			"unix absolute path",
+			"/home/runner/work/protocompile/internal/testdata/a.proto:12:1: Expected top-level statement.",
+		},
+		{
+			"windows drive letter",
+			"C:/Users/runner/work/protocompile/internal/testdata/a.proto:12:1: Expected top-level statement.",
+		},
+		{
+			"windows drive letter, lowercase",
+			"d:/a/protocompile/internal/testdata/a.proto:12:1: Expected top-level statement.",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, want, oneLine(tc.in))
+		})
+	}
+
+	t.Run("crlf collapses like lf", func(t *testing.T) {
+		t.Parallel()
+		assert.Equal(t, oneLine("one\ntwo"), oneLine("one\r\ntwo"))
+		assert.NotContains(t, oneLine("one\r\ntwo"), "\r")
+	})
 }
