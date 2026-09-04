@@ -39,6 +39,7 @@
 package schemav1
 
 import (
+	pxf "github.com/trendvidia/protocompile/gen/pxf"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	descriptorpb "google.golang.org/protobuf/types/descriptorpb"
@@ -67,8 +68,11 @@ const (
 	ParamType_DOUBLE                 ParamType = 6
 	ParamType_BOOL                   ParamType = 7
 	ParamType_BYTES                  ParamType = 8
-	ParamType_ANY                    ParamType = 9
-	ParamType_ENUM_OR_MESSAGE        ParamType = 10
+	// Accepts any literal shape; the argument is typed by its own literal
+	// and then converted to the annotated element's type. See AnnotationArg,
+	// "Choosing the member".
+	ParamType_ANY             ParamType = 9
+	ParamType_ENUM_OR_MESSAGE ParamType = 10
 )
 
 // Enum value maps for ParamType.
@@ -302,6 +306,55 @@ func (x *Annotation) GetLocation() *SourceLocation {
 }
 
 // AnnotationArg is a single argument. `name` is empty for positional args.
+//
+// # Choosing the member
+//
+// Which oneof member an argument lowers into is decided by TYPE — never by
+// the literal's magnitude, and never by its content.
+//
+// For a parameter with a declared type, the declaration decides: the
+// argument is converted to that type, and a literal the type cannot hold is
+// a compile error.
+//
+// For a parameter declared `any`, the argument is first typed by its own
+// literal — `1e19` is a float because it is spelled as one, `"x"` is a
+// string — and is then converted to the type of the element the annotation
+// is attached to: the field, enum value, or method it annotates. A literal
+// that cannot be converted to that type, in kind or in range, is a compile
+// error. Where there is no such type — a message-, service-, enum- or
+// file-level annotation — the literal's own type stands and no conversion
+// is attempted.
+//
+// `any` is therefore for annotations carrying a VALUE for the thing they
+// annotate. An annotation carrying a note, a timestamp or a limit declares
+// its parameter type and is converted against that declaration instead;
+// leaving such a parameter `any` binds it to the annotated element's type,
+// which is not what it means.
+//
+// A literal no member can represent is a compile error, not a different
+// member. An integer past `int_value`'s 64-bit range has nowhere honest to
+// go: carrying it as `double_value` instead would make the member depend on
+// the magnitude, and carrying it wrapped would hand a consumer a value the
+// author did not write, with nothing to distinguish the wrap from a literal
+// that means it. That is what keeps the rule above true rather than
+// aspirational.
+//
+// `bytes_value` carries the literal's own octets, verbatim. A consumer must
+// not decode it again: the bytes are already the value, and applying an
+// encoding to them produces something the author did not write.
+//
+// This needs saying because the bracket form cannot do the same. An option
+// extension typed `string` -- `(pxf.default)`, for one -- has no way to
+// carry arbitrary bytes, so a port spells a bytes default there in some
+// text encoding and decodes it on the way in. That encoding belongs to the
+// bracket form alone. `bytes token = 5 @default("\001\002\003")` and
+// `bytes token = 5 [(pxf.default) = "AQID"]` therefore SPELL the same three
+// bytes differently, and both are correct; a consumer that applies the
+// bracket form's decoding to `bytes_value` read the first as four
+// characters (trendvidia/protocompile#195).
+//
+// Message literals are unaffected: their type comes from the declaration or
+// an explicit use-site type name, as `Literal` describes.
 type AnnotationArg struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -313,6 +366,9 @@ type AnnotationArg struct {
 	//	*AnnotationArg_BoolValue
 	//	*AnnotationArg_BytesValue
 	//	*AnnotationArg_Literal
+	//	*AnnotationArg_BigIntValue
+	//	*AnnotationArg_DecimalValue
+	//	*AnnotationArg_BigFloatValue
 	//	*AnnotationArg_Expression
 	Value         isAnnotationArg_Value `protobuf_oneof:"value"`
 	unknownFields protoimpl.UnknownFields
@@ -417,6 +473,33 @@ func (x *AnnotationArg) GetLiteral() *Literal {
 	return nil
 }
 
+func (x *AnnotationArg) GetBigIntValue() *pxf.BigInt {
+	if x != nil {
+		if x, ok := x.Value.(*AnnotationArg_BigIntValue); ok {
+			return x.BigIntValue
+		}
+	}
+	return nil
+}
+
+func (x *AnnotationArg) GetDecimalValue() *pxf.Decimal {
+	if x != nil {
+		if x, ok := x.Value.(*AnnotationArg_DecimalValue); ok {
+			return x.DecimalValue
+		}
+	}
+	return nil
+}
+
+func (x *AnnotationArg) GetBigFloatValue() *pxf.BigFloat {
+	if x != nil {
+		if x, ok := x.Value.(*AnnotationArg_BigFloatValue); ok {
+			return x.BigFloatValue
+		}
+	}
+	return nil
+}
+
 func (x *AnnotationArg) GetExpression() *Expression {
 	if x != nil {
 		if x, ok := x.Value.(*AnnotationArg_Expression); ok {
@@ -454,6 +537,29 @@ type AnnotationArg_Literal struct {
 	Literal *Literal `protobuf:"bytes,15,opt,name=literal,proto3,oneof"` // enum name, message literal, list literal
 }
 
+type AnnotationArg_BigIntValue struct {
+	// Arbitrary-precision members, for values no scalar above holds
+	// faithfully. An annotation on a `pxf.BigInt`, `pxf.Decimal` or
+	// `pxf.BigFloat` element uses these rather than int_value or
+	// double_value, whatever the magnitude: those types exist to carry
+	// what int64 and double cannot, and routing them through either is
+	// the loss they were declared to avoid.
+	//
+	// There was no such member before #263. `pxf.BigInt x = 1
+	// @default(10000000000000000000)` was carried as a NEGATIVE int_value
+	// -- the two's-complement bits -- on the one type in the language
+	// whose stated purpose is holding values above int64.
+	BigIntValue *pxf.BigInt `protobuf:"bytes,16,opt,name=big_int_value,json=bigIntValue,proto3,oneof"`
+}
+
+type AnnotationArg_DecimalValue struct {
+	DecimalValue *pxf.Decimal `protobuf:"bytes,17,opt,name=decimal_value,json=decimalValue,proto3,oneof"`
+}
+
+type AnnotationArg_BigFloatValue struct {
+	BigFloatValue *pxf.BigFloat `protobuf:"bytes,18,opt,name=big_float_value,json=bigFloatValue,proto3,oneof"`
+}
+
 type AnnotationArg_Expression struct {
 	Expression *Expression `protobuf:"bytes,20,opt,name=expression,proto3,oneof"` // for annotation params typed `expression`
 }
@@ -469,6 +575,12 @@ func (*AnnotationArg_BoolValue) isAnnotationArg_Value() {}
 func (*AnnotationArg_BytesValue) isAnnotationArg_Value() {}
 
 func (*AnnotationArg_Literal) isAnnotationArg_Value() {}
+
+func (*AnnotationArg_BigIntValue) isAnnotationArg_Value() {}
+
+func (*AnnotationArg_DecimalValue) isAnnotationArg_Value() {}
+
+func (*AnnotationArg_BigFloatValue) isAnnotationArg_Value() {}
 
 func (*AnnotationArg_Expression) isAnnotationArg_Value() {}
 
@@ -705,6 +817,9 @@ type LiteralValue struct {
 	//	*LiteralValue_BoolValue
 	//	*LiteralValue_BytesValue
 	//	*LiteralValue_Literal
+	//	*LiteralValue_BigIntValue
+	//	*LiteralValue_DecimalValue
+	//	*LiteralValue_BigFloatValue
 	Kind          isLiteralValue_Kind `protobuf_oneof:"kind"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -801,6 +916,33 @@ func (x *LiteralValue) GetLiteral() *Literal {
 	return nil
 }
 
+func (x *LiteralValue) GetBigIntValue() *pxf.BigInt {
+	if x != nil {
+		if x, ok := x.Kind.(*LiteralValue_BigIntValue); ok {
+			return x.BigIntValue
+		}
+	}
+	return nil
+}
+
+func (x *LiteralValue) GetDecimalValue() *pxf.Decimal {
+	if x != nil {
+		if x, ok := x.Kind.(*LiteralValue_DecimalValue); ok {
+			return x.DecimalValue
+		}
+	}
+	return nil
+}
+
+func (x *LiteralValue) GetBigFloatValue() *pxf.BigFloat {
+	if x != nil {
+		if x, ok := x.Kind.(*LiteralValue_BigFloatValue); ok {
+			return x.BigFloatValue
+		}
+	}
+	return nil
+}
+
 type isLiteralValue_Kind interface {
 	isLiteralValue_Kind()
 }
@@ -829,6 +971,18 @@ type LiteralValue_Literal struct {
 	Literal *Literal `protobuf:"bytes,15,opt,name=literal,proto3,oneof"` // enum value, message, or nested list
 }
 
+type LiteralValue_BigIntValue struct {
+	BigIntValue *pxf.BigInt `protobuf:"bytes,16,opt,name=big_int_value,json=bigIntValue,proto3,oneof"`
+}
+
+type LiteralValue_DecimalValue struct {
+	DecimalValue *pxf.Decimal `protobuf:"bytes,17,opt,name=decimal_value,json=decimalValue,proto3,oneof"`
+}
+
+type LiteralValue_BigFloatValue struct {
+	BigFloatValue *pxf.BigFloat `protobuf:"bytes,18,opt,name=big_float_value,json=bigFloatValue,proto3,oneof"`
+}
+
 func (*LiteralValue_StringValue) isLiteralValue_Kind() {}
 
 func (*LiteralValue_IntValue) isLiteralValue_Kind() {}
@@ -840,6 +994,12 @@ func (*LiteralValue_BoolValue) isLiteralValue_Kind() {}
 func (*LiteralValue_BytesValue) isLiteralValue_Kind() {}
 
 func (*LiteralValue_Literal) isLiteralValue_Kind() {}
+
+func (*LiteralValue_BigIntValue) isLiteralValue_Kind() {}
+
+func (*LiteralValue_DecimalValue) isLiteralValue_Kind() {}
+
+func (*LiteralValue_BigFloatValue) isLiteralValue_Kind() {}
 
 // Expression carries a verbatim engine-language fragment together with
 // the function-call references extracted by the protocompile lowering
@@ -1862,14 +2022,14 @@ var File_protowire_schema_v1_descriptor_proto protoreflect.FileDescriptor
 
 const file_protowire_schema_v1_descriptor_proto_rawDesc = "" +
 	"\n" +
-	"$protowire/schema/v1/descriptor.proto\x12\x13protowire.schema.v1\x1a\x19google/protobuf/any.proto\x1a google/protobuf/descriptor.proto\"K\n" +
+	"$protowire/schema/v1/descriptor.proto\x12\x13protowire.schema.v1\x1a\x19google/protobuf/any.proto\x1a google/protobuf/descriptor.proto\x1a\x10pxf/bignum.proto\"K\n" +
 	"\x0eAnnotationList\x129\n" +
 	"\aentries\x18\x01 \x03(\v2\x1f.protowire.schema.v1.AnnotationR\aentries\"\x99\x01\n" +
 	"\n" +
 	"Annotation\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x126\n" +
 	"\x04args\x18\x02 \x03(\v2\".protowire.schema.v1.AnnotationArgR\x04args\x12?\n" +
-	"\blocation\x18\x03 \x01(\v2#.protowire.schema.v1.SourceLocationR\blocation\"\xd6\x02\n" +
+	"\blocation\x18\x03 \x01(\v2#.protowire.schema.v1.SourceLocationR\blocation\"\xf7\x03\n" +
 	"\rAnnotationArg\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12#\n" +
 	"\fstring_value\x18\n" +
@@ -1880,7 +2040,10 @@ const file_protowire_schema_v1_descriptor_proto_rawDesc = "" +
 	"bool_value\x18\r \x01(\bH\x00R\tboolValue\x12!\n" +
 	"\vbytes_value\x18\x0e \x01(\fH\x00R\n" +
 	"bytesValue\x128\n" +
-	"\aliteral\x18\x0f \x01(\v2\x1c.protowire.schema.v1.LiteralH\x00R\aliteral\x12A\n" +
+	"\aliteral\x18\x0f \x01(\v2\x1c.protowire.schema.v1.LiteralH\x00R\aliteral\x121\n" +
+	"\rbig_int_value\x18\x10 \x01(\v2\v.pxf.BigIntH\x00R\vbigIntValue\x123\n" +
+	"\rdecimal_value\x18\x11 \x01(\v2\f.pxf.DecimalH\x00R\fdecimalValue\x127\n" +
+	"\x0fbig_float_value\x18\x12 \x01(\v2\r.pxf.BigFloatH\x00R\rbigFloatValue\x12A\n" +
 	"\n" +
 	"expression\x18\x14 \x01(\v2\x1f.protowire.schema.v1.ExpressionH\x00R\n" +
 	"expressionB\a\n" +
@@ -1897,7 +2060,7 @@ const file_protowire_schema_v1_descriptor_proto_rawDesc = "" +
 	"value_name\x18\x02 \x01(\tR\tvalueName\x12\x16\n" +
 	"\x06number\x18\x03 \x01(\x05R\x06number\"L\n" +
 	"\vListLiteral\x12=\n" +
-	"\belements\x18\x01 \x03(\v2!.protowire.schema.v1.LiteralValueR\belements\"\xfd\x01\n" +
+	"\belements\x18\x01 \x03(\v2!.protowire.schema.v1.LiteralValueR\belements\"\x9e\x03\n" +
 	"\fLiteralValue\x12#\n" +
 	"\fstring_value\x18\n" +
 	" \x01(\tH\x00R\vstringValue\x12\x1d\n" +
@@ -1907,7 +2070,10 @@ const file_protowire_schema_v1_descriptor_proto_rawDesc = "" +
 	"bool_value\x18\r \x01(\bH\x00R\tboolValue\x12!\n" +
 	"\vbytes_value\x18\x0e \x01(\fH\x00R\n" +
 	"bytesValue\x128\n" +
-	"\aliteral\x18\x0f \x01(\v2\x1c.protowire.schema.v1.LiteralH\x00R\aliteralB\x06\n" +
+	"\aliteral\x18\x0f \x01(\v2\x1c.protowire.schema.v1.LiteralH\x00R\aliteral\x121\n" +
+	"\rbig_int_value\x18\x10 \x01(\v2\v.pxf.BigIntH\x00R\vbigIntValue\x123\n" +
+	"\rdecimal_value\x18\x11 \x01(\v2\f.pxf.DecimalH\x00R\fdecimalValue\x127\n" +
+	"\x0fbig_float_value\x18\x12 \x01(\v2\r.pxf.BigFloatH\x00R\rbigFloatValueB\x06\n" +
 	"\x04kind\"\x9d\x01\n" +
 	"\n" +
 	"Expression\x12\x16\n" +
@@ -2054,76 +2220,85 @@ var file_protowire_schema_v1_descriptor_proto_goTypes = []any{
 	(*TypeChainLink)(nil),                 // 21: protowire.schema.v1.TypeChainLink
 	(*SourceLocation)(nil),                // 22: protowire.schema.v1.SourceLocation
 	nil,                                   // 23: protowire.schema.v1.FunctionDecl.OptionsEntry
-	(*anypb.Any)(nil),                     // 24: google.protobuf.Any
-	(*descriptorpb.FileOptions)(nil),      // 25: google.protobuf.FileOptions
-	(*descriptorpb.MessageOptions)(nil),   // 26: google.protobuf.MessageOptions
-	(*descriptorpb.FieldOptions)(nil),     // 27: google.protobuf.FieldOptions
-	(*descriptorpb.EnumOptions)(nil),      // 28: google.protobuf.EnumOptions
-	(*descriptorpb.EnumValueOptions)(nil), // 29: google.protobuf.EnumValueOptions
-	(*descriptorpb.ServiceOptions)(nil),   // 30: google.protobuf.ServiceOptions
-	(*descriptorpb.MethodOptions)(nil),    // 31: google.protobuf.MethodOptions
-	(*descriptorpb.OneofOptions)(nil),     // 32: google.protobuf.OneofOptions
+	(*pxf.BigInt)(nil),                    // 24: pxf.BigInt
+	(*pxf.Decimal)(nil),                   // 25: pxf.Decimal
+	(*pxf.BigFloat)(nil),                  // 26: pxf.BigFloat
+	(*anypb.Any)(nil),                     // 27: google.protobuf.Any
+	(*descriptorpb.FileOptions)(nil),      // 28: google.protobuf.FileOptions
+	(*descriptorpb.MessageOptions)(nil),   // 29: google.protobuf.MessageOptions
+	(*descriptorpb.FieldOptions)(nil),     // 30: google.protobuf.FieldOptions
+	(*descriptorpb.EnumOptions)(nil),      // 31: google.protobuf.EnumOptions
+	(*descriptorpb.EnumValueOptions)(nil), // 32: google.protobuf.EnumValueOptions
+	(*descriptorpb.ServiceOptions)(nil),   // 33: google.protobuf.ServiceOptions
+	(*descriptorpb.MethodOptions)(nil),    // 34: google.protobuf.MethodOptions
+	(*descriptorpb.OneofOptions)(nil),     // 35: google.protobuf.OneofOptions
 }
 var file_protowire_schema_v1_descriptor_proto_depIdxs = []int32{
 	3,  // 0: protowire.schema.v1.AnnotationList.entries:type_name -> protowire.schema.v1.Annotation
 	4,  // 1: protowire.schema.v1.Annotation.args:type_name -> protowire.schema.v1.AnnotationArg
 	22, // 2: protowire.schema.v1.Annotation.location:type_name -> protowire.schema.v1.SourceLocation
 	5,  // 3: protowire.schema.v1.AnnotationArg.literal:type_name -> protowire.schema.v1.Literal
-	9,  // 4: protowire.schema.v1.AnnotationArg.expression:type_name -> protowire.schema.v1.Expression
-	6,  // 5: protowire.schema.v1.Literal.enum_value:type_name -> protowire.schema.v1.EnumLiteral
-	24, // 6: protowire.schema.v1.Literal.message:type_name -> google.protobuf.Any
-	7,  // 7: protowire.schema.v1.Literal.list:type_name -> protowire.schema.v1.ListLiteral
-	8,  // 8: protowire.schema.v1.ListLiteral.elements:type_name -> protowire.schema.v1.LiteralValue
-	5,  // 9: protowire.schema.v1.LiteralValue.literal:type_name -> protowire.schema.v1.Literal
-	10, // 10: protowire.schema.v1.Expression.calls:type_name -> protowire.schema.v1.FunctionRef
-	22, // 11: protowire.schema.v1.Expression.location:type_name -> protowire.schema.v1.SourceLocation
-	12, // 12: protowire.schema.v1.FileFunctions.declarations:type_name -> protowire.schema.v1.FunctionDecl
-	13, // 13: protowire.schema.v1.FunctionDecl.params:type_name -> protowire.schema.v1.FunctionParam
-	23, // 14: protowire.schema.v1.FunctionDecl.options:type_name -> protowire.schema.v1.FunctionDecl.OptionsEntry
-	22, // 15: protowire.schema.v1.FunctionDecl.location:type_name -> protowire.schema.v1.SourceLocation
-	15, // 16: protowire.schema.v1.FileAnnotationDecls.declarations:type_name -> protowire.schema.v1.AnnotationDecl
-	16, // 17: protowire.schema.v1.AnnotationDecl.params:type_name -> protowire.schema.v1.AnnotationParam
-	22, // 18: protowire.schema.v1.AnnotationDecl.location:type_name -> protowire.schema.v1.SourceLocation
-	0,  // 19: protowire.schema.v1.AnnotationParam.type:type_name -> protowire.schema.v1.ParamType
-	4,  // 20: protowire.schema.v1.AnnotationParam.default_value:type_name -> protowire.schema.v1.AnnotationArg
-	18, // 21: protowire.schema.v1.FileTypeDecls.declarations:type_name -> protowire.schema.v1.TypeDecl
-	2,  // 22: protowire.schema.v1.TypeDecl.annotations:type_name -> protowire.schema.v1.AnnotationList
-	22, // 23: protowire.schema.v1.TypeDecl.location:type_name -> protowire.schema.v1.SourceLocation
-	20, // 24: protowire.schema.v1.SourceMap.entries:type_name -> protowire.schema.v1.SourceEntry
-	1,  // 25: protowire.schema.v1.SourceEntry.kind:type_name -> protowire.schema.v1.EntryKind
-	22, // 26: protowire.schema.v1.SourceEntry.source_location:type_name -> protowire.schema.v1.SourceLocation
-	21, // 27: protowire.schema.v1.SourceEntry.type_chain:type_name -> protowire.schema.v1.TypeChainLink
-	22, // 28: protowire.schema.v1.TypeChainLink.declaration_location:type_name -> protowire.schema.v1.SourceLocation
-	4,  // 29: protowire.schema.v1.FunctionDecl.OptionsEntry.value:type_name -> protowire.schema.v1.AnnotationArg
-	25, // 30: protowire.schema.v1.file_annotations:extendee -> google.protobuf.FileOptions
-	25, // 31: protowire.schema.v1.functions:extendee -> google.protobuf.FileOptions
-	25, // 32: protowire.schema.v1.annotation_decls:extendee -> google.protobuf.FileOptions
-	25, // 33: protowire.schema.v1.type_decls:extendee -> google.protobuf.FileOptions
-	25, // 34: protowire.schema.v1.source_map:extendee -> google.protobuf.FileOptions
-	26, // 35: protowire.schema.v1.message_annotations:extendee -> google.protobuf.MessageOptions
-	27, // 36: protowire.schema.v1.field_annotations:extendee -> google.protobuf.FieldOptions
-	28, // 37: protowire.schema.v1.enum_annotations:extendee -> google.protobuf.EnumOptions
-	29, // 38: protowire.schema.v1.enum_value_annotations:extendee -> google.protobuf.EnumValueOptions
-	30, // 39: protowire.schema.v1.service_annotations:extendee -> google.protobuf.ServiceOptions
-	31, // 40: protowire.schema.v1.method_annotations:extendee -> google.protobuf.MethodOptions
-	32, // 41: protowire.schema.v1.oneof_annotations:extendee -> google.protobuf.OneofOptions
-	2,  // 42: protowire.schema.v1.file_annotations:type_name -> protowire.schema.v1.AnnotationList
-	11, // 43: protowire.schema.v1.functions:type_name -> protowire.schema.v1.FileFunctions
-	14, // 44: protowire.schema.v1.annotation_decls:type_name -> protowire.schema.v1.FileAnnotationDecls
-	17, // 45: protowire.schema.v1.type_decls:type_name -> protowire.schema.v1.FileTypeDecls
-	19, // 46: protowire.schema.v1.source_map:type_name -> protowire.schema.v1.SourceMap
-	2,  // 47: protowire.schema.v1.message_annotations:type_name -> protowire.schema.v1.AnnotationList
-	2,  // 48: protowire.schema.v1.field_annotations:type_name -> protowire.schema.v1.AnnotationList
-	2,  // 49: protowire.schema.v1.enum_annotations:type_name -> protowire.schema.v1.AnnotationList
-	2,  // 50: protowire.schema.v1.enum_value_annotations:type_name -> protowire.schema.v1.AnnotationList
-	2,  // 51: protowire.schema.v1.service_annotations:type_name -> protowire.schema.v1.AnnotationList
-	2,  // 52: protowire.schema.v1.method_annotations:type_name -> protowire.schema.v1.AnnotationList
-	2,  // 53: protowire.schema.v1.oneof_annotations:type_name -> protowire.schema.v1.AnnotationList
-	54, // [54:54] is the sub-list for method output_type
-	54, // [54:54] is the sub-list for method input_type
-	42, // [42:54] is the sub-list for extension type_name
-	30, // [30:42] is the sub-list for extension extendee
-	0,  // [0:30] is the sub-list for field type_name
+	24, // 4: protowire.schema.v1.AnnotationArg.big_int_value:type_name -> pxf.BigInt
+	25, // 5: protowire.schema.v1.AnnotationArg.decimal_value:type_name -> pxf.Decimal
+	26, // 6: protowire.schema.v1.AnnotationArg.big_float_value:type_name -> pxf.BigFloat
+	9,  // 7: protowire.schema.v1.AnnotationArg.expression:type_name -> protowire.schema.v1.Expression
+	6,  // 8: protowire.schema.v1.Literal.enum_value:type_name -> protowire.schema.v1.EnumLiteral
+	27, // 9: protowire.schema.v1.Literal.message:type_name -> google.protobuf.Any
+	7,  // 10: protowire.schema.v1.Literal.list:type_name -> protowire.schema.v1.ListLiteral
+	8,  // 11: protowire.schema.v1.ListLiteral.elements:type_name -> protowire.schema.v1.LiteralValue
+	5,  // 12: protowire.schema.v1.LiteralValue.literal:type_name -> protowire.schema.v1.Literal
+	24, // 13: protowire.schema.v1.LiteralValue.big_int_value:type_name -> pxf.BigInt
+	25, // 14: protowire.schema.v1.LiteralValue.decimal_value:type_name -> pxf.Decimal
+	26, // 15: protowire.schema.v1.LiteralValue.big_float_value:type_name -> pxf.BigFloat
+	10, // 16: protowire.schema.v1.Expression.calls:type_name -> protowire.schema.v1.FunctionRef
+	22, // 17: protowire.schema.v1.Expression.location:type_name -> protowire.schema.v1.SourceLocation
+	12, // 18: protowire.schema.v1.FileFunctions.declarations:type_name -> protowire.schema.v1.FunctionDecl
+	13, // 19: protowire.schema.v1.FunctionDecl.params:type_name -> protowire.schema.v1.FunctionParam
+	23, // 20: protowire.schema.v1.FunctionDecl.options:type_name -> protowire.schema.v1.FunctionDecl.OptionsEntry
+	22, // 21: protowire.schema.v1.FunctionDecl.location:type_name -> protowire.schema.v1.SourceLocation
+	15, // 22: protowire.schema.v1.FileAnnotationDecls.declarations:type_name -> protowire.schema.v1.AnnotationDecl
+	16, // 23: protowire.schema.v1.AnnotationDecl.params:type_name -> protowire.schema.v1.AnnotationParam
+	22, // 24: protowire.schema.v1.AnnotationDecl.location:type_name -> protowire.schema.v1.SourceLocation
+	0,  // 25: protowire.schema.v1.AnnotationParam.type:type_name -> protowire.schema.v1.ParamType
+	4,  // 26: protowire.schema.v1.AnnotationParam.default_value:type_name -> protowire.schema.v1.AnnotationArg
+	18, // 27: protowire.schema.v1.FileTypeDecls.declarations:type_name -> protowire.schema.v1.TypeDecl
+	2,  // 28: protowire.schema.v1.TypeDecl.annotations:type_name -> protowire.schema.v1.AnnotationList
+	22, // 29: protowire.schema.v1.TypeDecl.location:type_name -> protowire.schema.v1.SourceLocation
+	20, // 30: protowire.schema.v1.SourceMap.entries:type_name -> protowire.schema.v1.SourceEntry
+	1,  // 31: protowire.schema.v1.SourceEntry.kind:type_name -> protowire.schema.v1.EntryKind
+	22, // 32: protowire.schema.v1.SourceEntry.source_location:type_name -> protowire.schema.v1.SourceLocation
+	21, // 33: protowire.schema.v1.SourceEntry.type_chain:type_name -> protowire.schema.v1.TypeChainLink
+	22, // 34: protowire.schema.v1.TypeChainLink.declaration_location:type_name -> protowire.schema.v1.SourceLocation
+	4,  // 35: protowire.schema.v1.FunctionDecl.OptionsEntry.value:type_name -> protowire.schema.v1.AnnotationArg
+	28, // 36: protowire.schema.v1.file_annotations:extendee -> google.protobuf.FileOptions
+	28, // 37: protowire.schema.v1.functions:extendee -> google.protobuf.FileOptions
+	28, // 38: protowire.schema.v1.annotation_decls:extendee -> google.protobuf.FileOptions
+	28, // 39: protowire.schema.v1.type_decls:extendee -> google.protobuf.FileOptions
+	28, // 40: protowire.schema.v1.source_map:extendee -> google.protobuf.FileOptions
+	29, // 41: protowire.schema.v1.message_annotations:extendee -> google.protobuf.MessageOptions
+	30, // 42: protowire.schema.v1.field_annotations:extendee -> google.protobuf.FieldOptions
+	31, // 43: protowire.schema.v1.enum_annotations:extendee -> google.protobuf.EnumOptions
+	32, // 44: protowire.schema.v1.enum_value_annotations:extendee -> google.protobuf.EnumValueOptions
+	33, // 45: protowire.schema.v1.service_annotations:extendee -> google.protobuf.ServiceOptions
+	34, // 46: protowire.schema.v1.method_annotations:extendee -> google.protobuf.MethodOptions
+	35, // 47: protowire.schema.v1.oneof_annotations:extendee -> google.protobuf.OneofOptions
+	2,  // 48: protowire.schema.v1.file_annotations:type_name -> protowire.schema.v1.AnnotationList
+	11, // 49: protowire.schema.v1.functions:type_name -> protowire.schema.v1.FileFunctions
+	14, // 50: protowire.schema.v1.annotation_decls:type_name -> protowire.schema.v1.FileAnnotationDecls
+	17, // 51: protowire.schema.v1.type_decls:type_name -> protowire.schema.v1.FileTypeDecls
+	19, // 52: protowire.schema.v1.source_map:type_name -> protowire.schema.v1.SourceMap
+	2,  // 53: protowire.schema.v1.message_annotations:type_name -> protowire.schema.v1.AnnotationList
+	2,  // 54: protowire.schema.v1.field_annotations:type_name -> protowire.schema.v1.AnnotationList
+	2,  // 55: protowire.schema.v1.enum_annotations:type_name -> protowire.schema.v1.AnnotationList
+	2,  // 56: protowire.schema.v1.enum_value_annotations:type_name -> protowire.schema.v1.AnnotationList
+	2,  // 57: protowire.schema.v1.service_annotations:type_name -> protowire.schema.v1.AnnotationList
+	2,  // 58: protowire.schema.v1.method_annotations:type_name -> protowire.schema.v1.AnnotationList
+	2,  // 59: protowire.schema.v1.oneof_annotations:type_name -> protowire.schema.v1.AnnotationList
+	60, // [60:60] is the sub-list for method output_type
+	60, // [60:60] is the sub-list for method input_type
+	48, // [48:60] is the sub-list for extension type_name
+	36, // [36:48] is the sub-list for extension extendee
+	0,  // [0:36] is the sub-list for field type_name
 }
 
 func init() { file_protowire_schema_v1_descriptor_proto_init() }
@@ -2138,6 +2313,9 @@ func file_protowire_schema_v1_descriptor_proto_init() {
 		(*AnnotationArg_BoolValue)(nil),
 		(*AnnotationArg_BytesValue)(nil),
 		(*AnnotationArg_Literal)(nil),
+		(*AnnotationArg_BigIntValue)(nil),
+		(*AnnotationArg_DecimalValue)(nil),
+		(*AnnotationArg_BigFloatValue)(nil),
 		(*AnnotationArg_Expression)(nil),
 	}
 	file_protowire_schema_v1_descriptor_proto_msgTypes[3].OneofWrappers = []any{
@@ -2152,6 +2330,9 @@ func file_protowire_schema_v1_descriptor_proto_init() {
 		(*LiteralValue_BoolValue)(nil),
 		(*LiteralValue_BytesValue)(nil),
 		(*LiteralValue_Literal)(nil),
+		(*LiteralValue_BigIntValue)(nil),
+		(*LiteralValue_DecimalValue)(nil),
+		(*LiteralValue_BigFloatValue)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

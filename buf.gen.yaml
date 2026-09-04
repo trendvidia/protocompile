@@ -7,6 +7,9 @@ inputs:
     exclude_paths:
       - proto/protowire/schema/v1/descriptor.proto
       - proto/protowire/schema/v1/report.proto
+      # descriptor.proto is public and imports this, so it generates to
+      # the public tree too — a public package cannot reference internal/.
+      - proto/pxf/bignum.proto
 managed:
   enabled: true
   override:

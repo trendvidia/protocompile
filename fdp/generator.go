@@ -371,7 +371,7 @@ func (g *generator) message(ty ir.Type, mdp *descriptorpb.DescriptorProto) {
 				}
 			})
 		}
-		if emitAnnotations(annUses, mdp.Options, pwsv1.E_MessageAnnotations, predeclared.Unknown) {
+		if emitAnnotations(annUses, mdp.Options, pwsv1.E_MessageAnnotations, ir.Type{}) {
 			hadAny = true
 		}
 		if !hadAny {
@@ -452,7 +452,7 @@ func (g *generator) field(f ir.Member, fdp *descriptorpb.FieldDescriptorProto) {
 				}
 			})
 		}
-		if emitAnnotations(annUses, fdp.Options, pwsv1.E_FieldAnnotations, f.Element().CarrierScalar()) {
+		if emitAnnotations(annUses, fdp.Options, pwsv1.E_FieldAnnotations, f.Element()) {
 			hadAny = true
 		}
 		if !hadAny {
@@ -554,7 +554,7 @@ func (g *generator) oneof(o ir.Oneof, odp *descriptorpb.OneofDescriptorProto) {
 				}
 			})
 		}
-		if emitAnnotations(annUses, odp.Options, pwsv1.E_OneofAnnotations, predeclared.Unknown) {
+		if emitAnnotations(annUses, odp.Options, pwsv1.E_OneofAnnotations, ir.Type{}) {
 			hadAny = true
 		}
 		if !hadAny {
@@ -620,7 +620,7 @@ func (g *generator) enum(ty ir.Type, edp *descriptorpb.EnumDescriptorProto) {
 				}
 			})
 		}
-		if emitAnnotations(annUses, edp.Options, pwsv1.E_EnumAnnotations, predeclared.Unknown) {
+		if emitAnnotations(annUses, edp.Options, pwsv1.E_EnumAnnotations, ir.Type{}) {
 			hadAny = true
 		}
 		if !hadAny {
@@ -654,7 +654,7 @@ func (g *generator) enumValue(f ir.Member, evdp *descriptorpb.EnumValueDescripto
 				}
 			})
 		}
-		if emitAnnotations(annUses, evdp.Options, pwsv1.E_EnumValueAnnotations, predeclared.Unknown) {
+		if emitAnnotations(annUses, evdp.Options, pwsv1.E_EnumValueAnnotations, ir.Type{}) {
 			hadAny = true
 		}
 		if !hadAny {
@@ -691,7 +691,7 @@ func (g *generator) service(s ir.Service, sdp *descriptorpb.ServiceDescriptorPro
 				}
 			})
 		}
-		if emitAnnotations(annUses, sdp.Options, pwsv1.E_ServiceAnnotations, predeclared.Unknown) {
+		if emitAnnotations(annUses, sdp.Options, pwsv1.E_ServiceAnnotations, ir.Type{}) {
 			hadAny = true
 		}
 		if !hadAny {
@@ -755,7 +755,7 @@ func (g *generator) method(m ir.Method, mdp *descriptorpb.MethodDescriptorProto)
 				}
 			})
 		}
-		if list := buildAnnotationList(annUses, predeclared.Unknown); list != nil {
+		if list := buildAnnotationList(annUses, ir.Type{}); list != nil {
 			proto.SetExtension(mdp.Options, pwsv1.E_MethodAnnotations, list)
 			hadAny = true
 

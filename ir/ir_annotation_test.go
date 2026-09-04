@@ -1915,16 +1915,22 @@ func TestCarrierBoundAcceptsWhatConverts(t *testing.T) {
 	}
 }
 
-// TestCarrierBoundRejectsOnArbitraryPrecisionCarriers is #176. A carrier
-// with no scalar of its own — protowire's pxf.BigInt, pxf.Decimal and
-// pxf.BigFloat, matched here by shape rather than by import — still lowers
-// its literal into `int_value`, so a value in the band reached a consumer
-// with the WRONG SIGN, not merely reduced precision.
+// TestArbitraryPrecisionCarriersAcceptAnyMagnitude replaces
+// TestCarrierBoundRejectsOnArbitraryPrecisionCarriers.
 //
-// Bounding by int64 makes that a compile error rather than a negative
-// number. It does not give those types a faithful route; that needs a
-// carrier member which can hold them, and is governance-gated.
-func TestCarrierBoundRejectsOnArbitraryPrecisionCarriers(t *testing.T) {
+// That test pinned #176's stopgap: pxf.BigInt, pxf.Decimal and pxf.BigFloat
+// had no scalar reading, so their literals fell into `int_value`, and a
+// value in the (MaxInt64, MaxUint64] band reached a consumer with the WRONG
+// SIGN. Bounding them at int64 turned that into a compile error, and the
+// test said outright what it was not:
+//
+//	It does not give those types a faithful route; that needs a carrier
+//	field that can hold them, not a different scalar route.
+//
+// protowire#263 added those fields. The bound is now a false positive on
+// exactly the types it was protecting: they hold anything, so nothing about
+// a literal's magnitude can be out of range for them.
+func TestArbitraryPrecisionCarriersAcceptAnyMagnitude(t *testing.T) {
 	t.Parallel()
 
 	compile := func(t *testing.T, msg, lit string) (*report.Report, bool) {
@@ -1944,24 +1950,26 @@ message M { `+msg+` f = 1 @default(`+lit+`); }
 	}
 
 	for _, msg := range []string{"BigInt", "Decimal", "BigFloat"} {
-		_, diagnosed := compile(t, msg, "10000000000000000000")
-		assert.True(t, diagnosed, "pxf.%s must reject a band literal rather than sign-flip it", msg)
-
-		// Below the band these carriers were always exact, and stay so.
-		rep, diagnosed := compile(t, msg, "42")
-		assert.False(t, diagnosed, "pxf.%s must still accept 42: %v", msg, rep.Diagnostics)
-
-		// The same value written `1e19` is NOT rejected, and the
-		// difference is not arbitrary. These carriers have no scalar
-		// reading, so the literal keeps its own type; a float spelling is
-		// carried as `double_value: 1e19`, which is the author's value
-		// exactly. The sign flip this test exists for cannot happen
-		// there, and rejecting it would be a false positive.
-		rep, diagnosed = compile(t, msg, "1e19")
-		assert.False(t, diagnosed,
-			"pxf.%s: a float spelling lowers to double_value and does not wrap: %v",
-			msg, rep.Diagnostics)
+		for _, lit := range []string{
+			"42",
+			"9223372036854775807",  // MaxInt64
+			"10000000000000000000", // the band #176 was about
+			"18446744073709551615", // MaxUint64
+			"123456789012345678901234567890",
+			"-123456789012345678901234567890",
+			"1e19",
+		} {
+			rep, diagnosed := compile(t, msg, lit)
+			assert.False(t, diagnosed,
+				"pxf.%s holds %s exactly and must not be bounded: %v",
+				msg, lit, rep.Diagnostics)
+		}
 	}
+
+	// A fractional literal is still not an integer, and pxf.BigInt is one.
+	rep, diagnosed := compile(t, "BigInt", "1.5")
+	assert.True(t, diagnosed,
+		"pxf.BigInt must still reject a fractional literal: %v", rep.Diagnostics)
 }
 
 // TestCarrierBoundDescendsIntoListArguments pins the bound against the

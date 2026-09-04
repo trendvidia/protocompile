@@ -685,6 +685,48 @@ var wrapperScalars = map[string]predeclared.Name{
 	"google.protobuf.BytesValue":  predeclared.Bytes,
 }
 
+// PxfNumber names one of protowire's arbitrary-precision number types.
+type PxfNumber int
+
+const (
+	PxfNone PxfNumber = iota
+	PxfBigInt
+	PxfDecimal
+	PxfBigFloat
+)
+
+// pxfNumbers matches by fully-qualified name rather than by import,
+// because protocompile does not depend on protowire's proto tree beyond
+// the carrier schema it vendors. A schema that declares its own
+// `pxf.BigInt` gets the same treatment, which is the intended reading:
+// the name is the contract.
+var pxfNumbers = map[string]PxfNumber{
+	"pxf.BigInt":   PxfBigInt,
+	"pxf.Decimal":  PxfDecimal,
+	"pxf.BigFloat": PxfBigFloat,
+}
+
+// PxfNumber reports which arbitrary-precision type this is, or PxfNone.
+//
+// These three exist to hold values `int64` and `double` cannot, so an
+// annotation argument on one of them is carried in the matching
+// AnnotationArg member whatever its magnitude — routing a small value
+// through `int_value` and a large one through `big_int_value` would give a
+// consumer two cases for one type, and routing either through `double`
+// would lose the precision the type was declared for (protowire#263).
+//
+// A map field resolves through its value type, as CarrierScalar does.
+func (t Type) PxfNumber() PxfNumber {
+	if !t.IsMessage() {
+		return PxfNone
+	}
+	if t.IsMapEntry() {
+		_, value := t.EntryFields()
+		return value.Element().PxfNumber()
+	}
+	return pxfNumbers[string(t.FullName())]
+}
+
 // CarrierScalar gives the scalar type an `any` annotation argument attached
 // to a member of this type is CONVERTED TO, or [predeclared.Unknown] when
 // there is none and the literal keeps its own type.
