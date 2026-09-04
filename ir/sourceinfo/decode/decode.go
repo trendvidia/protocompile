@@ -17,7 +17,7 @@
 //
 // This command can be used with protoc to decode its output as follows:
 //
-//	protoc -o/dev/stdout --include_source_info file.proto | go run ./experimental/ir/sourceinfo/decode
+//	protoc -o/dev/stdout --include_source_info file.proto | go run ./ir/sourceinfo/decode
 package main
 
 import (
