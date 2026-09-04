@@ -2458,6 +2458,60 @@ message M {
 	})
 }
 
+// TestHexDigitEIsNotAnExponent is the half of #191 that protoc cannot see.
+//
+// `e` is a hex digit: `0x2E` is the integer 46, not 2 times ten to the E.
+// The lexer asked taxa.IsFloatText about digits it had already stripped the
+// `0x` from, so IsFloatText applied its base-10 needle, found the `E`, and
+// set ExpBase — which made every hex literal containing an `e` or `E` look
+// float-spelled downstream. `@a(0x2E)` reached a consumer as
+// `double_value: 46` instead of `int_value: 46`.
+//
+// protoc accepts `0x2E` as an integer default with or without the bug, so
+// TestExponentLiteralsMatchProtoc cannot discriminate here. This can.
+func TestHexDigitEIsNotAnExponent(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		lit    string
+		isInt  bool
+		wantIV int64
+		wantDV float64
+	}{
+		{"0x2E", true, 46, 0},   // E is a digit
+		{"0xE", true, 14, 0},    // and on its own
+		{"0x2A", true, 42, 0},   // no e/E at all: unaffected either way
+		{"0x1p4", false, 0, 16}, // p IS an exponent, so this one is a float
+		{"1e2", false, 0, 100},  // decimal e IS an exponent
+	} {
+		t.Run(tc.lit, func(t *testing.T) {
+			t.Parallel()
+			f := compileForFDPTest(t, `syntax = "proto3";
+package test;
+
+annotation a(value: any);
+
+@a(`+tc.lit+`)
+message M {}
+`)
+			list, _ := proto.GetExtension(
+				f.GetMessageType()[0].GetOptions(), pwsv1.E_MessageAnnotations).(*pwsv1.AnnotationList)
+			require.NotNil(t, list, "carries no message annotations extension")
+			arg := list.GetEntries()[0].GetArgs()[0]
+
+			if tc.isInt {
+				require.IsType(t, (*pwsv1.AnnotationArg_IntValue)(nil), arg.Value,
+					"%s is an integer; got %v", tc.lit, arg.Value)
+				assert.Equal(t, tc.wantIV, arg.GetIntValue())
+				return
+			}
+			require.IsType(t, (*pwsv1.AnnotationArg_DoubleValue)(nil), arg.Value,
+				"%s is a float; got %v", tc.lit, arg.Value)
+			assert.InDelta(t, tc.wantDV, arg.GetDoubleValue(), 0)
+		})
+	}
+}
+
 // helperT is what the extraction helpers need from *testing.T: testify's
 // assertion surface plus Helper(). Taking the interface rather than the
 // concrete type lets TestExtensionGuardReportsRatherThanPanics drive

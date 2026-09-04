@@ -173,16 +173,15 @@ func ConvertArgKind(kind ArgLiteralKind, target predeclared.Name) (ArgMember, bo
 // typing. Boolean arguments are identifier paths rather than literal
 // tokens, so callers classify those themselves.
 //
-// The float test is [token.NumberToken.IsFloatSpelling] and not IsFloat:
-// the lexer does not count a positive exponent as a float, so `1e19`
-// reports false there despite being written in floating-point notation
-// (#191).
+// [token.NumberToken.IsFloat] is the spelling test: a `.` or an exponent
+// makes a float. It did not count a positive exponent until #191, which is
+// why this briefly needed a second predicate of its own.
 func ArgLiteralKindOf(tok token.Token) ArgLiteralKind {
 	switch tok.Kind() {
 	case token.String:
 		return ArgLiteralString
 	case token.Number:
-		if tok.AsNumber().IsFloatSpelling() {
+		if tok.AsNumber().IsFloat() {
 			return ArgLiteralFloat
 		}
 		return ArgLiteralInt

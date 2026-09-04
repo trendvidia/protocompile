@@ -401,9 +401,9 @@ func buildLiteralArg(lit ast.ExprLiteral, param ir.AnnotationParam, carrier pred
 		// a message, a service — falls back to the literal's spelling
 		// because there is nothing else to consult.
 		//
-		// That fallback is why the spelling test is IsFloatSpelling and
-		// not IsFloat: the lexer does not treat a positive exponent as a
-		// float, so `@default(1e19)` on a message carrier was typed as an
+		// That fallback is why the literal's spelling has to be right:
+		// the lexer did not treat a positive exponent as a float until
+		// #191, so `@default(1e19)` on a message carrier was typed as an
 		// integer and overflowed to -8446744073709551616 — #172's symptom,
 		// surviving in the one place carrier routing cannot reach (#188).
 		if member == ir.ArgMemberDouble {

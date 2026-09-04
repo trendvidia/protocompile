@@ -25,7 +25,6 @@ import (
 	"github.com/trendvidia/protocompile/internal/errtoken"
 	"github.com/trendvidia/protocompile/internal/ext/unicodex"
 	"github.com/trendvidia/protocompile/internal/ext/unsafex"
-	"github.com/trendvidia/protocompile/internal/taxa"
 	"github.com/trendvidia/protocompile/internal/tokenmeta"
 	"github.com/trendvidia/protocompile/token"
 )
@@ -40,6 +39,21 @@ var (
 )
 
 // lexNumber lexes a number starting at the current cursor.
+// isFloatDigits reports whether digits -- already stripped of its base
+// prefix -- is SPELLED as a float in the given base.
+//
+// Base 16 is why this is not taxa.IsFloatText: there `e` is a digit rather
+// than an exponent marker, so only `.` and a `p` exponent make a float.
+// Everywhere else `e` does too. The `-` is retained from the original
+// predicate, where it was the negative-exponent detector; `eE` now covers
+// those, so it is redundant rather than load-bearing.
+func isFloatDigits(digits string, base byte) bool {
+	if base == 16 {
+		return strings.ContainsAny(digits, ".pP")
+	}
+	return strings.ContainsAny(digits, ".-eEpP")
+}
+
 func lexNumber(l *lexer) token.Token {
 	tok := lexRawNumber(l)
 	digits := tok.Text()
@@ -81,7 +95,11 @@ func lexNumber(l *lexer) token.Token {
 		token.MutateMeta[tokenmeta.Number](tok).Base = base
 	}
 
-	isFloat := taxa.IsFloatText(digits)
+	// digits has had its base prefix stripped, so taxa.IsFloatText cannot
+	// see it and applies the base-10 needle. In base 16 `e` is a DIGIT:
+	// `0x2E` is 46, not an exponent, and reading it as one set ExpBase and
+	// made the literal look float-spelled to everything downstream (#191).
+	isFloat := isFloatDigits(digits, base)
 	expBase := 1
 	expIdx := -1
 	if isFloat {
@@ -158,7 +176,14 @@ func lexNumber(l *lexer) token.Token {
 			meta.Base = 10
 			meta.Prefix = 0
 		}
-		meta.IsFloat = strings.ContainsAny(digits, ".-") // Positive exponents are not necessarily floats.
+		// An exponent makes a literal a float. That is what this field's
+		// accessor has always documented -- "can only be used as a float
+		// literal, even if it has integer value" -- and what protoc
+		// enforces: `1e2` is rejected as a field number, an enum number and
+		// an integer default, and accepted as a float default. Testing only
+		// `.` and `-` accepted all three where protoc rejects them, and left
+		// `1e19` on the integer path where it overflows int64 (#191).
+		meta.IsFloat = isFloatDigits(digits, base)
 		meta.ThousandsSep = strings.Contains(digits, "_")
 
 		var err error

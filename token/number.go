@@ -121,26 +121,18 @@ func (n NumberToken) Exponent() source.Span {
 
 // IsFloat returns whether this token can only be used as a float literal (even
 // if it has integer value).
+//
+// A `.` or an exponent makes a literal a float, which is what protoc
+// enforces: `1e2` is rejected as a field number, an enum number and an
+// integer default, and accepted as a float default. The lexer tested only
+// `.` and `-` until #191, so this reported false for `1e19` and callers
+// needing the spelling had to ask a second predicate.
+//
+// In base 16 `e` is a digit rather than an exponent marker, so `0x2E` is
+// the integer 46 and only `.` or a `p` exponent makes a hex literal a
+// float.
 func (n NumberToken) IsFloat() bool {
 	return n.Raw() != nil && n.Raw().IsFloat
-}
-
-// IsFloatSpelling reports whether this token is WRITTEN as a float, which
-// includes any literal carrying an exponent.
-//
-// This is deliberately wider than [NumberToken.IsFloat], which the lexer
-// sets from `.` and `-` alone — "positive exponents are not necessarily
-// floats" — so `1e19` and the hex float `0x1p4` both report false there
-// despite being spelled in floating-point notation.
-//
-// Use this where the literal's SPELLING is what carries its type, as it
-// does for an annotation argument bound to an `any` parameter: `1e19` is a
-// float because that is how it was written, and typing it as an integer
-// overflows int64 and silently changes the value (#188). IsFloat remains
-// the right predicate where the question is whether a value must be
-// represented as a float.
-func (n NumberToken) IsFloatSpelling() bool {
-	return n.IsFloat() || n.ExpBase() != 1
 }
 
 // HasSeparators returns whether this token contains thousands separator
