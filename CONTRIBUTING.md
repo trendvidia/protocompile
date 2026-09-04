@@ -71,9 +71,16 @@ whose trigger says so:
   tag pushes, and manual dispatch. Benchmark numbers are only actionable
   against a release baseline.
 - `windows` (`.github/workflows/windows.yaml`) — release events, tag
-  pushes, and manual dispatch. Windows runners are expensive, and
-  platform-specific bugs in our Go code are rare; we catch them at
-  release time.
+  pushes, and manual dispatch, on the self-hosted `protocompile-omen`
+  runner (labels `self-hosted, Windows, X64`). It ran on GitHub-hosted
+  `windows-latest` until 2026-09-03, and the cost of those runners is why
+  the trigger is this narrow; now that it is self-hosted the trigger could
+  be widened, which is #197's remaining question rather than settled here.
+
+  This workflow was `disabled_manually` from 2026-07-17 to 2026-09-03,
+  while this section still described it as gating releases. Five releases
+  shipped in that window. If it is ever disabled again, say so here — a
+  gate nobody can see is worse than one that does not exist.
 
 ### Manual cloud CI when you want it
 

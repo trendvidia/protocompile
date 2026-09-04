@@ -15,6 +15,7 @@
 package engineconfig
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -282,6 +283,11 @@ func TestHardErrors(t *testing.T) {
 		setup   func(t *testing.T) Options
 		env     func(t *testing.T, root string) string
 		wantErr string
+		// wantIs is used instead of wantErr where the message is the
+		// platform's, not ours: Windows says "The system cannot find the
+		// file specified." where Unix says "no such file or directory".
+		// Matching the text pinned the lane to one OS (#197).
+		wantIs error
 	}{
 		{
 			name: "explicit config path missing",
@@ -289,7 +295,7 @@ func TestHardErrors(t *testing.T) {
 				t.Helper()
 				return Options{ConfigPath: filepath.Join(t.TempDir(), "nope.textproto")}
 			},
-			wantErr: "no such file",
+			wantIs: fs.ErrNotExist,
 		},
 		{
 			name: "env config path missing",
@@ -301,7 +307,7 @@ func TestHardErrors(t *testing.T) {
 				t.Helper()
 				return filepath.Join(t.TempDir(), "nope.textproto")
 			},
-			wantErr: "no such file",
+			wantIs: fs.ErrNotExist,
 		},
 		{
 			name: "malformed textproto",
@@ -396,6 +402,10 @@ func TestHardErrors(t *testing.T) {
 			t.Setenv(EnvVar, env)
 			cfg, err := Load(opts)
 			require.Nil(t, cfg)
+			if tt.wantIs != nil {
+				require.ErrorIs(t, err, tt.wantIs)
+				return
+			}
 			require.ErrorContains(t, err, tt.wantErr)
 		})
 	}
