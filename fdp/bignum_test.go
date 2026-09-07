@@ -172,6 +172,8 @@ func TestBigFloatArgRoundTrips(t *testing.T) {
 		"18446744073709551615",
 		"1.2345678901234567890e19", // the value float64 rounded to ...67168
 		"1e100",
+		"1e1000000",   // #210: converted in floating point, not through 10^1000000
+		"1e646456992", // the largest magnitude the wire's int32 exponent holds
 	} {
 		t.Run(lit, func(t *testing.T) {
 			t.Parallel()
@@ -191,8 +193,11 @@ func TestBigFloatArgRoundTrips(t *testing.T) {
 
 			want, _, err := big.ParseFloat(lit, 10, uint(bf.GetPrec()), big.ToNearestEven)
 			require.NoError(t, err)
+			// 'p' renders in binary: a decimal rendering of 1e646456992
+			// costs time proportional to the exponent (protowire#281), and
+			// assertion arguments are evaluated eagerly.
 			assert.Zero(t, want.Cmp(got),
-				"%s: want %s, got %s", lit, want.Text('g', 30), got.Text('g', 30))
+				"%s: want %s, got %s", lit, want.Text('p', 0), got.Text('p', 0))
 		})
 	}
 }

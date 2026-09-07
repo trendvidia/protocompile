@@ -15,6 +15,7 @@
 package ir
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/trendvidia/protocompile/ast"
 	"github.com/trendvidia/protocompile/ast/predeclared"
+	"github.com/trendvidia/protocompile/internal/ext/bigx"
 	"github.com/trendvidia/protocompile/internal/taxa"
 	"github.com/trendvidia/protocompile/report"
 	"github.com/trendvidia/protocompile/seq"
@@ -161,6 +163,11 @@ func isSingleIdent(path ast.Path) (string, bool) {
 	}
 	return only, count == 1
 }
+
+// pxfBigFloatPrec is the mantissa precision fdp emits for pxf.BigFloat;
+// the range check above converts at the same precision so the two agree
+// on what fits.
+const pxfBigFloatPrec = 256
 
 // validateAnnotationUseArgs checks each [AnnotationUse]'s argument
 // list against its target [Annotation]'s parameter signature —
@@ -1367,23 +1374,95 @@ func checkCarrierRangeValue(
 
 	num := lit.Token.AsNumber()
 
+	// pxf.BigFloat holds any magnitude whose binary exponent fits the
+	// wire's int32 once the 256-bit mantissa is normalised — about
+	// 1e-646456993 to 1e646456992. Beyond that there is no carrier value
+	// to write: not an infinity, not a zero, not a wrapped exponent
+	// (protowire HARDENING.md), so it is diagnosed here. The check is the
+	// lowering's own conversion, which costs microseconds however large
+	// the exponent (#210).
+	if member == ArgMemberBigFloat {
+		if _, _, _, err := bigx.BigFloatLiteral(lit.Token.Text(), pxfBigFloatPrec); errors.Is(err, bigx.ErrRange) {
+			r.Errorf("argument %q for `%s` is out of range for %s",
+				param.Name(), target.FullName(), describe,
+			).Apply(
+				report.Snippet(arg),
+				report.Notef("`pxf.BigFloat` carries a 256-bit mantissa and an int32 binary "+
+					"exponent, so it holds magnitudes from about 1e-646456993 to 1e646456992"),
+			)
+		}
+		return
+	}
+
+	// pxf.Decimal records value = unscaled × 10^(-scale) with an int32
+	// scale that protowire's hardening limits bound in magnitude
+	// (MaxNumericLiteralDigits): a decoder materialises 10^scale and MUST
+	// refuse a scale beyond it. The scale is the literal's fractional
+	// digits less its exponent, read from the text, so a literal the
+	// runtime would refuse is diagnosed here instead of carried.
+	if member == ArgMemberDecimal {
+		// The unscaled magnitude is rendered digit for digit, so its digit
+		// count is bounded by the same limit as the scale.
+		if n, ok := bigx.SignificantDigits(lit.Token.Text()); ok && n > MaxNumericLiteralDigits {
+			r.Errorf("argument %q for `%s` is out of range for %s",
+				param.Name(), target.FullName(), describe,
+			).Apply(
+				report.Snippet(arg),
+				report.Notef("this literal has %d significant digits; a binder renders a "+
+					"`pxf.Decimal` default as a PXF literal, and MaxNumericLiteralDigits is %d",
+					n, MaxNumericLiteralDigits),
+			)
+			return
+		}
+		if scale, ok := bigx.DecimalScale(lit.Token.Text()); ok &&
+			(scale > MaxNumericLiteralDigits || scale < -MaxNumericLiteralDigits) {
+			r.Errorf("argument %q for `%s` is out of range for %s",
+				param.Name(), target.FullName(), describe,
+			).Apply(
+				report.Snippet(arg),
+				report.Notef("`pxf.Decimal`'s scale — fractional digits less the exponent, %d here — "+
+					"is bounded by MaxNumericLiteralDigits (%d) in magnitude; a decoder refuses more",
+					scale, MaxNumericLiteralDigits),
+			)
+		}
+		return
+	}
+
 	// pxf.BigInt is an INTEGER of arbitrary precision. No magnitude is out
-	// of range for it, so the bound below does not apply — but a fractional
-	// literal is still not an integer, and that is the one thing it cannot
-	// hold. pxf.Decimal and pxf.BigFloat take fractions, so they are not
-	// checked here at all.
+	// of range for it, but a fractional literal is not an integer, and an
+	// integer with more digits than MaxNumericLiteralDigits is one no
+	// binder will render (the same bound as pxf.Decimal's scale). Both are
+	// read off the literal's text. Deciding integrality through float64
+	// called `1e400` — an integer, 1329 bits of one — "not an integer"
+	// because it had rounded to infinity, and accepted `1e-999999999`
+	// because it had rounded to zero (protocompile#216).
 	if member == ArgMemberBigInt {
-		if kind == ArgLiteralFloat {
-			f, _ := num.Float()
-			if f != math.Trunc(f) || math.IsInf(f, 0) {
-				r.Errorf("argument %q for `%s` is not an integer, but %s is",
-					param.Name(), target.FullName(), describe,
-				).Apply(
-					report.Snippet(arg),
-					report.Notef("a floating-point literal converts to an integer "+
-						"target only when it has no fractional part"),
-				)
-			}
+		digits, integral, ok := bigx.IntegerShape(lit.Token.Text())
+		if !ok {
+			r.Errorf("argument %q for `%s` is out of range for %s",
+				param.Name(), target.FullName(), describe,
+			).Apply(report.Snippet(arg))
+			return
+		}
+		if !integral {
+			r.Errorf("argument %q for `%s` is not an integer, but %s is",
+				param.Name(), target.FullName(), describe,
+			).Apply(
+				report.Snippet(arg),
+				report.Notef("a floating-point literal converts to an integer "+
+					"target only when it has no fractional part"),
+			)
+			return
+		}
+		if digits > MaxNumericLiteralDigits {
+			r.Errorf("argument %q for `%s` is out of range for %s",
+				param.Name(), target.FullName(), describe,
+			).Apply(
+				report.Snippet(arg),
+				report.Notef("this integer has %d digits; a binder renders a `pxf.BigInt` "+
+					"default as a PXF literal, and MaxNumericLiteralDigits is %d",
+					digits, MaxNumericLiteralDigits),
+			)
 		}
 		return
 	}

@@ -164,6 +164,13 @@ func (n NumberToken) Int() (v uint64, exact bool) {
 
 	switch {
 	case n.Raw().Big != nil:
+		// Ask magnitude first: Int materialises the integer part, and a
+		// literal like 1e999999999 has a billion digits of it. Saturating
+		// here is the same answer the IsUint64 check below gives, without
+		// the hours (#210).
+		if !n.Raw().Big.IsUint64Possible() {
+			return math.MaxUint64, false
+		}
 		k := n.Raw().Big.Int(nil) // TODO: get rid of this allocation.
 		if k.IsUint64() {
 			return k.Uint64(), n.Raw().Big.IsInt()

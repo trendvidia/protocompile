@@ -15,11 +15,13 @@
 package fdp
 
 import (
+	"errors"
 	"math/big"
-	"strconv"
 	"strings"
 
 	pxf "github.com/trendvidia/protocompile/gen/pxf"
+	"github.com/trendvidia/protocompile/internal/ext/bigx"
+	"github.com/trendvidia/protocompile/ir"
 )
 
 // Encoding for the arbitrary-precision AnnotationArg members
@@ -31,6 +33,10 @@ import (
 // token.NumberToken's parsed form: internal/decimal keeps its big.Word
 // access unexported, and the text is what the author actually wrote —
 // which is the whole point of these three types.
+//
+// None of the conversions may do work proportional to a literal's
+// exponent (protowire HARDENING.md, "Arbitrary-precision magnitudes"):
+// the text is a dozen bytes however large the value it names.
 
 // bigRatFromText parses a numeric literal's text exactly.
 //
@@ -51,19 +57,30 @@ func bigRatFromText(text string) (*big.Rat, bool) {
 	return r, ok
 }
 
-// bigIntArg builds pxf.BigInt. Reports false when the literal is not an
-// integer, which the ir pass diagnoses before lowering runs; the guard is
-// here so a file that does not compile still lowers to something.
-func bigIntArg(text string) (*pxf.BigInt, bool) {
+// bigIntArg builds pxf.BigInt. Integrality and the digit bound are read
+// from the text (bigx.IntegerShape) before anything is built, so a
+// literal like 1e999999999 is refused from its exponent rather than
+// materialised (#210); the ir pass has diagnosed both cases, and the
+// caller writes no value for a bigx.ErrRange. Within the bound the
+// value is exact: the digits shifted by at most MaxNumericLiteralDigits
+// decimal places.
+func bigIntArg(text string) (*pxf.BigInt, error) {
+	digits, integral, ok := bigx.IntegerShape(text)
+	if !ok || !integral {
+		return nil, errMalformedLiteral
+	}
+	if digits > ir.MaxNumericLiteralDigits {
+		return nil, bigx.ErrRange
+	}
 	r, ok := bigRatFromText(text)
 	if !ok || !r.IsInt() {
-		return nil, false
+		return nil, errMalformedLiteral
 	}
 	i := r.Num()
 	return &pxf.BigInt{
 		Abs:      new(big.Int).Abs(i).Bytes(),
 		Negative: i.Sign() < 0,
-	}, true
+	}, nil
 }
 
 // decimalArg builds pxf.Decimal, where value = unscaled x 10^(-scale).
@@ -76,7 +93,26 @@ func bigIntArg(text string) (*pxf.BigInt, bool) {
 // scale = (digits after the point) - (exponent), so `1.50` is
 // unscaled 150 scale 2, and `1.5e2` is unscaled 15 scale -1. Both denote
 // the same value as their text; only the first claims two decimal places.
-func decimalArg(text string) (*pxf.Decimal, bool) {
+//
+// The scale is bounded by ir.MaxNumericLiteralDigits in magnitude
+// (protowire HARDENING.md): a decoder materialises 10^scale and MUST
+// refuse one beyond the limit, so the ir pass diagnoses such a literal and
+// this reports bigx.ErrRange for it, and the caller writes no value.
+func decimalArg(text string) (*pxf.Decimal, error) {
+	scale, ok := bigx.DecimalScale(text)
+	if !ok {
+		return nil, errMalformedLiteral
+	}
+	if scale > ir.MaxNumericLiteralDigits || scale < -ir.MaxNumericLiteralDigits {
+		return nil, bigx.ErrRange
+	}
+	if n, ok := bigx.SignificantDigits(text); !ok || n > ir.MaxNumericLiteralDigits {
+		if !ok {
+			return nil, errMalformedLiteral
+		}
+		return nil, bigx.ErrRange
+	}
+
 	t := strings.ReplaceAll(text, "_", "")
 	lower := strings.ToLower(t)
 
@@ -85,42 +121,40 @@ func decimalArg(text string) (*pxf.Decimal, bool) {
 		strings.HasPrefix(lower, "0b") {
 		i, ok := new(big.Int).SetString(t, 0)
 		if !ok {
-			return nil, false
+			return nil, errMalformedLiteral
 		}
 		return &pxf.Decimal{
 			Unscaled: new(big.Int).Abs(i).Bytes(),
 			Negative: i.Sign() < 0,
-		}, true
+		}, nil
 	}
 
-	mantissa, exponent := t, int32(0)
+	mantissa := t
 	if i := strings.IndexAny(t, "eE"); i != -1 {
-		e, err := strconv.ParseInt(t[i+1:], 10, 32)
-		if err != nil {
-			return nil, false
-		}
-		mantissa, exponent = t[:i], int32(e)
+		mantissa = t[:i]
 	}
-
-	var frac int32
 	if i := strings.IndexByte(mantissa, '.'); i != -1 {
-		frac = int32(len(mantissa) - i - 1)
 		mantissa = mantissa[:i] + mantissa[i+1:]
 	}
 	if mantissa == "" || mantissa == "-" {
-		return nil, false
+		return nil, errMalformedLiteral
 	}
 
 	unscaled, ok := new(big.Int).SetString(mantissa, 10)
 	if !ok {
-		return nil, false
+		return nil, errMalformedLiteral
 	}
 	return &pxf.Decimal{
 		Unscaled: new(big.Int).Abs(unscaled).Bytes(),
-		Scale:    frac - exponent,
+		Scale:    int32(scale), // #nosec G115 -- bounded by MaxNumericLiteralDigits above
 		Negative: unscaled.Sign() < 0,
-	}, true
+	}, nil
 }
+
+// errMalformedLiteral is a literal the text parsers could not read; the
+// ir pass has already diagnosed its shape, and the lowering falls back to
+// the token's parsed form.
+var errMalformedLiteral = errors.New("malformed numeric literal")
 
 // bigFloatPrec is the mantissa precision used for pxf.BigFloat.
 //
@@ -134,25 +168,21 @@ const bigFloatPrec = 256
 // bigFloatArg builds pxf.BigFloat, matching protowire-go's
 // marshalBigFloat: mantissa is the value scaled to an integer at `prec`
 // bits, and exponent is the binary exponent adjusted by that scaling.
-func bigFloatArg(text string) (*pxf.BigFloat, bool) {
-	r, ok := bigRatFromText(text)
-	if !ok {
-		return nil, false
+//
+// The conversion is bigx.BigFloatLiteral's — floating point at 256 bits,
+// never an exact rational, so a huge decimal exponent costs microseconds
+// rather than materialising 10^n (#210). A literal the wire cannot hold
+// (its binary exponent outside int32) is bigx.ErrRange: the ir pass has
+// already diagnosed it, and the caller writes no value for it.
+func bigFloatArg(text string) (*pxf.BigFloat, error) {
+	mant, exp, neg, err := bigx.BigFloatLiteral(text, bigFloatPrec)
+	if err != nil {
+		return nil, err
 	}
-	bf := new(big.Float).SetPrec(bigFloatPrec).SetRat(r)
-
-	mant := new(big.Float).SetPrec(bigFloatPrec)
-	exp := bf.MantExp(mant)
-	mant.SetMantExp(mant, bigFloatPrec)
-	mantInt, _ := mant.Int(nil)
-	if mantInt.Sign() < 0 {
-		mantInt.Neg(mantInt)
-	}
-
 	return &pxf.BigFloat{
-		Mantissa: mantInt.Bytes(),
-		Exponent: int32(exp) - int32(bigFloatPrec),
+		Mantissa: mant.Bytes(),
+		Exponent: exp,
 		Prec:     uint32(bigFloatPrec),
-		Negative: bf.Signbit(),
-	}, true
+		Negative: neg,
+	}, nil
 }
