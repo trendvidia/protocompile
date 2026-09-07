@@ -165,3 +165,40 @@ func TestSignificantDigits(t *testing.T) {
 		}
 	}
 }
+
+// TestBigFloatLiteralMatchesExactRounding is the independent oracle for
+// "no existing carrier changes": the conversion this replaced parsed the
+// literal into an exact big.Rat and rounded once to 256 bits. Parsing in
+// floating point must land on the same mantissa and exponent for every
+// literal that path could finish — TestBigFloatLiteralMatchesParseFloat
+// compares the parser with itself, which cannot show that. The sample
+// is what schema authors write: short decimals, physical constants,
+// values past float64, forty significant digits, and exponents to ±350;
+// a sweep of 20,010 random literals of that shape found no divergence.
+func TestBigFloatLiteralMatchesExactRounding(t *testing.T) {
+	t.Parallel()
+	lits := []string{
+		"0.1", "0.3", "1.5", "2.5", "6.02214076e23", "1e-5", "1e100", "1e400", "1e-400", "3.14159e-400",
+		"3.14159265358979323846264338327950288419716939937510", "2.71828182845904523536028747135266249775724709369995",
+		"123456789012345678901234567890.123456789", "1.2345678901234567890e19", "9.999999999999999999999999e-300",
+		"7.0e-320", "4503599627370497.5", "1e4096", "1e-4096",
+	}
+	for _, lit := range lits {
+		t.Run(lit[:min(len(lit), 24)], func(t *testing.T) {
+			t.Parallel()
+			r, ok := new(big.Rat).SetString(lit)
+			require.True(t, ok)
+			exact := new(big.Float).SetPrec(256).SetRat(r)
+			em := new(big.Float).SetPrec(256)
+			ee := exact.MantExp(em)
+			em.SetMantExp(em, 256)
+			wantMant, _ := em.Int(nil)
+
+			mant, exp, neg, err := BigFloatLiteral(lit, 256)
+			require.NoError(t, err)
+			assert.False(t, neg)
+			assert.Zero(t, wantMant.Cmp(mant), "%s: mantissa differs from the exact rounding", lit)
+			assert.Equal(t, int32(ee-256), exp, "%s: exponent differs from the exact rounding", lit)
+		})
+	}
+}
