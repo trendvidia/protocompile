@@ -33,9 +33,11 @@ package protowire.schema.config.v1;
 
 import "protowire/schema/v1/report.proto"; // ExecutionMode
 
-// EngineConfig selects and parameterizes the single validation engine a
-// project uses (RFC-001 §9.1: one engine per project, chosen at
-// validator-binary build time).
+// EngineConfig parameterizes the single validation engine a project
+// links (RFC-001 §9.1: one engine per project, chosen at
+// validator-binary build time). It does not select an expression
+// language: every `@validate` rule is written in the one language of
+// RFC-001 §5.4, whatever engine evaluates it.
 //
 // Discovery: tools walk upward from the working directory (or an explicit
 // schema root) to the filesystem root; the nearest
@@ -46,11 +48,13 @@ import "protowire/schema/v1/report.proto"; // ExecutionMode
 // fields; `--config <path>` selects the file explicitly; the
 // PROTOWIRE_CONFIG environment variable points at a file (never inline
 // settings); otherwise discovery; otherwise built-in defaults
-// (engine "cel", lenient registration, collect-all).
+// (lenient registration, collect-all).
 message EngineConfig {
-  // Registered engine identifier, e.g. "cel", "starlark", "go".
-  // Resolved against the runtime's engine registry at init. An unknown
-  // name is a startup error — never a silent fallback.
+  // RESERVED (RFC-001 §9.4, resolved 2026-09-07, issue #282). The
+  // expression language is fixed by §5.4, so there is no engine
+  // selection for it. Validators MUST ignore this field; tooling SHOULD
+  // warn when it is set. Kept so existing configuration files still
+  // parse; the number is never reused.
   string engine = 1;
 
   // Import paths (resolved like proto imports) of schema files whose

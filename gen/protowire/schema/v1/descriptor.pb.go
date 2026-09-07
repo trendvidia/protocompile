@@ -60,14 +60,33 @@ type ParamType int32
 
 const (
 	ParamType_PARAM_TYPE_UNSPECIFIED ParamType = 0
-	ParamType_EXPRESSION             ParamType = 1
-	ParamType_STRING                 ParamType = 2
-	ParamType_INT32                  ParamType = 3
-	ParamType_INT64                  ParamType = 4
-	ParamType_FLOAT                  ParamType = 5
-	ParamType_DOUBLE                 ParamType = 6
-	ParamType_BOOL                   ParamType = 7
-	ParamType_BYTES                  ParamType = 8
+	// An opaque fragment of the project's engine language, evaluated at run
+	// time by the engine (RFC-001 section 9.1) and never by the compiler --
+	// the language is not known until a project selects one.
+	//
+	// What a compiler DOES check is one thing: a call to a function the
+	// schema declares must match that declaration's arity, including calls
+	// nested inside a larger expression.
+	//
+	// Any other identifier is assumed to be an engine builtin and is not
+	// checked, because engines have builtins the schema never declares --
+	// CEL's size(), startsWith(). The consequence is worth stating plainly:
+	// a MISSPELLED function name is accepted. Given
+	// `function matches(value: string, pattern: string)`,
+	// `@validate(mathces(this, "^a"))` compiles, and the misspelling
+	// surfaces at run time in the engine, if it surfaces at all.
+	//
+	// Distinguishing the two needs the engine's builtin inventory, which
+	// lives in the engine. A tool that resolves the configured engine can
+	// close it; a compiler alone cannot.
+	ParamType_EXPRESSION ParamType = 1
+	ParamType_STRING     ParamType = 2
+	ParamType_INT32      ParamType = 3
+	ParamType_INT64      ParamType = 4
+	ParamType_FLOAT      ParamType = 5
+	ParamType_DOUBLE     ParamType = 6
+	ParamType_BOOL       ParamType = 7
+	ParamType_BYTES      ParamType = 8
 	// Accepts any literal shape; the argument is typed by its own literal
 	// and then converted to the annotated element's type. See AnnotationArg,
 	// "Choosing the member".
