@@ -86,14 +86,6 @@ func BigFloatLiteral(text string, prec uint) (mant *big.Int, exp int32, neg bool
 	return mant, int32(wire), f.Signbit(), nil
 }
 
-// MaxNumericLiteralDigits is protowire's hardening limit on the digit
-// count of a numeric literal and on the magnitude of pxf.Decimal.scale on
-// the wire (protowire HARDENING.md, "Mandatory limits"): a decoder that
-// materialises a Decimal computes 10^scale, and MUST reject a scale beyond
-// this before doing so. The compiler diagnoses the same bound at the
-// source, so no schema emits a carrier the runtime will refuse.
-const MaxNumericLiteralDigits = 4096
-
 // DecimalScale computes the pxf.Decimal scale a numeric literal denotes —
 // its fractional digit count less its exponent, so `1.50` is 2 and `1.5e2`
 // is -1 — from the text alone, without materialising anything. A based

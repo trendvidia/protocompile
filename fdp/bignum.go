@@ -21,6 +21,7 @@ import (
 
 	pxf "github.com/trendvidia/protocompile/gen/pxf"
 	"github.com/trendvidia/protocompile/internal/ext/bigx"
+	"github.com/trendvidia/protocompile/ir"
 )
 
 // Encoding for the arbitrary-precision AnnotationArg members
@@ -82,7 +83,7 @@ func bigIntArg(text string) (*pxf.BigInt, bool) {
 // unscaled 150 scale 2, and `1.5e2` is unscaled 15 scale -1. Both denote
 // the same value as their text; only the first claims two decimal places.
 //
-// The scale is bounded by bigx.MaxNumericLiteralDigits in magnitude
+// The scale is bounded by ir.MaxNumericLiteralDigits in magnitude
 // (protowire HARDENING.md): a decoder materialises 10^scale and MUST
 // refuse one beyond the limit, so the ir pass diagnoses such a literal and
 // this reports bigx.ErrRange for it, and the caller writes no value.
@@ -91,7 +92,7 @@ func decimalArg(text string) (*pxf.Decimal, error) {
 	if !ok {
 		return nil, errMalformedLiteral
 	}
-	if scale > bigx.MaxNumericLiteralDigits || scale < -bigx.MaxNumericLiteralDigits {
+	if scale > ir.MaxNumericLiteralDigits || scale < -ir.MaxNumericLiteralDigits {
 		return nil, bigx.ErrRange
 	}
 

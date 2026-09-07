@@ -1402,14 +1402,14 @@ func checkCarrierRangeValue(
 	// runtime would refuse is diagnosed here instead of carried.
 	if member == ArgMemberDecimal {
 		if scale, ok := bigx.DecimalScale(lit.Token.Text()); ok &&
-			(scale > bigx.MaxNumericLiteralDigits || scale < -bigx.MaxNumericLiteralDigits) {
+			(scale > MaxNumericLiteralDigits || scale < -MaxNumericLiteralDigits) {
 			r.Errorf("argument %q for `%s` is out of range for %s",
 				param.Name(), target.FullName(), describe,
 			).Apply(
 				report.Snippet(arg),
 				report.Notef("`pxf.Decimal`'s scale — fractional digits less the exponent, %d here — "+
 					"is bounded by MaxNumericLiteralDigits (%d) in magnitude; a decoder refuses more",
-					scale, bigx.MaxNumericLiteralDigits),
+					scale, MaxNumericLiteralDigits),
 			)
 		}
 		return
