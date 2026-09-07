@@ -87,7 +87,7 @@ func ParseNumeralShape(text string) (shape NumeralShape, ok bool) {
 	if mantissa == "" {
 		return NumeralShape{}, false
 	}
-	for i := 0; i < len(mantissa); i++ {
+	for i := range len(mantissa) {
 		if mantissa[i] < '0' || mantissa[i] > '9' {
 			return NumeralShape{}, false
 		}

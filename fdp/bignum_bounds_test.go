@@ -47,6 +47,7 @@ func TestBigFloatArgIsBoundedByTheExponent(t *testing.T) {
 	t.Parallel()
 	for _, lit := range []string{"1e999999999", "1e-999999999", "1e2000000000", "1e-646456995"} {
 		t.Run("refused "+lit, func(t *testing.T) {
+			t.Parallel()
 			promptly(t, 2*time.Second, func() {
 				_, ok := bigFloatArg(lit)
 				assert.False(t, ok, "%s is past pxf.BigFloat's range", lit)
@@ -55,6 +56,7 @@ func TestBigFloatArgIsBoundedByTheExponent(t *testing.T) {
 	}
 	for _, lit := range []string{"1e100000000", "1e-100000000", "1e646456992", "1e5000", "1e-5000"} {
 		t.Run("built "+lit, func(t *testing.T) {
+			t.Parallel()
 			promptly(t, 2*time.Second, func() {
 				v, ok := bigFloatArg(lit)
 				require.True(t, ok, "%s fits pxf.BigFloat", lit)
@@ -88,7 +90,7 @@ func TestBigIntArgIsBoundedByDigits(t *testing.T) {
 	assert.Equal(t, "15", new(big.Int).SetBytes(v.GetAbs()).String())
 	v, ok = bigIntArg("1e4095")
 	require.True(t, ok, "4096 digits is at the cap")
-	assert.Equal(t, 4096, len(new(big.Int).SetBytes(v.GetAbs()).String()))
+	assert.Len(t, new(big.Int).SetBytes(v.GetAbs()).String(), 4096)
 	promptly(t, 2*time.Second, func() {
 		_, ok := bigIntArg("1e4096")
 		assert.False(t, ok, "4097 digits is past the cap")

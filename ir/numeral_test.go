@@ -17,7 +17,6 @@ package ir_test
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -65,28 +64,23 @@ func TestParseNumeralShape(t *testing.T) {
 func TestArbitraryPrecisionCarriersAreBoundedByText(t *testing.T) {
 	t.Parallel()
 
+	// Synchronous: the helper asserts, and an assertion must run on the
+	// test's goroutine. The prompt-return property is pinned where no
+	// helper is involved — the fdp builders and the public compiler
+	// (TestArbitraryPrecisionLiteralsCompilePromptly).
 	compile := func(t *testing.T, msg, lit string) []string {
 		t.Helper()
-		var msgs []string
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
 package pxf;
 annotation default(value: any);
 message `+msg+` { bytes abs = 1; bool negative = 2; }
 message M { `+msg+` f = 1 @default(`+lit+`); }
 `)
-			for i := range rep.Diagnostics {
-				if isError(rep.Diagnostics[i]) {
-					msgs = append(msgs, rep.Diagnostics[i].Message())
-				}
+		var msgs []string
+		for i := range rep.Diagnostics {
+			if isError(rep.Diagnostics[i]) {
+				msgs = append(msgs, rep.Diagnostics[i].Message())
 			}
-		}()
-		select {
-		case <-done:
-		case <-time.After(3 * time.Second):
-			t.Fatalf("pxf.%s @default(%s) did not compile within 3s", msg, lit)
 		}
 		return msgs
 	}
@@ -103,6 +97,7 @@ message M { `+msg+` f = 1 @default(`+lit+`); }
 		{"BigInt", "1e-400", "is not an integer"},
 	} {
 		t.Run("rejected pxf."+tc.msg+" "+tc.lit, func(t *testing.T) {
+			t.Parallel()
 			msgs := compile(t, tc.msg, tc.lit)
 			require.NotEmpty(t, msgs, "must be diagnosed")
 			assert.Contains(t, strings.Join(msgs, "\n"), tc.want)
@@ -114,6 +109,7 @@ message M { `+msg+` f = 1 @default(`+lit+`); }
 		{"BigInt", "1e400"}, {"BigInt", "1e4095"}, {"BigInt", "1.5e1"},
 	} {
 		t.Run("accepted pxf."+tc[0]+" "+tc[1], func(t *testing.T) {
+			t.Parallel()
 			assert.Empty(t, compile(t, tc[0], tc[1]))
 		})
 	}

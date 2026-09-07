@@ -43,6 +43,7 @@ func TestIsFloatAnswersFromSizes(t *testing.T) {
 		{"5e-1", true},
 	} {
 		t.Run(tc.text, func(t *testing.T) {
+			t.Parallel()
 			var z Decimal
 			_, err := z.Parse(tc.text)
 			require.NoError(t, err)
