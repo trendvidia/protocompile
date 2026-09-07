@@ -53,6 +53,17 @@ func (z *Decimal) IsFloat() bool {
 	// 181875e-4. As a float, the equivalent form is 291p-4, obtained by
 	// dividing by 5^4 = 625.
 
+	// 5^k has more than 2k bits, so a mantissa with at most 2k bits is
+	// smaller than it and cannot contain it as a factor. Decided from the
+	// sizes before the power is computed: for a literal like 1e-999999999
+	// the power is a two-billion-bit integer, and computing it here is
+	// what made the LEXER not return on such a file
+	// (trendvidia/protocompile#210) — every later stage answers the same
+	// question from the exponent alone.
+	if k := -exp; new(big.Int).SetBits(z.get()).BitLen() <= 2*k {
+		return false
+	}
+
 	// Calculate the factor of 5 that must be in the mantissa.
 	pow5, ok := slicesx.Get(fives[:], -exp)
 	if !ok {
