@@ -15,6 +15,7 @@
 package fdp
 
 import (
+	"errors"
 	"math"
 	"strings"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/trendvidia/protocompile/ast"
 	"github.com/trendvidia/protocompile/ast/predeclared"
 	pwsv1 "github.com/trendvidia/protocompile/gen/protowire/schema/v1"
+	"github.com/trendvidia/protocompile/internal/ext/bigx"
 	"github.com/trendvidia/protocompile/ir"
 	"github.com/trendvidia/protocompile/seq"
 	"github.com/trendvidia/protocompile/source"
@@ -430,10 +432,21 @@ func buildLiteralArg(lit ast.ExprLiteral, param ir.AnnotationParam, carrier ir.T
 				}
 			}
 		case ir.ArgMemberBigFloat:
-			if v, ok := bigFloatArg(tok.Span().Text()); ok {
+			v, err := bigFloatArg(tok.Span().Text())
+			if err == nil {
 				return &pwsv1.AnnotationArg{
 					Value: &pwsv1.AnnotationArg_BigFloatValue{BigFloatValue: v},
 				}
+			}
+			if errors.Is(err, bigx.ErrRange) {
+				// The wire cannot hold the value and ir has said so. The
+				// fallback below would write a double — an infinity or a
+				// zero for a literal that is neither, which HARDENING
+				// forbids a carrier to ever be — so this argument carries
+				// no value at all. A file that does not compile still
+				// lowers, and this is the honest lowering of a value that
+				// does not exist.
+				return &pwsv1.AnnotationArg{}
 			}
 		}
 

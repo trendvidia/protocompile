@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	pxf "github.com/trendvidia/protocompile/gen/pxf"
+	"github.com/trendvidia/protocompile/internal/ext/bigx"
 )
 
 // Encoding for the arbitrary-precision AnnotationArg members
@@ -31,6 +32,10 @@ import (
 // token.NumberToken's parsed form: internal/decimal keeps its big.Word
 // access unexported, and the text is what the author actually wrote —
 // which is the whole point of these three types.
+//
+// None of the conversions may do work proportional to a literal's
+// exponent (protowire HARDENING.md, "Arbitrary-precision magnitudes"):
+// the text is a dozen bytes however large the value it names.
 
 // bigRatFromText parses a numeric literal's text exactly.
 //
@@ -134,25 +139,21 @@ const bigFloatPrec = 256
 // bigFloatArg builds pxf.BigFloat, matching protowire-go's
 // marshalBigFloat: mantissa is the value scaled to an integer at `prec`
 // bits, and exponent is the binary exponent adjusted by that scaling.
-func bigFloatArg(text string) (*pxf.BigFloat, bool) {
-	r, ok := bigRatFromText(text)
-	if !ok {
-		return nil, false
+//
+// The conversion is bigx.BigFloatLiteral's — floating point at 256 bits,
+// never an exact rational, so a huge decimal exponent costs microseconds
+// rather than materialising 10^n (#210). A literal the wire cannot hold
+// (its binary exponent outside int32) is bigx.ErrRange: the ir pass has
+// already diagnosed it, and the caller writes no value for it.
+func bigFloatArg(text string) (*pxf.BigFloat, error) {
+	mant, exp, neg, err := bigx.BigFloatLiteral(text, bigFloatPrec)
+	if err != nil {
+		return nil, err
 	}
-	bf := new(big.Float).SetPrec(bigFloatPrec).SetRat(r)
-
-	mant := new(big.Float).SetPrec(bigFloatPrec)
-	exp := bf.MantExp(mant)
-	mant.SetMantExp(mant, bigFloatPrec)
-	mantInt, _ := mant.Int(nil)
-	if mantInt.Sign() < 0 {
-		mantInt.Neg(mantInt)
-	}
-
 	return &pxf.BigFloat{
-		Mantissa: mantInt.Bytes(),
-		Exponent: int32(exp) - int32(bigFloatPrec),
+		Mantissa: mant.Bytes(),
+		Exponent: exp,
 		Prec:     uint32(bigFloatPrec),
-		Negative: bf.Signbit(),
-	}, true
+		Negative: neg,
+	}, nil
 }

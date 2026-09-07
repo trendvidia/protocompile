@@ -15,6 +15,7 @@
 package ir
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/trendvidia/protocompile/ast"
 	"github.com/trendvidia/protocompile/ast/predeclared"
+	"github.com/trendvidia/protocompile/internal/ext/bigx"
 	"github.com/trendvidia/protocompile/internal/taxa"
 	"github.com/trendvidia/protocompile/report"
 	"github.com/trendvidia/protocompile/seq"
@@ -161,6 +163,11 @@ func isSingleIdent(path ast.Path) (string, bool) {
 	}
 	return only, count == 1
 }
+
+// pxfBigFloatPrec is the mantissa precision fdp emits for pxf.BigFloat;
+// the range check above converts at the same precision so the two agree
+// on what fits.
+const pxfBigFloatPrec = 256
 
 // validateAnnotationUseArgs checks each [AnnotationUse]'s argument
 // list against its target [Annotation]'s parameter signature —
@@ -1367,11 +1374,30 @@ func checkCarrierRangeValue(
 
 	num := lit.Token.AsNumber()
 
+	// pxf.BigFloat holds any magnitude whose binary exponent fits the
+	// wire's int32 once the 256-bit mantissa is normalised — about
+	// 1e-646456993 to 1e646456992. Beyond that there is no carrier value
+	// to write: not an infinity, not a zero, not a wrapped exponent
+	// (protowire HARDENING.md), so it is diagnosed here. The check is the
+	// lowering's own conversion, which costs microseconds however large
+	// the exponent (#210).
+	if member == ArgMemberBigFloat {
+		if _, _, _, err := bigx.BigFloatLiteral(lit.Token.Text(), pxfBigFloatPrec); errors.Is(err, bigx.ErrRange) {
+			r.Errorf("argument %q for `%s` is out of range for %s",
+				param.Name(), target.FullName(), describe,
+			).Apply(
+				report.Snippet(arg),
+				report.Notef("`pxf.BigFloat` carries a 256-bit mantissa and an int32 binary "+
+					"exponent, so it holds magnitudes from about 1e-646456993 to 1e646456992"),
+			)
+		}
+		return
+	}
+
 	// pxf.BigInt is an INTEGER of arbitrary precision. No magnitude is out
 	// of range for it, so the bound below does not apply — but a fractional
 	// literal is still not an integer, and that is the one thing it cannot
-	// hold. pxf.Decimal and pxf.BigFloat take fractions, so they are not
-	// checked here at all.
+	// hold. pxf.Decimal takes fractions, so it is not checked here at all.
 	if member == ArgMemberBigInt {
 		if kind == ArgLiteralFloat {
 			f, _ := num.Float()

@@ -17,11 +17,15 @@ package ir_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/trendvidia/protocompile/ast"
+	"github.com/trendvidia/protocompile/fdp"
+	pwsv1 "github.com/trendvidia/protocompile/gen/protowire/schema/v1"
 	"github.com/trendvidia/protocompile/incremental"
 	"github.com/trendvidia/protocompile/incremental/queries"
 	"github.com/trendvidia/protocompile/ir"
@@ -1027,6 +1031,93 @@ message Profile {
 			t.Errorf("fixture 24 must compile clean under §5.4; got: %s", d.Message())
 		}
 	}
+}
+
+// TestAnnotationArgBigFloatHugeExponentsReturnPromptly pins #210: a
+// pxf.BigFloat default with a huge decimal exponent used to materialise
+// 10^n as an exact rational — hours at n = 10⁹ — before rounding it to 256
+// bits. Values the wire can hold now compile in microseconds; values
+// beyond its int32 exponent are diagnosed as out of range, not emitted as
+// an infinity, a zero, or a wrapped exponent.
+func TestAnnotationArgBigFloatHugeExponentsReturnPromptly(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		lit  string
+		want string // "" = compiles clean
+	}{
+		{"1e400", ""},
+		{"1e100000", ""},
+		{"1e1000000", ""},
+		{"1e646456992", ""},
+		{"1e646456993", "out of range for the annotated type `pxf.BigFloat`"},
+		{"1e999999999", "out of range for the annotated type `pxf.BigFloat`"},
+		{"-1e999999999", "out of range for the annotated type `pxf.BigFloat`"},
+		{"1e-646456992", "out of range for the annotated type `pxf.BigFloat`"},
+		{"1e-999999999", "out of range for the annotated type `pxf.BigFloat`"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.lit, func(t *testing.T) {
+			t.Parallel()
+			rep := compileUnderDeadline(t, `syntax = "proto3";
+package pxf;
+
+annotation default(value: any);
+
+message BigFloat { bytes mantissa = 1; int32 exponent = 2; uint32 prec = 3; bool negative = 4; }
+
+message M {
+  pxf.BigFloat f = 1 @default(`+tc.lit+`);
+}
+`, 10*time.Second)
+			if tc.want == "" {
+				for _, d := range rep.Diagnostics {
+					if isError(d) {
+						t.Errorf("%s: unexpected diagnostic: %s", tc.lit, d.Message())
+					}
+				}
+				return
+			}
+			assert.True(t, hasErrorContaining(rep, tc.want),
+				"%s: want %q, got: %v", tc.lit, tc.want, rep.Diagnostics)
+			// The lowering writes no value for it: not an infinity, not a
+			// zero, not a wrapped exponent (protowire HARDENING.md).
+			args := lowerFirstFieldArgs(t, tc.lit)
+			require.Len(t, args, 1)
+			assert.Nil(t, args[0].GetValue(), "%s: a diagnosed literal lowers to an argument with no value, got %v", tc.lit, args[0])
+		})
+	}
+}
+
+// lowerFirstFieldArgs compiles a pxf.BigFloat default with the literal —
+// diagnostics or not, as protolsp lowers every open document — and
+// returns the field's carrier arguments.
+func lowerFirstFieldArgs(t *testing.T, lit string) []*pwsv1.AnnotationArg {
+	t.Helper()
+	f, _ := compileForAnnotationTest(t, `syntax = "proto3";
+package pxf;
+
+annotation default(value: any);
+
+message BigFloat { bytes mantissa = 1; int32 exponent = 2; uint32 prec = 3; bool negative = 4; }
+
+message M {
+  pxf.BigFloat f = 1 @default(`+lit+`);
+}
+`)
+	fd, err := fdp.DescriptorProto(f)
+	require.NoError(t, err)
+	for _, m := range fd.GetMessageType() {
+		if m.GetName() != "M" {
+			continue
+		}
+		list, _ := proto.GetExtension(m.GetField()[0].GetOptions(), pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+		require.NotNil(t, list)
+		require.Len(t, list.GetEntries(), 1)
+		return list.GetEntries()[0].GetArgs()
+	}
+	t.Fatal("no message M")
+	return nil
 }
 
 func TestAnnotationArgOpaqueOnNonExpression(t *testing.T) {
