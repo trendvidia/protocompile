@@ -319,11 +319,14 @@ func validateAnnotationUseArg(
 ) {
 	param := b.Param
 
-	// Expression-typed params keep the capture verbatim; the only
-	// compile-time obligation is call extraction plus arity
-	// verification (RFC-001 §8.1).
+	// Expression-typed params keep the capture verbatim. The compiler's
+	// obligations are call extraction plus declared-function arity
+	// (RFC-001 §8.1), and — since the language became normative
+	// (§5.4, protowire#282) — syntax, name resolution against the
+	// builtin set, and builtin arity.
 	if param.IsExpression() {
 		verifyCallArities(r, u, b.Arg)
+		validateExpressionLanguage(r, u, target, param, b.Arg)
 		return
 	}
 
@@ -510,8 +513,8 @@ func validateUseEnumArg(r *report.Report, u AnnotationUse, target Annotation, pa
 
 // verifyCallArities checks every extracted function-call site in an
 // expression-classified argument against its resolved declaration's
-// parameter count. Non-resolving names were never extracted — they
-// are presumed engine builtins and stay undiagnosed.
+// parameter count. Non-resolving names were never extracted; they must
+// be RFC-001 §5.4 builtins, which [validateExpressionLanguage] checks.
 func verifyCallArities(r *report.Report, u AnnotationUse, arg ast.AnnotationUseArg) {
 	for _, call := range u.ExtractCalls(arg) {
 		declared := call.Target.Params().Len()

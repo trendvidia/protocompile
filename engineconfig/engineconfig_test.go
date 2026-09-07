@@ -236,6 +236,24 @@ func TestPerSettingOverrides(t *testing.T) {
 	assert.Equal(t, uint32(8), cfg.MaxRecursionDepth)
 }
 
+// TestReservedEngineHasNoDefault pins RFC-001 §9.4 after protowire#282:
+// with no source setting `engine`, Engine stays empty and passes any
+// KnownEngines list — there is no "cel" (or any) default to register.
+func TestReservedEngineHasNoDefault(t *testing.T) {
+	clearEnv(t)
+
+	cfg, err := Load(Options{Dir: t.TempDir(), KnownEngines: []string{"starlark"}})
+	require.NoError(t, err)
+	assert.Empty(t, cfg.Engine)
+	assert.Empty(t, DefaultEngine)
+
+	// A name a source did set is still checked against the registry.
+	root := t.TempDir()
+	writeConfig(t, root, `engine: "cel"`)
+	_, err = Load(Options{Dir: root, KnownEngines: []string{"starlark"}})
+	require.ErrorContains(t, err, `unknown engine "cel"`)
+}
+
 func TestFieldDefaultNormalization(t *testing.T) {
 	clearEnv(t)
 
@@ -372,14 +390,6 @@ func TestHardErrors(t *testing.T) {
 				}
 			},
 			wantErr: `unknown engine "starlark"`,
-		},
-		{
-			name: "default engine must be registered too",
-			setup: func(t *testing.T) Options {
-				t.Helper()
-				return Options{Dir: t.TempDir(), KnownEngines: []string{"starlark"}}
-			},
-			wantErr: `unknown engine "cel"`,
 		},
 		{
 			name: "config file name is a directory",

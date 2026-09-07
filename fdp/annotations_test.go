@@ -212,7 +212,7 @@ message Account {
   int32 tier = 3
     @validate(this == 1 || this == 2, code = "account.bad_tier");
   string tags_csv = 4
-    @validate(size(split(this, ",")[0]) > 0);
+    @validate(size(this) > 0 && (this in ["a,b", "(c)"]) && !this.contains(","));
 }
 `
 
@@ -255,10 +255,12 @@ message Account {
 	assert.Empty(t, expr.Calls)
 	assert.Equal(t, "account.bad_tier", entry.Args[1].GetStringValue())
 
-	// tags_csv: nested delimiters of all three kinds in one capture.
+	// tags_csv: nested delimiters — parentheses, a list, and string
+	// literals carrying `,` and `)` — in one capture; builtins only
+	// (§5.4), so nothing is extracted.
 	expr = annotationOf(3).Args[0].GetExpression()
 	require.NotNil(t, expr)
-	assert.Equal(t, `size(split(this, ",")[0]) > 0`, expr.Source)
+	assert.Equal(t, `size(this) > 0 && (this in ["a,b", "(c)"]) && !this.contains(",")`, expr.Source)
 	assert.Empty(t, expr.Calls)
 }
 

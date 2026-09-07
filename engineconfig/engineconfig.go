@@ -31,9 +31,11 @@
 //     the discovered file, and finally built-in defaults.
 //
 // Malformed configuration is a hard error: an unreadable or unparseable
-// file, an invalid execution mode, or an engine name missing from
-// [Options].KnownEngines fails loading outright — there is no fallback
-// to defaults and no partial load.
+// file, an invalid execution mode, or a configured engine name missing
+// from [Options].KnownEngines fails loading outright — there is no
+// fallback to defaults and no partial load. The `engine` field itself is
+// reserved (RFC-001 §9.4, protowire#282): the expression language is
+// fixed by §5.4, so nothing selects an engine and no default exists.
 package engineconfig
 
 import (
@@ -62,9 +64,13 @@ const (
 	// path is given.
 	EnvVar = "PROTOWIRE_CONFIG"
 
-	// DefaultEngine is the built-in default engine identifier, used when
-	// no configuration source sets one.
-	DefaultEngine = "cel"
+	// DefaultEngine is what Engine resolves to when no configuration
+	// source sets one: nothing. RFC-001 §9.4 reserved the `engine` field
+	// on 2026-09-07 (protowire#282) — the expression language is fixed
+	// by §5.4, so no engine selection exists — and retired the former
+	// "cel" default with it. Kept as an exported constant so callers
+	// that compare against it keep compiling.
+	DefaultEngine = ""
 
 	// DefaultMaxRecursionDepth is the normative default for
 	// max_recursion_depth (RFC-001 §6.4). A configured value of 0 means
@@ -201,10 +207,11 @@ type Options struct {
 	// whichever configuration file (or defaults) wins.
 	Flags Overrides
 	// KnownEngines lists the engine identifiers registered with the
-	// calling tool. When non-nil, resolving to an engine outside the
-	// list is a hard error (RFC-001 §9.4: an unknown engine name is a
-	// startup error, never a silent fallback). When nil, the caller
-	// resolves the engine name against its registry itself.
+	// calling tool. When non-nil and a configuration source sets an
+	// engine name, a name outside the list is a hard error. Since
+	// RFC-001 §9.4 reserved the field (protowire#282) no source has to
+	// set one, and an unset name passes any registry: there is no
+	// default to check. When nil, the caller resolves the name itself.
 	KnownEngines []string
 	// Dir is the directory discovery starts from: the working directory
 	// or an explicit schema root. It defaults to the current working
@@ -286,14 +293,14 @@ func Load(opts Options) (*Config, error) {
 	default:
 		return nil, fmt.Errorf("engineconfig: %s: invalid default_mode %d", sourceForError(cfg), int32(cfg.DefaultMode))
 	}
-	if cfg.Engine == "" {
-		cfg.Engine = DefaultEngine
-	}
 	if cfg.MaxRecursionDepth == 0 {
 		cfg.MaxRecursionDepth = DefaultMaxRecursionDepth
 	}
 
-	if opts.KnownEngines != nil && !slices.Contains(opts.KnownEngines, cfg.Engine) {
+	// `engine` is reserved (RFC-001 §9.4): an unset name is the normal
+	// state and passes any registry; only a name a source did set is
+	// checked.
+	if cfg.Engine != "" && opts.KnownEngines != nil && !slices.Contains(opts.KnownEngines, cfg.Engine) {
 		return nil, fmt.Errorf("engineconfig: %s: unknown engine %q (registered engines: %s)",
 			sourceForError(cfg), cfg.Engine, strings.Join(opts.KnownEngines, ", "))
 	}
