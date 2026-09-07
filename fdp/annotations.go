@@ -420,10 +420,16 @@ func buildLiteralArg(lit ast.ExprLiteral, param ir.AnnotationParam, carrier ir.T
 		// parsed forms cannot hold what the author wrote (protowire#263).
 		switch member {
 		case ir.ArgMemberBigInt:
-			if v, ok := bigIntArg(tok.Span().Text()); ok {
+			v, err := bigIntArg(tok.Span().Text())
+			if err == nil {
 				return &pwsv1.AnnotationArg{
 					Value: &pwsv1.AnnotationArg_BigIntValue{BigIntValue: v},
 				}
+			}
+			if errors.Is(err, bigx.ErrRange) {
+				// More digits than a binder will render; ir has said so,
+				// and no value is the honest lowering — see BigFloat.
+				return &pwsv1.AnnotationArg{}
 			}
 		case ir.ArgMemberDecimal:
 			v, err := decimalArg(tok.Span().Text())

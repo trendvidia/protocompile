@@ -17,6 +17,7 @@ package ir_test
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"strings"
 	"testing"
 	"time"
@@ -105,13 +106,13 @@ func TestAnnotationArgHugeLiteralReturnsPromptly(t *testing.T) {
 		{"uint64", "1e999999999", "out of range for the annotated type `uint64`"},
 		{"double", "1e999999999", ""},
 		{"float", "1e999999999", ""},
-		{"pxf.BigInt", "1e999999999", "is not an integer"}, // float64 overflow is read as non-integral; magnitude policy is protowire#281
+		{"pxf.BigInt", "1e999999999", "out of range for the annotated type `pxf.BigInt`"}, // a billion digits; no binder renders it
 		{"pxf.Decimal", "1e1000000", "out of range for the annotated type `pxf.Decimal`"},
 		{"pxf.Decimal", "1e999999999", "out of range for the annotated type `pxf.Decimal`"},
 		{"double", "1e-999999999", ""},
 		{"int64", "1e-999999999", "out of range for the annotated type `int64`"},
-		{"pxf.BigInt", "1e-999999999", ""},
-		{"pxf.BigInt", "1e100000000", "is not an integer"}, // protocompile#216
+		{"pxf.BigInt", "1e-999999999", "is not an integer"},                               // used to round to zero and pass as one (#216)
+		{"pxf.BigInt", "1e100000000", "out of range for the annotated type `pxf.BigInt`"}, // an integer, and past the digit cap (#216)
 		{"pxf.Decimal", "1e-999999999", "out of range for the annotated type `pxf.Decimal`"},
 	}
 	for _, tc := range cases {
@@ -139,6 +140,57 @@ message M {
 			}
 			assert.True(t, hasErrorContaining(rep, tc.want),
 				"%s %s: want %q, got: %v", tc.carrier, tc.lit, tc.want, rep.Diagnostics)
+		})
+	}
+}
+
+// TestAnnotationArgBigIntIsBoundedByItsText pins protocompile#216: a
+// pxf.BigInt literal is judged an integer, and bounded by its digit
+// count, from the text — never through float64, which rounded `1e400`
+// to infinity and `1e-999999999` to zero.
+func TestAnnotationArgBigIntIsBoundedByItsText(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		lit  string
+		want string // "" = compiles clean and lowers to big_int_value
+		abs  string // the exact value when it compiles
+	}{
+		{"1e400", "", "1" + strings.Repeat("0", 400)},
+		{"1.5e1", "", "15"},
+		{"1e4095", "", "1" + strings.Repeat("0", 4095)},
+		{"0x1F", "", "31"},
+		{"1e4096", "out of range for the annotated type `pxf.BigInt`", ""},
+		{"1.5", "is not an integer", ""},
+		{"1e-1", "is not an integer", ""},
+		{"1.05e1", "is not an integer", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.lit, func(t *testing.T) {
+			t.Parallel()
+			rep := compileUnderDeadline(t, `syntax = "proto3";
+package pxf;
+annotation default(value: any);
+message BigInt { bytes abs = 1; bool negative = 2; }
+message M {
+  pxf.BigInt f = 1 @default(`+tc.lit+`);
+}
+`, 2*time.Minute)
+			args := lowerFirstFieldArgs(t, "pxf.BigInt", tc.lit)
+			require.Len(t, args, 1)
+			if tc.want == "" {
+				for _, d := range rep.Diagnostics {
+					if isError(d) {
+						t.Errorf("%s: unexpected diagnostic: %s", tc.lit, d.Message())
+					}
+				}
+				require.NotNil(t, args[0].GetBigIntValue(), "%s lowers to big_int_value", tc.lit)
+				assert.Equal(t, tc.abs, new(big.Int).SetBytes(args[0].GetBigIntValue().GetAbs()).String())
+				return
+			}
+			assert.True(t, hasErrorContaining(rep, tc.want), "%s: got: %v", tc.lit, rep.Diagnostics)
+			if strings.Contains(tc.want, "out of range") {
+				assert.Nil(t, args[0].GetValue(), "%s: a diagnosed literal lowers to no value", tc.lit)
+			}
 		})
 	}
 }

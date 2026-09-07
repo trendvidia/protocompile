@@ -114,3 +114,59 @@ func DecimalScale(text string) (scale int64, ok bool) {
 	}
 	return frac - exponent, true
 }
+
+// IntegerShape reads a numeric literal's integer part from its text:
+// whether the value is an integer at all, and how many decimal digits
+// that integer has (zero for a value below one). Nothing is computed
+// from the value — a literal like 1e999999999 is answered from its
+// exponent — so a caller can bound a pxf.BigInt by its digit count
+// before deciding to build it. ok is false for a malformed literal or an
+// exponent that does not fit int64.
+//
+// Integrality is decided by the scale: with scale = fractional digits
+// less the exponent, the value is an integer when the scale is at most
+// zero, or when every digit the scale would put after the point is a
+// zero (`1.50e1` is 15; `1.5` is not an integer). This replaces deciding
+// it through float64, which rounds `1e400` to infinity and called it
+// "not an integer", and rounds `1e-999999999` to zero and called it one
+// (trendvidia/protocompile#216).
+func IntegerShape(text string) (digits int64, integral bool, ok bool) {
+	t := strings.ReplaceAll(text, "_", "")
+	lower := strings.ToLower(strings.TrimPrefix(t, "-"))
+	if strings.HasPrefix(lower, "0x") || strings.HasPrefix(lower, "0o") || strings.HasPrefix(lower, "0b") {
+		i, ok := new(big.Int).SetString(t, 0)
+		if !ok {
+			return 0, false, false
+		}
+		if i.Sign() == 0 {
+			return 0, true, true
+		}
+		return int64(len(new(big.Int).Abs(i).String())), true, true
+	}
+	scale, ok := DecimalScale(t)
+	if !ok {
+		return 0, false, false
+	}
+	mantissa := strings.TrimPrefix(t, "-")
+	if i := strings.IndexAny(mantissa, "eE"); i != -1 {
+		mantissa = mantissa[:i]
+	}
+	mantissa = strings.TrimLeft(strings.ReplaceAll(mantissa, ".", ""), "0")
+	for i := range len(mantissa) {
+		if mantissa[i] < '0' || mantissa[i] > '9' {
+			return 0, false, false
+		}
+	}
+	if mantissa == "" {
+		return 0, true, true // zero, however spelled
+	}
+	switch {
+	case scale <= 0:
+		return int64(len(mantissa)) - scale, true, true
+	case scale >= int64(len(mantissa)):
+		return 0, strings.Trim(mantissa, "0") == "", true
+	default:
+		integral = strings.Trim(mantissa[len(mantissa)-int(scale):], "0") == ""
+		return int64(len(mantissa)) - scale, integral, true
+	}
+}

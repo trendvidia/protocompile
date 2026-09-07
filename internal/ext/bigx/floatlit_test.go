@@ -123,3 +123,26 @@ func TestDecimalScale(t *testing.T) {
 		}
 	}
 }
+
+func TestIntegerShape(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		lit      string
+		digits   int64
+		integral bool
+		ok       bool
+	}{
+		{"42", 2, true, true}, {"1.50", 1, false, true}, {"1.5e1", 2, true, true}, {"1.50e1", 2, true, true},
+		{"1e400", 401, true, true}, {"1e-400", 0, false, true}, {"0.0e5", 0, true, true}, {"007", 1, true, true},
+		{"1_000", 4, true, true}, {"0x10", 2, true, true}, {"-0b0", 0, true, true},
+		{"1e999999999", 1000000000, true, true}, {"1e-999999999", 0, false, true},
+		{"1e", 0, false, false}, {"abc", 0, false, false}, {"1e99999999999999999999", 0, false, false},
+	} {
+		digits, integral, ok := IntegerShape(tc.lit)
+		assert.Equal(t, tc.ok, ok, tc.lit)
+		if ok {
+			assert.Equal(t, tc.digits, digits, tc.lit)
+			assert.Equal(t, tc.integral, integral, tc.lit)
+		}
+	}
+}

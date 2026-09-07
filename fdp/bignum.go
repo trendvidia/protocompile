@@ -57,19 +57,30 @@ func bigRatFromText(text string) (*big.Rat, bool) {
 	return r, ok
 }
 
-// bigIntArg builds pxf.BigInt. Reports false when the literal is not an
-// integer, which the ir pass diagnoses before lowering runs; the guard is
-// here so a file that does not compile still lowers to something.
-func bigIntArg(text string) (*pxf.BigInt, bool) {
+// bigIntArg builds pxf.BigInt. Integrality and the digit bound are read
+// from the text (bigx.IntegerShape) before anything is built, so a
+// literal like 1e999999999 is refused from its exponent rather than
+// materialised (#210); the ir pass has diagnosed both cases, and the
+// caller writes no value for a bigx.ErrRange. Within the bound the
+// value is exact: the digits shifted by at most MaxNumericLiteralDigits
+// decimal places.
+func bigIntArg(text string) (*pxf.BigInt, error) {
+	digits, integral, ok := bigx.IntegerShape(text)
+	if !ok || !integral {
+		return nil, errMalformedLiteral
+	}
+	if digits > ir.MaxNumericLiteralDigits {
+		return nil, bigx.ErrRange
+	}
 	r, ok := bigRatFromText(text)
 	if !ok || !r.IsInt() {
-		return nil, false
+		return nil, errMalformedLiteral
 	}
 	i := r.Num()
 	return &pxf.BigInt{
 		Abs:      new(big.Int).Abs(i).Bytes(),
 		Negative: i.Sign() < 0,
-	}, true
+	}, nil
 }
 
 // decimalArg builds pxf.Decimal, where value = unscaled x 10^(-scale).

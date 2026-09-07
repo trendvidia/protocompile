@@ -1416,21 +1416,40 @@ func checkCarrierRangeValue(
 	}
 
 	// pxf.BigInt is an INTEGER of arbitrary precision. No magnitude is out
-	// of range for it, so the bound below does not apply — but a fractional
-	// literal is still not an integer, and that is the one thing it cannot
-	// hold.
+	// of range for it, but a fractional literal is not an integer, and an
+	// integer with more digits than MaxNumericLiteralDigits is one no
+	// binder will render (the same bound as pxf.Decimal's scale). Both are
+	// read off the literal's text. Deciding integrality through float64
+	// called `1e400` — an integer, 1329 bits of one — "not an integer"
+	// because it had rounded to infinity, and accepted `1e-999999999`
+	// because it had rounded to zero (protocompile#216).
 	if member == ArgMemberBigInt {
-		if kind == ArgLiteralFloat {
-			f, _ := num.Float()
-			if f != math.Trunc(f) || math.IsInf(f, 0) {
-				r.Errorf("argument %q for `%s` is not an integer, but %s is",
-					param.Name(), target.FullName(), describe,
-				).Apply(
-					report.Snippet(arg),
-					report.Notef("a floating-point literal converts to an integer "+
-						"target only when it has no fractional part"),
-				)
-			}
+		digits, integral, ok := bigx.IntegerShape(lit.Token.Text())
+		if !ok {
+			r.Errorf("argument %q for `%s` is out of range for %s",
+				param.Name(), target.FullName(), describe,
+			).Apply(report.Snippet(arg))
+			return
+		}
+		if !integral {
+			r.Errorf("argument %q for `%s` is not an integer, but %s is",
+				param.Name(), target.FullName(), describe,
+			).Apply(
+				report.Snippet(arg),
+				report.Notef("a floating-point literal converts to an integer "+
+					"target only when it has no fractional part"),
+			)
+			return
+		}
+		if digits > MaxNumericLiteralDigits {
+			r.Errorf("argument %q for `%s` is out of range for %s",
+				param.Name(), target.FullName(), describe,
+			).Apply(
+				report.Snippet(arg),
+				report.Notef("this integer has %d digits; a binder renders a `pxf.BigInt` "+
+					"default as a PXF literal, and MaxNumericLiteralDigits is %d",
+					digits, MaxNumericLiteralDigits),
+			)
 		}
 		return
 	}
