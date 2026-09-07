@@ -63,13 +63,14 @@ func TestBigFloatLiteralMatchesParseFloat(t *testing.T) {
 
 // Conversion cost must not scale with the exponent (#210): the largest
 // magnitudes the wire holds, and the ones just beyond it, all return in
-// well under a second. Sequential, so the bound is not disturbed by
-// parallel siblings.
+// microseconds; the budget is seconds only because a loaded runner under
+// -race has stretched a 10ms compile past 5s. Sequential, so the bound is
+// not disturbed by parallel siblings.
 func TestBigFloatLiteralIsFastAtHugeExponents(t *testing.T) {
 	for _, lit := range []string{"1e1000000", "1e646456992", "1e646456993", "1e999999999", "1e-999999999"} {
 		start := time.Now()
 		_, _, _, _ = BigFloatLiteral(lit, 256)
-		assert.Less(t, time.Since(start), time.Second, lit)
+		assert.Less(t, time.Since(start), 30*time.Second, lit)
 	}
 }
 

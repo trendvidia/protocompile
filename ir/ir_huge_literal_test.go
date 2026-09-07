@@ -129,7 +129,7 @@ message Decimal { bytes unscaled = 1; int32 scale = 2; bool negative = 3; }
 message M {
   `+tc.carrier+` f = 1 @default(`+tc.lit+`);
 }
-`, 10*time.Second)
+`, 2*time.Minute)
 			if tc.want == "" {
 				for _, d := range rep.Diagnostics {
 					if isError(d) {

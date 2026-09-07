@@ -1069,7 +1069,7 @@ message BigFloat { bytes mantissa = 1; int32 exponent = 2; uint32 prec = 3; bool
 message M {
   pxf.BigFloat f = 1 @default(`+tc.lit+`);
 }
-`, 10*time.Second)
+`, 2*time.Minute)
 			if tc.want == "" {
 				for _, d := range rep.Diagnostics {
 					if isError(d) {
@@ -1163,7 +1163,7 @@ message Decimal { bytes unscaled = 1; int32 scale = 2; bool negative = 3; }
 message M {
   pxf.Decimal f = 1 @default(`+tc.lit+`);
 }
-`, 10*time.Second)
+`, 2*time.Minute)
 			args := lowerFirstFieldArgs(t, "pxf.Decimal", tc.lit)
 			require.Len(t, args, 1)
 			if !tc.bad {
