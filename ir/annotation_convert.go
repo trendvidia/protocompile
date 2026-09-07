@@ -21,7 +21,9 @@ import (
 
 // This file holds the conversion rule for an annotation argument bound to
 // an `any` parameter, shared by the lowering (which needs the member) and
-// the diagnostics (which need the fault). RFC-001 states it:
+// the diagnostics (which need the fault). RFC-001 §8.1 ("Choosing the
+// member", trendvidia/protowire#262) states it, and is where a change to
+// it goes first; the quotation here is not the rule's home:
 //
 //	An argument is typed by its own literal, and is then converted to the
 //	type of the element the annotation is attached to. A literal that
