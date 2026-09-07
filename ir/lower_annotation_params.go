@@ -1401,6 +1401,19 @@ func checkCarrierRangeValue(
 	// digits less its exponent, read from the text, so a literal the
 	// runtime would refuse is diagnosed here instead of carried.
 	if member == ArgMemberDecimal {
+		// The unscaled magnitude is rendered digit for digit, so its digit
+		// count is bounded by the same limit as the scale.
+		if n, ok := bigx.SignificantDigits(lit.Token.Text()); ok && n > MaxNumericLiteralDigits {
+			r.Errorf("argument %q for `%s` is out of range for %s",
+				param.Name(), target.FullName(), describe,
+			).Apply(
+				report.Snippet(arg),
+				report.Notef("this literal has %d significant digits; a binder renders a "+
+					"`pxf.Decimal` default as a PXF literal, and MaxNumericLiteralDigits is %d",
+					n, MaxNumericLiteralDigits),
+			)
+			return
+		}
 		if scale, ok := bigx.DecimalScale(lit.Token.Text()); ok &&
 			(scale > MaxNumericLiteralDigits || scale < -MaxNumericLiteralDigits) {
 			r.Errorf("argument %q for `%s` is out of range for %s",

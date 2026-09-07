@@ -146,3 +146,22 @@ func TestIntegerShape(t *testing.T) {
 		}
 	}
 }
+
+func TestSignificantDigits(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		lit string
+		n   int64
+		ok  bool
+	}{
+		{"42", 2, true}, {"1.50", 3, true}, {"007.5", 2, true}, {"0.0001", 1, true}, {"1e999999999", 1, true},
+		{"1_000", 4, true}, {"0x1F", 2, true}, {"0", 0, true}, {"-3.25e-4", 3, true},
+		{"", 0, false}, {"abc", 0, false}, {"e5", 0, false},
+	} {
+		n, ok := SignificantDigits(tc.lit)
+		assert.Equal(t, tc.ok, ok, tc.lit)
+		if ok {
+			assert.Equal(t, tc.n, n, tc.lit)
+		}
+	}
+}

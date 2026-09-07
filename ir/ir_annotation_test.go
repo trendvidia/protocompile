@@ -1144,9 +1144,14 @@ func TestAnnotationArgDecimalScaleBound(t *testing.T) {
 		{"1e-4097", 0, true},
 		{"1e1000000", 0, true},
 		{"1e-999999999", 0, true},
+		// Significant digits are bounded like the scale: the unscaled
+		// magnitude is rendered digit for digit.
+		{strings.Repeat("7", 4096), 0, false},
+		{strings.Repeat("7", 4097), 0, true},
+		{"0." + strings.Repeat("0", 5000) + "1", 5001, true},
 	}
 	for _, tc := range cases {
-		t.Run(tc.lit, func(t *testing.T) {
+		t.Run(tc.lit[:min(len(tc.lit), 24)], func(t *testing.T) {
 			t.Parallel()
 			rep := compileUnderDeadline(t, `syntax = "proto3";
 package pxf;

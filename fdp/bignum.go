@@ -106,6 +106,12 @@ func decimalArg(text string) (*pxf.Decimal, error) {
 	if scale > ir.MaxNumericLiteralDigits || scale < -ir.MaxNumericLiteralDigits {
 		return nil, bigx.ErrRange
 	}
+	if n, ok := bigx.SignificantDigits(text); !ok || n > ir.MaxNumericLiteralDigits {
+		if !ok {
+			return nil, errMalformedLiteral
+		}
+		return nil, bigx.ErrRange
+	}
 
 	t := strings.ReplaceAll(text, "_", "")
 	lower := strings.ToLower(t)

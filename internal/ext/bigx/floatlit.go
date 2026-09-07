@@ -170,3 +170,37 @@ func IntegerShape(text string) (digits int64, integral bool, ok bool) {
 		return int64(len(mantissa)) - scale, integral, true
 	}
 }
+
+// SignificantDigits counts a decimal literal's digits after leading
+// zeros are dropped — the digits a pxf.Decimal's unscaled magnitude would
+// carry, and so the digits a binder renders. Read from the text; a based
+// literal counts the decimal digits of its value. ok is false for a
+// malformed literal.
+func SignificantDigits(text string) (n int64, ok bool) {
+	t := strings.ReplaceAll(text, "_", "")
+	lower := strings.ToLower(strings.TrimPrefix(t, "-"))
+	if strings.HasPrefix(lower, "0x") || strings.HasPrefix(lower, "0o") || strings.HasPrefix(lower, "0b") {
+		i, ok := new(big.Int).SetString(t, 0)
+		if !ok {
+			return 0, false
+		}
+		if i.Sign() == 0 {
+			return 0, true
+		}
+		return int64(len(new(big.Int).Abs(i).String())), true
+	}
+	mantissa := strings.TrimPrefix(t, "-")
+	if i := strings.IndexAny(mantissa, "eE"); i != -1 {
+		mantissa = mantissa[:i]
+	}
+	mantissa = strings.ReplaceAll(mantissa, ".", "")
+	if mantissa == "" {
+		return 0, false
+	}
+	for i := range len(mantissa) {
+		if mantissa[i] < '0' || mantissa[i] > '9' {
+			return 0, false
+		}
+	}
+	return int64(len(strings.TrimLeft(mantissa, "0"))), true
+}
