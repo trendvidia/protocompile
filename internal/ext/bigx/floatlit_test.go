@@ -199,7 +199,7 @@ func TestBigFloatLiteralMatchesExactRounding(t *testing.T) {
 			require.NoError(t, err)
 			assert.False(t, neg)
 			assert.Zero(t, wantMant.Cmp(mant), "%s: mantissa differs from the exact rounding", lit)
-			assert.Equal(t, int32(ee-256), exp, "%s: exponent differs from the exact rounding", lit)
+			assert.Equal(t, int32(ee-256), exp, "%s: exponent differs from the exact rounding", lit) //nolint:testifylint // the exact rounding IS the expectation; the linter reads the arithmetic as the actual
 		})
 	}
 }

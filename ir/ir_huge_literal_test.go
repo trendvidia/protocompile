@@ -39,7 +39,13 @@ import (
 // timeout is not a diagnosis. The goroutine asserts nothing: a FailNow
 // off the test goroutine is undefined, so it reports and the test
 // goroutine judges.
-func compileUnderDeadline(t *testing.T, src string, limit time.Duration) *report.Report {
+// hugeLiteralDeadline is the budget every deadline test uses. A hang is
+// minutes to never; two minutes discriminates and survives a loaded
+// runner under -race, which has stretched a 10ms compile past 5s.
+const hugeLiteralDeadline = 2 * time.Minute
+
+func compileUnderDeadline(t *testing.T, src string) *report.Report {
+	limit := hugeLiteralDeadline
 	t.Helper()
 	type result struct {
 		rep *report.Report
@@ -129,7 +135,7 @@ message Decimal { bytes unscaled = 1; int32 scale = 2; bool negative = 3; }
 message M {
   `+tc.carrier+` f = 1 @default(`+tc.lit+`);
 }
-`, 2*time.Minute)
+`)
 			if tc.want == "" {
 				for _, d := range rep.Diagnostics {
 					if isError(d) {
@@ -174,7 +180,7 @@ message BigInt { bytes abs = 1; bool negative = 2; }
 message M {
   pxf.BigInt f = 1 @default(`+tc.lit+`);
 }
-`, 2*time.Minute)
+`)
 			args := lowerFirstFieldArgs(t, "pxf.BigInt", tc.lit)
 			require.Len(t, args, 1)
 			if tc.want == "" {
