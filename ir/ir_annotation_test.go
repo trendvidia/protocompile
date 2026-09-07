@@ -793,10 +793,11 @@ message M {}
 		"expected arity mismatch diagnostic, got: %v", rep.Diagnostics)
 }
 
-// TestAnnotationArgBuiltinsUndiagnosed verifies that call sites whose
-// names do not resolve to a declared function are presumed engine
-// builtins: not diagnosed, whatever their arity.
-func TestAnnotationArgBuiltinsUndiagnosed(t *testing.T) {
+// TestAnnotationArgBuiltinsAccepted verifies that RFC-001 §5.4 builtins
+// — in function form with the receiver first, in method form on `this`,
+// and the receiverless `now()` — compile without a diagnostic. They
+// resolve to no declaration; the §5.4 builtin set is what accepts them.
+func TestAnnotationArgBuiltinsAccepted(t *testing.T) {
 	t.Parallel()
 
 	const src = `syntax = "proto3";
@@ -818,31 +819,15 @@ message M {}
 	}
 }
 
-// TestAnnotationArgTypoIsAcceptedAsABuiltin pins the hole in the two tests
-// above, as a known limitation rather than an oversight.
-//
-// TestAnnotationArgBuiltinsUndiagnosed uses names the schema never
-// declares, which is the case the "presume builtin" default exists for.
-// This is the other one: a MISSPELLING of a function the schema does
-// declare. It is indistinguishable from a builtin here -- both are simply
-// names that do not resolve -- so it compiles.
-//
-// The default is right. RFC-001 section 9.1 gives a project one engine,
-// and engines have builtins the schema never declares (CEL's size(),
-// startsWith()), so an unresolvable name is usually legitimate. Rejecting
-// them would break every valid rule that uses one. The cost is that the
-// one case where the author is wrong looks exactly like the common case
-// where they are right, and `this` binds to the value under validation --
-// so a rule that never runs is a constraint that silently does not exist.
-//
-// Closing this needs the engine's builtin inventory, which lives in the
-// engine: trendvidia/protolsp#275. Stated in the schema beside
-// ParamType.EXPRESSION (trendvidia/protowire#268) so a schema author can
-// learn it without reading this file.
-//
-// If a future change diagnoses `mathces` here, this test is what it will
-// break, and that is the point: the boundary should not move silently.
-func TestAnnotationArgTypoIsAcceptedAsABuiltin(t *testing.T) {
+// TestAnnotationArgUnresolvedCallIsRejected pins the boundary RFC-001
+// §5.4 drew (protowire#282): a call inside an expression argument must
+// resolve to a visible `function` declaration or be one of the six
+// builtins. Before 2026-09-07 an unresolvable name was presumed an
+// engine builtin and compiled clean (#202, #208) — a misspelling of a
+// declared function was indistinguishable from `size()`, because the
+// language was the engine's. It is the spec's now, so the compiler can
+// tell them apart, and this test is the pin that moved.
+func TestAnnotationArgUnresolvedCallIsRejected(t *testing.T) {
 	t.Parallel()
 
 	const src = `syntax = "proto3";
@@ -854,22 +839,19 @@ annotation validate(rule: expression);
 
 message M {
   // "matches" is declared right above; this is one transposition
-  // away from it, and compiles.
+  // away from it.
   string email = 1 @validate(mathces(this, "^[^@]+@[^@]+$"));
 }
 `
 
 	_, rep := compileForAnnotationTest(t, src)
-	for _, d := range rep.Diagnostics {
-		if isError(d) {
-			t.Errorf("a misspelled name is presumed an engine builtin, "+
-				"not diagnosed; got: %s", d.Message())
-		}
-	}
+	assert.True(t,
+		hasErrorContaining(rep, "unknown function `mathces`", "neither a visible `function` declaration nor a builtin"),
+		"expected the misspelled call to be rejected, got: %v", rep.Diagnostics)
 
-	// The same call spelled correctly, with the wrong arity, IS caught --
-	// so the boundary is exactly "does the name resolve", and this test
-	// is not passing merely because nothing is checked at all.
+	// The same call spelled correctly, with the wrong arity, is the
+	// declared-function path: caught by arity verification, not by the
+	// builtin check — exactly one diagnostic, the arity one.
 	_, rep = compileForAnnotationTest(t, `syntax = "proto3";
 package test;
 
@@ -883,70 +865,170 @@ message M {
 `)
 	assert.True(t,
 		hasErrorContaining(rep, "test.matches", "1 argument(s)", "declares 2"),
-		"a resolvable name is arity-checked: %v", rep.Diagnostics)
+		"expected the arity diagnostic, got: %v", rep.Diagnostics)
+	assert.False(t,
+		hasErrorContaining(rep, "unknown function"),
+		"a declared function is never reported as unknown, got: %v", rep.Diagnostics)
+
+	// A qualified misspelling widens to the whole written name.
+	_, rep = compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+
+function matches(value: string, pattern: string);
+
+annotation validate(rule: expression);
+
+message M {
+  string email = 1 @validate(test.mathces(this, "^a"));
+}
+`)
+	assert.True(t,
+		hasErrorContaining(rep, "unknown function `test.mathces`"),
+		"expected the qualified misspelling to be rejected, got: %v", rep.Diagnostics)
 }
 
-// TestAnnotationArgNamedBinding verifies named-argument binding and
-// its diagnostics: unknown names, positional-after-named, and double
-// binding.
-func TestAnnotationArgNamedBinding(t *testing.T) {
+// TestAnnotationArgBuiltinArity pins the builtin arities RFC-001 §5.4
+// fixes: receiver builtins take their receiver first in function form
+// and none in method form; `now()` has no receiver and no arguments.
+func TestAnnotationArgBuiltinArity(t *testing.T) {
 	t.Parallel()
 
-	t.Run("unknown", func(t *testing.T) {
-		t.Parallel()
-		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+	cases := []struct {
+		rule string
+		want []string
+	}{
+		{`this.size(1)`, []string{"`this.size(…)` takes 0 argument(s), got 1"}},
+		{`size()`, []string{"`size(…)` takes 1 argument(s) in function form", "got 0"}},
+		{`starts_with(this)`, []string{"`starts_with(…)` takes 2 argument(s) in function form", "got 1"}},
+		{`this.starts_with()`, []string{"`this.starts_with(…)` takes 1 argument(s), got 0"}},
+		{`this.matches("a", "b")`, []string{"`this.matches(…)` takes 1 argument(s), got 2"}},
+		{`now(this)`, []string{"`now()` takes no arguments, got 1"}},
+		{`this.now()`, []string{"`now()` has no receiver"}},
+		{`this.frobnicate("x")`, []string{"unknown method `frobnicate` on `this`"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.rule, func(t *testing.T) {
+			t.Parallel()
+			_, rep := compileForAnnotationTest(t, `syntax = "proto3";
 package test;
-annotation validate(rule: expression, code: string);
-@validate(this != 0, oops = "x")
-message M {}
-`)
-		assert.True(t, hasErrorContaining(rep, "unknown named argument", "oops"),
-			"expected unknown-named-argument diagnostic, got: %v", rep.Diagnostics)
-	})
 
-	t.Run("positional-after-named", func(t *testing.T) {
-		t.Parallel()
-		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
-package test;
-annotation validate(rule: expression, code: string);
-@validate(code = "x", this != 0)
-message M {}
-`)
-		assert.True(t, hasErrorContaining(rep, "positional argument after named argument"),
-			"expected ordering diagnostic, got: %v", rep.Diagnostics)
-	})
+annotation validate(rule: expression);
 
-	t.Run("double-binding", func(t *testing.T) {
-		t.Parallel()
-		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
-package test;
-annotation validate(rule: expression, code: string);
-@validate(this != 0, code = "x", code = "y")
-message M {}
+message M {
+  string v = 1 @validate(`+tc.rule+`);
+}
 `)
-		assert.True(t, hasErrorContaining(rep, "bound more than once", "code"),
-			"expected double-binding diagnostic, got: %v", rep.Diagnostics)
-	})
-
-	t.Run("accepted", func(t *testing.T) {
-		t.Parallel()
-		_, rep := compileForAnnotationTest(t, `syntax = "proto3";
-package test;
-annotation validate(rule: expression, code: string = "", message: string = "");
-@validate(this != 0, code = "tier.invalid", message = "bad tier")
-message M {}
-`)
-		for _, d := range rep.Diagnostics {
-			if isError(d) {
-				t.Errorf("unexpected diagnostic: %s", d.Message())
-			}
-		}
-	})
+			assert.True(t, hasErrorContaining(rep, tc.want...),
+				"%s: expected %q, got: %v", tc.rule, tc.want, rep.Diagnostics)
+		})
+	}
 }
 
-// TestAnnotationArgOpaqueOnNonExpression verifies that an engine-
-// expression fragment bound to a non-expression parameter is
-// diagnosed: only `expression`-typed params keep opaque captures.
+// TestAnnotationArgExpressionSyntax pins that a capture which balances
+// its delimiters (so it passes §5.1 capture) but is not a §5.4
+// expression is a compile error naming what the language lacks.
+func TestAnnotationArgExpressionSyntax(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		rule string
+		want string
+	}{
+		{`this >= && this < 150`, "expected an expression, got `&&`"},
+		{`this.name == "x"`, "field selection is not part of the expression language (`this.name`)"},
+		{`foo > 1`, "`foo` is not bound"},
+		{`this < 1 < 2`, "comparison operators do not chain"},
+		{`this + 1 > 0`, "no arithmetic"},
+		{`(this = 1)`, "equality is `==`"}, // Parenthesised: bare `this = …` is a named argument to the capture (§5.1).
+		{`this > 0 ? true : false`, "no conditional operator"},
+		{`this & true`, "the boolean operators are `&&` and `||`"},
+		{`this in`, "expected an expression, got the end of the expression"},
+		{`this.size() > 0 this`, "unexpected `this` after the expression"},
+		{`in`, "expected an expression, got `in`"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.rule, func(t *testing.T) {
+			t.Parallel()
+			_, rep := compileForAnnotationTest(t, `syntax = "proto3";
+package test;
+
+annotation validate(rule: expression);
+
+message M {
+  string v = 1 @validate(`+tc.rule+`);
+}
+`)
+			assert.True(t, hasErrorContaining(rep, "is not an expression", tc.want),
+				"%s: expected %q, got: %v", tc.rule, tc.want, rep.Diagnostics)
+		})
+	}
+}
+
+// TestAnnotationArgExpressionLanguageFixture compiles protowire's
+// conformance fixture 24_expression_language (every builtin in both
+// forms, `now()`, every operator and literal kind, a declared-function
+// call, an alias rule on a repeated field) with the annotation library
+// inlined: no diagnostic, and the extracted calls are exactly the
+// declared ones.
+func TestAnnotationArgExpressionLanguageFixture(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package fixtures.exprlang;
+
+import "google/protobuf/timestamp.proto";
+
+annotation validate(rule: expression, code: string = "", message: string = "");
+
+function in_region(value: string, regions: string);
+function same_domain(profile: Profile);
+
+type Tag = string @validate(this.size() >= 2 && size(this) <= 16);
+
+@validate(same_domain(this))
+message Profile {
+  string email = 1
+    @validate(this.contains("@") && contains(this, "@"))
+    @validate(matches(this, "^[^@]+@[^@]+$") && this.matches("[.]"))
+    @validate(!this.starts_with("@") && !ends_with(this, "@"), code = "profile.email.shape");
+
+  string handle = 2
+    @validate(starts_with(this, "u_") || this.ends_with("_bot") || this == "root");
+
+  string country = 3
+    @validate(this in ["US", "CA", "GB"] && in_region(this, "NA"));
+
+  int32 age = 4
+    @validate(this >= 0 && this < 150 && this != 42 && this > -1);
+
+  double score = 5
+    @validate((this > 0.0 && this <= 1.0) || (this == 2.5));
+
+  bool verified = 6
+    @validate(this == true || this == false);
+
+  bytes token = 7
+    @validate(this.size() == 32);
+
+  repeated Tag tags = 8
+    @validate(size(this) <= 5);
+
+  map<string, int32> limits = 9
+    @validate(this.size() > 0);
+
+  google.protobuf.Timestamp expires = 10
+    @validate(this > now());
+}
+`
+
+	_, rep := compileForAnnotationTest(t, src)
+	for _, d := range rep.Diagnostics {
+		if isError(d) {
+			t.Errorf("fixture 24 must compile clean under §5.4; got: %s", d.Message())
+		}
+	}
+}
+
 func TestAnnotationArgOpaqueOnNonExpression(t *testing.T) {
 	t.Parallel()
 

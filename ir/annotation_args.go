@@ -340,8 +340,9 @@ type AnnotationFunctionCall struct {
 // Extraction is complete with respect to declared functions: every
 // maximal `qualifiedIdent (` occurrence whose name resolves (relative
 // to the use site's scope) is returned, including calls nested inside
-// other calls' argument lists. Names that do not resolve are presumed
-// engine builtins — they are not returned and not diagnosed.
+// other calls' argument lists. Names that do not resolve are not
+// returned; they must be RFC-001 §5.4 builtins, and
+// validateExpressionLanguage diagnoses those that are not.
 //
 // Resolution is quiet; arity verification against the declaration is
 // the B3 validation pass's job.
@@ -390,7 +391,7 @@ func scanFunctionCalls(u AnnotationUse, tokens func(yield func(token.Token) bool
 		name := joinIdentRun(run)
 		sym := symbolRef{
 			File:   u.Context(),
-			Report: nil, // Quiet: non-resolving names are engine builtins.
+			Report: nil, // Quiet: non-resolving names are checked against the §5.4 builtins elsewhere.
 			scope:  u.scopeName(),
 			name:   FullName(name),
 			span:   source.Join(run[0], next),
