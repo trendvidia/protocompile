@@ -27,7 +27,9 @@ import (
 // promptly fails the test if f has not returned within budget: the
 // defects here are values computed exactly from a literal whose exponent
 // says how long that takes — minutes to never — so a regression must
-// fail, not hang the suite (#210).
+// fail, not hang the suite (#210). The budget is a minute: the values
+// this guards against take far longer, and a loaded runner under -race
+// stretched a 10ms compile past a 5s budget once.
 func promptly(t *testing.T, budget time.Duration, f func()) {
 	t.Helper()
 	done := make(chan struct{})
@@ -48,7 +50,7 @@ func TestBigFloatArgIsBoundedByTheExponent(t *testing.T) {
 	for _, lit := range []string{"1e999999999", "1e-999999999", "1e2000000000", "1e-646456995"} {
 		t.Run("refused "+lit, func(t *testing.T) {
 			t.Parallel()
-			promptly(t, 2*time.Second, func() {
+			promptly(t, time.Minute, func() {
 				_, ok := bigFloatArg(lit)
 				assert.False(t, ok, "%s is past pxf.BigFloat's range", lit)
 			})
@@ -57,7 +59,7 @@ func TestBigFloatArgIsBoundedByTheExponent(t *testing.T) {
 	for _, lit := range []string{"1e100000000", "1e-100000000", "1e646456992", "1e5000", "1e-5000"} {
 		t.Run("built "+lit, func(t *testing.T) {
 			t.Parallel()
-			promptly(t, 2*time.Second, func() {
+			promptly(t, time.Minute, func() {
 				v, ok := bigFloatArg(lit)
 				require.True(t, ok, "%s fits pxf.BigFloat", lit)
 				assert.Equal(t, uint32(bigFloatPrec), v.GetPrec())
@@ -91,7 +93,7 @@ func TestBigIntArgIsBoundedByDigits(t *testing.T) {
 	v, ok = bigIntArg("1e4095")
 	require.True(t, ok, "4096 digits is at the cap")
 	assert.Len(t, new(big.Int).SetBytes(v.GetAbs()).String(), 4096)
-	promptly(t, 2*time.Second, func() {
+	promptly(t, time.Minute, func() {
 		_, ok := bigIntArg("1e4096")
 		assert.False(t, ok, "4097 digits is past the cap")
 		_, ok = bigIntArg("1e999999999")

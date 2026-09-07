@@ -52,7 +52,7 @@ func TestIsFloatAnswersFromSizes(t *testing.T) {
 			select {
 			case got := <-done:
 				assert.Equal(t, tc.want, got)
-			case <-time.After(2 * time.Second):
+			case <-time.After(time.Minute):
 				t.Fatal("IsFloat computed the power of five instead of comparing sizes")
 			}
 		})

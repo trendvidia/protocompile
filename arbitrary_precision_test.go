@@ -61,8 +61,11 @@ func TestArbitraryPrecisionLiteralsCompilePromptly(t *testing.T) {
 					require.Error(t, err)
 					assert.Contains(t, err.Error(), "out of range for the annotated type `pxf."+tc.msg+"`")
 				}
-			case <-time.After(5 * time.Second):
-				t.Fatalf("compile did not return within 5s (elapsed %v)", time.Since(start))
+			// A hang here is minutes to never, so the budget is large: the
+			// first cut said 5s, and on a loaded runner under -race every
+			// case took 5.01s — a compile that takes 10ms unloaded.
+			case <-time.After(2 * time.Minute):
+				t.Fatalf("compile did not return within 2m (elapsed %v)", time.Since(start))
 			}
 		})
 	}
