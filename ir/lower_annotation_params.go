@@ -1394,10 +1394,31 @@ func checkCarrierRangeValue(
 		return
 	}
 
+	// pxf.Decimal records value = unscaled × 10^(-scale) with an int32
+	// scale that protowire's hardening limits bound in magnitude
+	// (MaxNumericLiteralDigits): a decoder materialises 10^scale and MUST
+	// refuse a scale beyond it. The scale is the literal's fractional
+	// digits less its exponent, read from the text, so a literal the
+	// runtime would refuse is diagnosed here instead of carried.
+	if member == ArgMemberDecimal {
+		if scale, ok := bigx.DecimalScale(lit.Token.Text()); ok &&
+			(scale > bigx.MaxNumericLiteralDigits || scale < -bigx.MaxNumericLiteralDigits) {
+			r.Errorf("argument %q for `%s` is out of range for %s",
+				param.Name(), target.FullName(), describe,
+			).Apply(
+				report.Snippet(arg),
+				report.Notef("`pxf.Decimal`'s scale — fractional digits less the exponent, %d here — "+
+					"is bounded by MaxNumericLiteralDigits (%d) in magnitude; a decoder refuses more",
+					scale, bigx.MaxNumericLiteralDigits),
+			)
+		}
+		return
+	}
+
 	// pxf.BigInt is an INTEGER of arbitrary precision. No magnitude is out
 	// of range for it, so the bound below does not apply — but a fractional
 	// literal is still not an integer, and that is the one thing it cannot
-	// hold. pxf.Decimal takes fractions, so it is not checked here at all.
+	// hold.
 	if member == ArgMemberBigInt {
 		if kind == ArgLiteralFloat {
 			f, _ := num.Float()

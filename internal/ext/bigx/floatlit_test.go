@@ -102,3 +102,24 @@ func TestBigFloatLiteralSyntax(t *testing.T) {
 		assert.NotErrorIs(t, err, ErrRange, "%s is malformed, not out of range", lit)
 	}
 }
+
+func TestDecimalScale(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		lit   string
+		scale int64
+		ok    bool
+	}{
+		{"1", 0, true}, {"1.50", 2, true}, {"1.5e2", -1, true}, {"-0.001", 3, true},
+		{"1e4096", -4096, true}, {"1e-4096", 4096, true}, {"1.5e-4095", 4096, true},
+		{"1e999999999", -999999999, true}, {"1e-999999999", 999999999, true},
+		{"1_000.25", 2, true}, {"0x1F", 0, true},
+		{"1e", 0, false}, {"e5", 0, false}, {".", 0, false}, {"1e99999999999999999999", 0, false},
+	} {
+		scale, ok := DecimalScale(tc.lit)
+		assert.Equal(t, tc.ok, ok, tc.lit)
+		if ok {
+			assert.Equal(t, tc.scale, scale, tc.lit)
+		}
+	}
+}

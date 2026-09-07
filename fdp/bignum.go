@@ -15,8 +15,8 @@
 package fdp
 
 import (
+	"errors"
 	"math/big"
-	"strconv"
 	"strings"
 
 	pxf "github.com/trendvidia/protocompile/gen/pxf"
@@ -81,7 +81,20 @@ func bigIntArg(text string) (*pxf.BigInt, bool) {
 // scale = (digits after the point) - (exponent), so `1.50` is
 // unscaled 150 scale 2, and `1.5e2` is unscaled 15 scale -1. Both denote
 // the same value as their text; only the first claims two decimal places.
-func decimalArg(text string) (*pxf.Decimal, bool) {
+//
+// The scale is bounded by bigx.MaxNumericLiteralDigits in magnitude
+// (protowire HARDENING.md): a decoder materialises 10^scale and MUST
+// refuse one beyond the limit, so the ir pass diagnoses such a literal and
+// this reports bigx.ErrRange for it, and the caller writes no value.
+func decimalArg(text string) (*pxf.Decimal, error) {
+	scale, ok := bigx.DecimalScale(text)
+	if !ok {
+		return nil, errMalformedLiteral
+	}
+	if scale > bigx.MaxNumericLiteralDigits || scale < -bigx.MaxNumericLiteralDigits {
+		return nil, bigx.ErrRange
+	}
+
 	t := strings.ReplaceAll(text, "_", "")
 	lower := strings.ToLower(t)
 
@@ -90,42 +103,40 @@ func decimalArg(text string) (*pxf.Decimal, bool) {
 		strings.HasPrefix(lower, "0b") {
 		i, ok := new(big.Int).SetString(t, 0)
 		if !ok {
-			return nil, false
+			return nil, errMalformedLiteral
 		}
 		return &pxf.Decimal{
 			Unscaled: new(big.Int).Abs(i).Bytes(),
 			Negative: i.Sign() < 0,
-		}, true
+		}, nil
 	}
 
-	mantissa, exponent := t, int32(0)
+	mantissa := t
 	if i := strings.IndexAny(t, "eE"); i != -1 {
-		e, err := strconv.ParseInt(t[i+1:], 10, 32)
-		if err != nil {
-			return nil, false
-		}
-		mantissa, exponent = t[:i], int32(e)
+		mantissa = t[:i]
 	}
-
-	var frac int32
 	if i := strings.IndexByte(mantissa, '.'); i != -1 {
-		frac = int32(len(mantissa) - i - 1)
 		mantissa = mantissa[:i] + mantissa[i+1:]
 	}
 	if mantissa == "" || mantissa == "-" {
-		return nil, false
+		return nil, errMalformedLiteral
 	}
 
 	unscaled, ok := new(big.Int).SetString(mantissa, 10)
 	if !ok {
-		return nil, false
+		return nil, errMalformedLiteral
 	}
 	return &pxf.Decimal{
 		Unscaled: new(big.Int).Abs(unscaled).Bytes(),
-		Scale:    frac - exponent,
+		Scale:    int32(scale), // #nosec G115 -- bounded by MaxNumericLiteralDigits above
 		Negative: unscaled.Sign() < 0,
-	}, true
+	}, nil
 }
+
+// errMalformedLiteral is a literal the text parsers could not read; the
+// ir pass has already diagnosed its shape, and the lowering falls back to
+// the token's parsed form.
+var errMalformedLiteral = errors.New("malformed numeric literal")
 
 // bigFloatPrec is the mantissa precision used for pxf.BigFloat.
 //

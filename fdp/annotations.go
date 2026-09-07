@@ -426,10 +426,16 @@ func buildLiteralArg(lit ast.ExprLiteral, param ir.AnnotationParam, carrier ir.T
 				}
 			}
 		case ir.ArgMemberDecimal:
-			if v, ok := decimalArg(tok.Span().Text()); ok {
+			v, err := decimalArg(tok.Span().Text())
+			if err == nil {
 				return &pwsv1.AnnotationArg{
 					Value: &pwsv1.AnnotationArg_DecimalValue{DecimalValue: v},
 				}
+			}
+			if errors.Is(err, bigx.ErrRange) {
+				// A scale the decoder will refuse (HARDENING); ir has said
+				// so, and no value is the honest lowering — see BigFloat.
+				return &pwsv1.AnnotationArg{}
 			}
 		case ir.ArgMemberBigFloat:
 			v, err := bigFloatArg(tok.Span().Text())

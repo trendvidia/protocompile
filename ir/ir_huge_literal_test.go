@@ -106,12 +106,13 @@ func TestAnnotationArgHugeLiteralReturnsPromptly(t *testing.T) {
 		{"double", "1e999999999", ""},
 		{"float", "1e999999999", ""},
 		{"pxf.BigInt", "1e999999999", "is not an integer"}, // float64 overflow is read as non-integral; magnitude policy is protowire#281
-		{"pxf.Decimal", "1e1000000", ""},
-		{"pxf.Decimal", "1e999999999", ""},
+		{"pxf.Decimal", "1e1000000", "out of range for the annotated type `pxf.Decimal`"},
+		{"pxf.Decimal", "1e999999999", "out of range for the annotated type `pxf.Decimal`"},
 		{"double", "1e-999999999", ""},
 		{"int64", "1e-999999999", "out of range for the annotated type `int64`"},
 		{"pxf.BigInt", "1e-999999999", ""},
-		{"pxf.Decimal", "1e-999999999", ""},
+		{"pxf.BigInt", "1e100000000", "is not an integer"}, // protocompile#216
+		{"pxf.Decimal", "1e-999999999", "out of range for the annotated type `pxf.Decimal`"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.carrier+"/"+tc.lit, func(t *testing.T) {

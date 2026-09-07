@@ -18,6 +18,7 @@ import (
 	"errors"
 	"math"
 	"math/big"
+	"strconv"
 	"strings"
 )
 
@@ -83,4 +84,41 @@ func BigFloatLiteral(text string, prec uint) (mant *big.Int, exp int32, neg bool
 		return nil, 0, false, ErrRange
 	}
 	return mant, int32(wire), f.Signbit(), nil
+}
+
+// MaxNumericLiteralDigits is protowire's hardening limit on the digit
+// count of a numeric literal and on the magnitude of pxf.Decimal.scale on
+// the wire (protowire HARDENING.md, "Mandatory limits"): a decoder that
+// materialises a Decimal computes 10^scale, and MUST reject a scale beyond
+// this before doing so. The compiler diagnoses the same bound at the
+// source, so no schema emits a carrier the runtime will refuse.
+const MaxNumericLiteralDigits = 4096
+
+// DecimalScale computes the pxf.Decimal scale a numeric literal denotes —
+// its fractional digit count less its exponent, so `1.50` is 2 and `1.5e2`
+// is -1 — from the text alone, without materialising anything. A based
+// literal has scale 0. ok is false for a malformed literal or an exponent
+// that does not fit int64.
+func DecimalScale(text string) (scale int64, ok bool) {
+	t := strings.ReplaceAll(text, "_", "")
+	lower := strings.ToLower(strings.TrimPrefix(t, "-"))
+	if strings.HasPrefix(lower, "0x") || strings.HasPrefix(lower, "0o") || strings.HasPrefix(lower, "0b") {
+		return 0, true
+	}
+	mantissa, exponent := t, int64(0)
+	if i := strings.IndexAny(t, "eE"); i != -1 {
+		e, err := strconv.ParseInt(t[i+1:], 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		mantissa, exponent = t[:i], e
+	}
+	var frac int64
+	if i := strings.IndexByte(mantissa, '.'); i != -1 {
+		frac = int64(len(mantissa) - i - 1)
+	}
+	if strings.TrimLeft(mantissa, "-.") == "" {
+		return 0, false
+	}
+	return frac - exponent, true
 }

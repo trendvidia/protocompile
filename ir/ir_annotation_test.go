@@ -1082,27 +1082,29 @@ message M {
 				"%s: want %q, got: %v", tc.lit, tc.want, rep.Diagnostics)
 			// The lowering writes no value for it: not an infinity, not a
 			// zero, not a wrapped exponent (protowire HARDENING.md).
-			args := lowerFirstFieldArgs(t, tc.lit)
+			args := lowerFirstFieldArgs(t, "pxf.BigFloat", tc.lit)
 			require.Len(t, args, 1)
 			assert.Nil(t, args[0].GetValue(), "%s: a diagnosed literal lowers to an argument with no value, got %v", tc.lit, args[0])
 		})
 	}
 }
 
-// lowerFirstFieldArgs compiles a pxf.BigFloat default with the literal —
-// diagnostics or not, as protolsp lowers every open document — and
-// returns the field's carrier arguments.
-func lowerFirstFieldArgs(t *testing.T, lit string) []*pwsv1.AnnotationArg {
+// lowerFirstFieldArgs compiles a default of the literal on a field of the
+// carrier type — diagnostics or not, as protolsp lowers every open
+// document — and returns the field's carrier arguments.
+func lowerFirstFieldArgs(t *testing.T, carrier, lit string) []*pwsv1.AnnotationArg {
 	t.Helper()
 	f, _ := compileForAnnotationTest(t, `syntax = "proto3";
 package pxf;
 
 annotation default(value: any);
 
+message BigInt { bytes abs = 1; bool negative = 2; }
+message Decimal { bytes unscaled = 1; int32 scale = 2; bool negative = 3; }
 message BigFloat { bytes mantissa = 1; int32 exponent = 2; uint32 prec = 3; bool negative = 4; }
 
 message M {
-  pxf.BigFloat f = 1 @default(`+lit+`);
+  `+carrier+` f = 1 @default(`+lit+`);
 }
 `)
 	fd, err := fdp.DescriptorProto(f)
@@ -1118,6 +1120,62 @@ message M {
 	}
 	t.Fatal("no message M")
 	return nil
+}
+
+// TestAnnotationArgDecimalScaleBound pins protowire's MaxNumericLiteralDigits
+// on a pxf.Decimal default: the scale — fractional digits less the
+// exponent — must stay within ±4096, because a decoder materialises
+// 10^scale and refuses more. A literal inside the bound lowers to
+// decimal_value with the scale its text states; one outside is diagnosed
+// and lowers to no value.
+func TestAnnotationArgDecimalScaleBound(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		lit   string
+		scale int32
+		bad   bool
+	}{
+		{"1.50", 2, false},
+		{"1e4096", -4096, false},
+		{"1e-4096", 4096, false},
+		{"1.5e-4095", 4096, false},
+		{"1e4097", 0, true},
+		{"1e-4097", 0, true},
+		{"1e1000000", 0, true},
+		{"1e-999999999", 0, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.lit, func(t *testing.T) {
+			t.Parallel()
+			rep := compileUnderDeadline(t, `syntax = "proto3";
+package pxf;
+
+annotation default(value: any);
+
+message Decimal { bytes unscaled = 1; int32 scale = 2; bool negative = 3; }
+
+message M {
+  pxf.Decimal f = 1 @default(`+tc.lit+`);
+}
+`, 10*time.Second)
+			args := lowerFirstFieldArgs(t, "pxf.Decimal", tc.lit)
+			require.Len(t, args, 1)
+			if !tc.bad {
+				for _, d := range rep.Diagnostics {
+					if isError(d) {
+						t.Errorf("%s: unexpected diagnostic: %s", tc.lit, d.Message())
+					}
+				}
+				require.NotNil(t, args[0].GetDecimalValue(), "%s lowers to decimal_value", tc.lit)
+				assert.Equal(t, tc.scale, args[0].GetDecimalValue().GetScale())
+				return
+			}
+			assert.True(t, hasErrorContaining(rep, "out of range for the annotated type `pxf.Decimal`"),
+				"%s: got: %v", tc.lit, rep.Diagnostics)
+			assert.Nil(t, args[0].GetValue(), "%s: a diagnosed literal lowers to no value", tc.lit)
+		})
+	}
 }
 
 func TestAnnotationArgOpaqueOnNonExpression(t *testing.T) {
