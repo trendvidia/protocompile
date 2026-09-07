@@ -1367,21 +1367,99 @@ func checkCarrierRangeValue(
 
 	num := lit.Token.AsNumber()
 
-	// pxf.BigInt is an INTEGER of arbitrary precision. No magnitude is out
-	// of range for it, so the bound below does not apply — but a fractional
-	// literal is still not an integer, and that is the one thing it cannot
-	// hold. pxf.Decimal and pxf.BigFloat take fractions, so they are not
-	// checked here at all.
-	if member == ArgMemberBigInt {
-		if kind == ArgLiteralFloat {
-			f, _ := num.Float()
-			if f != math.Trunc(f) || math.IsInf(f, 0) {
+	// The arbitrary-precision carriers hold any MAGNITUDE, but not any
+	// literal: each is bounded by what it can be rendered back into and by
+	// the width of its own wire fields, and every bound is read off the
+	// literal's TEXT — digit count, scale, exponent — never by computing
+	// the value. Computing it is what hung the compiler on
+	// `@default(1e999999999)`: the value is a ten-to-the-billion, and the
+	// lowering's fallback materialised it exactly (#210). The same shape
+	// is what protowire-go#95 found on the decode side.
+	//
+	// The reading of each carrier is protowire#278's amendment of draft
+	// -01 § Mandatory Limits: a decoder rejects a BigInt or Decimal
+	// literal past MaxNumericLiteralDigits, and a BigFloat the type
+	// cannot represent is an error, not an infinity.
+	if member == ArgMemberBigInt || member == ArgMemberDecimal || member == ArgMemberBigFloat {
+		text := value.AsLiteral().Token.Text()
+		shape, ok := ParseNumeralShape(text)
+		if !ok {
+			// The exponent does not even fit int64: past every carrier's
+			// range before any other question.
+			r.Errorf("argument %q for `%s` is out of range for %s",
+				param.Name(), target.FullName(), describe,
+			).Apply(report.Snippet(arg))
+			return
+		}
+		switch member {
+		case ArgMemberBigInt:
+			// A fractional literal is not an integer, and that is the one
+			// thing pxf.BigInt cannot hold. This used to be decided
+			// through float64, which called `1e400` — as whole as `1e2` —
+			// "not an integer" because it had rounded to infinity.
+			if !shape.IsInteger() {
 				r.Errorf("argument %q for `%s` is not an integer, but %s is",
 					param.Name(), target.FullName(), describe,
 				).Apply(
 					report.Snippet(arg),
 					report.Notef("a floating-point literal converts to an integer "+
 						"target only when it has no fractional part"),
+				)
+				return
+			}
+			if n := shape.IntegerDigits(); n > MaxNumericLiteralDigits {
+				r.Errorf("argument %q for `%s` is out of range for %s",
+					param.Name(), target.FullName(), describe,
+				).Apply(
+					report.Snippet(arg),
+					report.Notef("this integer has %d digits; a binder renders a "+
+						"pxf.BigInt default as a PXF literal, and MaxNumericLiteralDigits "+
+						"is %d (draft -01 § Mandatory Limits)", n, MaxNumericLiteralDigits),
+				)
+			}
+		case ArgMemberDecimal:
+			if n := int64(len(shape.Digits)); n > MaxNumericLiteralDigits {
+				r.Errorf("argument %q for `%s` is out of range for %s",
+					param.Name(), target.FullName(), describe,
+				).Apply(
+					report.Snippet(arg),
+					report.Notef("this literal has %d significant digits; "+
+						"MaxNumericLiteralDigits is %d (draft -01 § Mandatory Limits)",
+						n, MaxNumericLiteralDigits),
+				)
+				return
+			}
+			if shape.Scale > MaxNumericLiteralDigits || shape.Scale < -MaxNumericLiteralDigits {
+				r.Errorf("argument %q for `%s` is out of range for %s",
+					param.Name(), target.FullName(), describe,
+				).Apply(
+					report.Snippet(arg),
+					report.Notef("this value has a decimal scale of %d; a decoder "+
+						"rejects a pxf.Decimal whose scale magnitude exceeds "+
+						"MaxNumericLiteralDigits, %d (draft -01 § Mandatory Limits, "+
+						"trendvidia/protowire#278)", shape.Scale, MaxNumericLiteralDigits),
+				)
+			}
+		case ArgMemberBigFloat:
+			if n := int64(len(shape.Digits)); n > MaxNumericLiteralDigits {
+				r.Errorf("argument %q for `%s` is out of range for %s",
+					param.Name(), target.FullName(), describe,
+				).Apply(
+					report.Snippet(arg),
+					report.Notef("this literal has %d significant digits; "+
+						"MaxNumericLiteralDigits is %d (draft -01 § Mandatory Limits)",
+						n, MaxNumericLiteralDigits),
+				)
+				return
+			}
+			if !shape.BigFloatFits(text) {
+				r.Errorf("argument %q for `%s` is out of range for %s",
+					param.Name(), target.FullName(), describe,
+				).Apply(
+					report.Snippet(arg),
+					report.Notef("pxf.BigFloat carries a %d-bit mantissa and an int32 "+
+						"binary exponent; this value's exponent does not fit (the "+
+						"largest decade is about 1e646456993)", BigFloatPrec),
 				)
 			}
 		}

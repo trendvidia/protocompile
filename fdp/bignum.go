@@ -15,11 +15,13 @@
 package fdp
 
 import (
+	"math"
 	"math/big"
 	"strconv"
 	"strings"
 
 	pxf "github.com/trendvidia/protocompile/gen/pxf"
+	"github.com/trendvidia/protocompile/ir"
 )
 
 // Encoding for the arbitrary-precision AnnotationArg members
@@ -52,18 +54,49 @@ func bigRatFromText(text string) (*big.Rat, bool) {
 }
 
 // bigIntArg builds pxf.BigInt. Reports false when the literal is not an
-// integer, which the ir pass diagnoses before lowering runs; the guard is
-// here so a file that does not compile still lowers to something.
+// integer or has more than ir.MaxNumericLiteralDigits digits, both of
+// which the ir pass diagnoses before lowering runs; the guard is here so
+// a file that does not compile still lowers to something — and so that
+// lowering never computes a value the bound was meant to keep out
+// (#210). The shape is read from the text; only a bounded value is
+// built.
 func bigIntArg(text string) (*pxf.BigInt, bool) {
-	r, ok := bigRatFromText(text)
-	if !ok || !r.IsInt() {
+	shape, ok := ir.ParseNumeralShape(text)
+	if !ok || !shape.IsInteger() || shape.IntegerDigits() > ir.MaxNumericLiteralDigits {
 		return nil, false
 	}
-	i := r.Num()
+	i, ok := integerOf(shape)
+	if !ok {
+		return nil, false
+	}
 	return &pxf.BigInt{
-		Abs:      new(big.Int).Abs(i).Bytes(),
-		Negative: i.Sign() < 0,
+		Abs:      i.Bytes(),
+		Negative: false, // a literal carries no sign; the prefix is folded in by the caller
 	}, true
+}
+
+// integerOf is the integer value of an integral shape: the digits with
+// the scale applied, which after IsInteger is a shift by at most
+// ir.MaxNumericLiteralDigits decimal places.
+func integerOf(shape ir.NumeralShape) (*big.Int, bool) {
+	if shape.IsZero() {
+		return new(big.Int), true
+	}
+	digits := shape.Digits
+	scale := shape.Scale
+	if scale > 0 {
+		// Trailing zeros after the point: drop them.
+		digits = digits[:len(digits)-int(scale)]
+		scale = 0
+	}
+	i, ok := new(big.Int).SetString(digits, 10)
+	if !ok {
+		return nil, false
+	}
+	if scale < 0 {
+		i.Mul(i, new(big.Int).Exp(big.NewInt(10), big.NewInt(-scale), nil))
+	}
+	return i, true
 }
 
 // decimalArg builds pxf.Decimal, where value = unscaled x 10^(-scale).
@@ -110,6 +143,13 @@ func decimalArg(text string) (*pxf.Decimal, bool) {
 	if mantissa == "" || mantissa == "-" {
 		return nil, false
 	}
+	// Both bounds are the ir pass's (#210); repeated here because lowering
+	// runs over a file that does not compile, and must not build what the
+	// bound keeps out.
+	if scale := int64(frac) - int64(exponent); scale > ir.MaxNumericLiteralDigits || scale < -ir.MaxNumericLiteralDigits ||
+		len(strings.TrimLeft(mantissa, "0")) > ir.MaxNumericLiteralDigits {
+		return nil, false
+	}
 
 	unscaled, ok := new(big.Int).SetString(mantissa, 10)
 	if !ok {
@@ -122,24 +162,43 @@ func decimalArg(text string) (*pxf.Decimal, bool) {
 	}, true
 }
 
-// bigFloatPrec is the mantissa precision used for pxf.BigFloat.
-//
-// A source literal is decimal, so it generally has no exact binary
-// representation at any precision; something must be chosen. 256 bits is
-// well above float64's 53 and above what any decimal literal a human
-// writes needs, and it is fixed rather than derived so that the same
-// literal always produces the same bytes.
-const bigFloatPrec = 256
+// bigFloatPrec is ir.BigFloatPrec, the one place the choice is stated.
+const bigFloatPrec = ir.BigFloatPrec
 
 // bigFloatArg builds pxf.BigFloat, matching protowire-go's
 // marshalBigFloat: mantissa is the value scaled to an integer at `prec`
 // bits, and exponent is the binary exponent adjusted by that scaling.
+//
+// Two paths, by the literal's decimal exponent. Within
+// ir.MaxNumericLiteralDigits decades the value is built exactly as a
+// big.Rat and rounded once, as it always was — every literal a person
+// writes is here, and its bytes do not change. Beyond, an exact value is
+// a ten-to-the-millions integer and building it is what did not return
+// on `1e999999999` (#210); big.Float.Parse at 64 guard bits then one
+// rounding to bigFloatPrec costs logarithmic time in the exponent, and
+// agrees with the exact path except on a value within 2^-64 of a
+// rounding boundary. Reports false for a value big.Float cannot hold or
+// whose wire exponent does not fit int32; the ir pass has diagnosed
+// those before lowering runs.
 func bigFloatArg(text string) (*pxf.BigFloat, bool) {
-	r, ok := bigRatFromText(text)
-	if !ok {
+	shape, ok := ir.ParseNumeralShape(text)
+	if !ok || int64(len(shape.Digits)) > ir.MaxNumericLiteralDigits || !shape.BigFloatFits(text) {
 		return nil, false
 	}
-	bf := new(big.Float).SetPrec(bigFloatPrec).SetRat(r)
+	bf := new(big.Float).SetPrec(bigFloatPrec)
+	if shape.Scale >= -ir.MaxNumericLiteralDigits && shape.Scale <= ir.MaxNumericLiteralDigits {
+		r, ok := bigRatFromText(text)
+		if !ok {
+			return nil, false
+		}
+		bf.SetRat(r)
+	} else {
+		guarded, _, err := new(big.Float).SetPrec(bigFloatPrec+64).Parse(strings.ReplaceAll(text, "_", ""), 0)
+		if err != nil {
+			return nil, false
+		}
+		bf.Set(guarded)
+	}
 
 	mant := new(big.Float).SetPrec(bigFloatPrec)
 	exp := bf.MantExp(mant)
@@ -148,10 +207,14 @@ func bigFloatArg(text string) (*pxf.BigFloat, bool) {
 	if mantInt.Sign() < 0 {
 		mantInt.Neg(mantInt)
 	}
+	adj := int64(exp) - int64(bigFloatPrec)
+	if adj < math.MinInt32 || adj > math.MaxInt32 {
+		return nil, false
+	}
 
 	return &pxf.BigFloat{
 		Mantissa: mantInt.Bytes(),
-		Exponent: int32(exp) - int32(bigFloatPrec),
+		Exponent: int32(adj),
 		Prec:     uint32(bigFloatPrec),
 		Negative: bf.Signbit(),
 	}, true

@@ -436,6 +436,15 @@ func buildLiteralArg(lit ast.ExprLiteral, param ir.AnnotationParam, carrier ir.T
 				}
 			}
 		}
+		if member == ir.ArgMemberBigInt || member == ir.ArgMemberDecimal || member == ir.ArgMemberBigFloat {
+			// The builder refused the literal — past its carrier's bound,
+			// which the ir pass has diagnosed. Lowering still runs over a
+			// file that does not compile, and the fallbacks below compute
+			// the literal's VALUE, which for `@default(1e999999999)` is a
+			// ten-to-the-billion and did not return (#210). An empty
+			// argument is what an unrepresentable value lowers to.
+			return &pwsv1.AnnotationArg{}
+		}
 
 		// An untyped parameter has no type of its own, but the thing the
 		// annotation is ATTACHED to usually does — `@default(1e19)` on a
