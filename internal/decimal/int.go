@@ -26,6 +26,25 @@ func (z *Decimal) IsInt() bool {
 	return z.IsZero() || int(z.exp) >= z.digits()
 }
 
+// IsUint64Possible reports, from z's magnitude alone, whether its integer
+// part could fit in a uint64: false is definitive, true means [Decimal.Int]
+// is worth calling and will be cheap. It costs nothing, which is the
+// point: Int scales the mantissa by b^(exp-digits), so a literal such as
+// 1e999999999 would otherwise materialise a billion digits on the way to
+// discovering that it does not fit (#210).
+func (z *Decimal) IsUint64Possible() bool {
+	if !z.IsFinite() {
+		return false
+	}
+	// z is d.ddd × b^exp, so exp is the count of integer digits in base b:
+	// more than 64 bits, or more than the 20 decimal digits of MaxUint64,
+	// cannot fit.
+	if z.base2() {
+		return z.exp <= 64
+	}
+	return z.exp <= 20
+}
+
 // Int sets x to the nearest integer to z, with a half rounded away from
 // zero.
 //

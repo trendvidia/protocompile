@@ -53,10 +53,21 @@ func (z *Decimal) IsFloat() bool {
 	// 181875e-4. As a float, the equivalent form is 291p-4, obtained by
 	// dividing by 5^4 = 625.
 
+	// A mantissa of at most 2k bits cannot contain 5^k, since 5^k > 2^(2k):
+	// answer before building the power. The lexer asks this of every
+	// numeric literal, and 5^(10⁹) — what `1e-999999999` would need — is
+	// a 2.3-gigabit integer built by squaring for hours (#210). Past this
+	// line k is below half the mantissa's bit length, so the power is
+	// bounded by the literal the author actually wrote.
+	k := -exp
+	if bigx.Log2(z.get())+1 <= 2*k {
+		return false
+	}
+
 	// Calculate the factor of 5 that must be in the mantissa.
-	pow5, ok := slicesx.Get(fives[:], -exp)
+	pow5, ok := slicesx.Get(fives[:], k)
 	if !ok {
-		pow5 = new(big.Int).Exp(big.NewInt(5), big.NewInt(int64(-exp)), nil).Bits()
+		pow5 = new(big.Int).Exp(big.NewInt(5), big.NewInt(int64(k)), nil).Bits()
 	}
 
 	// Check to see if we have a chance of successful division. For nonzero
