@@ -196,12 +196,14 @@ message LiteralValue {
   }
 }
 
-// Expression carries a verbatim engine-language fragment together with
-// the function-call references extracted by the protocompile lowering
-// pass for signature verification and source-mapping.
+// Expression carries a verbatim RFC-001 section 5.4 expression together
+// with the function-call references extracted by the protocompile
+// lowering pass for signature verification and source-mapping.
 message Expression {
-  // Raw engine source, byte-for-byte as the user wrote it (modulo whitespace
-  // normalization). The target engine parses this at descriptor-load time.
+  // The rule's source, byte-for-byte as the user wrote it (modulo
+  // whitespace normalization), in the one expression language of RFC-001
+  // section 5.4. The compiler has already parsed it; the engine parses it
+  // again at descriptor-load time and checks operand kinds at evaluation.
   string source = 1;
 
   // Function-call references found within this expression. Each entry
@@ -273,25 +275,22 @@ message AnnotationParam {
 enum ParamType {
   PARAM_TYPE_UNSPECIFIED = 0;
 
-  // An opaque fragment of the project's engine language, evaluated at run
-  // time by the engine (RFC-001 section 9.1) and never by the compiler --
-  // the language is not known until a project selects one.
+  // An expression in the one language RFC-001 section 5.4 defines -- the
+  // same for every engine, evaluated at run time by the engine (section
+  // 9.1) with `this` bound per section 6.2.
   //
-  // What a compiler DOES check is one thing: a call to a function the
-  // schema declares must match that declaration's arity, including calls
-  // nested inside a larger expression.
+  // The compiler checks it (section 5.1, section 8.1): the fragment must
+  // parse under the section 5.4 grammar; every call must resolve to a
+  // visible `function` declaration or be one of the six builtins (size,
+  // starts_with, ends_with, contains, matches, now); a declared
+  // function's arity must match its declaration and a builtin's its
+  // form. So, given `function matches(value: string, pattern: string)`,
+  // `@validate(mathces(this, "^a"))` is a compile error at the call.
+  // Operand kinds are the engine's to check, at evaluation.
   //
-  // Any other identifier is assumed to be an engine builtin and is not
-  // checked, because engines have builtins the schema never declares --
-  // CEL's size(), startsWith(). The consequence is worth stating plainly:
-  // a MISSPELLED function name is accepted. Given
-  // `function matches(value: string, pattern: string)`,
-  // `@validate(mathces(this, "^a"))` compiles, and the misspelling
-  // surfaces at run time in the engine, if it surfaces at all.
-  //
-  // Distinguishing the two needs the engine's builtin inventory, which
-  // lives in the engine. A tool that resolves the configured engine can
-  // close it; a compiler alone cannot.
+  // Until 2026-09-07 the language belonged to the engine and an
+  // unresolvable name was presumed a builtin, so that misspelling
+  // compiled (protowire#282, protocompile#211 closed it).
   EXPRESSION = 1;
   STRING = 2;
   INT32 = 3;
