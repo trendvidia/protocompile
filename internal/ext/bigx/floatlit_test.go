@@ -74,15 +74,17 @@ func TestBigFloatLiteralIsFastAtHugeExponents(t *testing.T) {
 	}
 }
 
-// Beyond the wire: the last representable magnitude is 1e646456992; one
-// more overflows, and the mirror underflows the int32 exponent before
-// big.Float underflows to zero.
+// Beyond the wire: the largest representable magnitude is 1e646456992 and
+// the smallest 1e-646456916; one more decimal order overflows or underflows
+// the int32 wire exponent — the floor 256 binary orders before big.Float
+// itself underflows to zero, since the wire exponent is big.Float's less
+// the 256-bit mantissa (#218).
 func TestBigFloatLiteralRange(t *testing.T) {
 	t.Parallel()
 
 	for _, lit := range []string{
 		"1e646456993", "9.9e646456992", "1e999999999", "-1e999999999",
-		"1e-646456992", "1e-646456993", "1e-999999999", "-1e-999999999",
+		"1e-646456917", "1e-646456992", "1e-646456993", "1e-999999999", "-1e-999999999",
 	} {
 		t.Run(lit, func(t *testing.T) {
 			t.Parallel()
@@ -93,6 +95,9 @@ func TestBigFloatLiteralRange(t *testing.T) {
 	_, exp, _, err := BigFloatLiteral("1e646456992", 256)
 	require.NoError(t, err)
 	assert.Equal(t, int32(2147483388), exp, "the largest magnitude still leaves the wire exponent inside int32")
+	_, exp, _, err = BigFloatLiteral("1e-646456916", 256)
+	require.NoError(t, err)
+	assert.Equal(t, int32(-2147483647), exp, "the smallest magnitude still leaves the wire exponent inside int32 (#218)")
 }
 
 func TestBigFloatLiteralSyntax(t *testing.T) {

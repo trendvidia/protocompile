@@ -1052,6 +1052,8 @@ func TestAnnotationArgBigFloatHugeExponentsReturnPromptly(t *testing.T) {
 		{"1e646456993", "out of range for the annotated type `pxf.BigFloat`"},
 		{"1e999999999", "out of range for the annotated type `pxf.BigFloat`"},
 		{"-1e999999999", "out of range for the annotated type `pxf.BigFloat`"},
+		{"1e-646456916", ""}, // the wire's floor (#218)
+		{"1e-646456917", "out of range for the annotated type `pxf.BigFloat`"},
 		{"1e-646456992", "out of range for the annotated type `pxf.BigFloat`"},
 		{"1e-999999999", "out of range for the annotated type `pxf.BigFloat`"},
 	}

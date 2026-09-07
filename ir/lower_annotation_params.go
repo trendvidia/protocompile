@@ -1375,8 +1375,10 @@ func checkCarrierRangeValue(
 	num := lit.Token.AsNumber()
 
 	// pxf.BigFloat holds any magnitude whose binary exponent fits the
-	// wire's int32 once the 256-bit mantissa is normalised — about
-	// 1e-646456993 to 1e646456992. Beyond that there is no carrier value
+	// wire's int32 once the 256-bit mantissa is normalised to an integer —
+	// about 1e-646456916 to 1e646456992 (#218: the wire exponent is
+	// big.Float's less 256, so the floor sits 256 binary orders above
+	// big.Float's own underflow). Beyond that there is no carrier value
 	// to write: not an infinity, not a zero, not a wrapped exponent
 	// (protowire HARDENING.md), so it is diagnosed here. The check is the
 	// lowering's own conversion, which costs microseconds however large
@@ -1388,7 +1390,7 @@ func checkCarrierRangeValue(
 			).Apply(
 				report.Snippet(arg),
 				report.Notef("`pxf.BigFloat` carries a 256-bit mantissa and an int32 binary "+
-					"exponent, so it holds magnitudes from about 1e-646456993 to 1e646456992"),
+					"exponent, so it holds magnitudes from about 1e-646456916 to 1e646456992"),
 			)
 		}
 		return
