@@ -2,8 +2,9 @@ syntax = "proto3";
 
 package px;
 
-// px.Dup again. The two files do not import each other, so nothing in the
-// module's own build rejects this; protoregistry panics on the second one.
+// px.Dup again. The two files do not import each other; protoregistry
+// panics on the second one, and the compiler rejects the pair when both
+// are roots of one compile.
 message Dup {
   string y = 1;
 }

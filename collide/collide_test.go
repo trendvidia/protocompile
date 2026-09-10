@@ -223,18 +223,19 @@ func TestPackageMeetingADeclarationCollides(t *testing.T) {
 	}, got[0].Claims)
 }
 
-// TestDuplicateWithinOneModuleCollides pins that a module's own build does
-// not reject this. protocompile links each file separately, so px/one.proto
-// and px/two.proto both declare px.Dup without error, and RegisterFile then
-// panics on the second. Skipping names claimed by only one module reported
-// this clean.
+// TestDuplicateWithinOneModuleCollides pins that a name two files of one
+// module declare is a collision, with both files named, not a compile
+// error. px/one.proto and px/two.proto both declare px.Dup, and
+// RegisterFile panics on the second. Skipping names claimed by only one
+// module reported this clean; and since #224 the compiler rejects the
+// pair itself, which Check absorbs so the report keeps its shape.
 func TestDuplicateWithinOneModuleCollides(t *testing.T) {
 	t.Parallel()
 
 	got, err := collide.Check(t.Context(), []collide.Module{
 		{Name: "dup", Root: "testdata/dup_within"},
 	})
-	require.NoError(t, err, "the module compiles; the duplicate is invisible until registration")
+	require.NoError(t, err, "the duplicate is a collision to report, not a failure to compile")
 	require.Len(t, got, 1)
 	assert.Equal(t, "px.Dup", got[0].Name)
 	assert.Equal(t, []collide.Claim{
