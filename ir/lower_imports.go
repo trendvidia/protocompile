@@ -72,12 +72,16 @@ func buildImports(file *File, r *report.Report, importer Importer) {
 			diagnoseCycle(r, cycle)
 			continue
 		case errors.Is(err, fs.ErrNotExist):
-			r.Errorf("imported file does not exist").Apply(
+			// The message names the path, not only the snippet: a consumer
+			// rendering Error() alone sees `config.proto:3:1: imported
+			// file "widget/v1/widget.proto" does not exist` and can say
+			// which file to put on the import path (#223).
+			r.Errorf("imported file %q does not exist", path).Apply(
 				report.Snippetf(imp, "imported here"),
 			)
 			continue
 		default:
-			r.Errorf("could not open imported file: %v", err).Apply(
+			r.Errorf("could not open imported file %q: %v", path, err).Apply(
 				report.Snippetf(imp, "imported here"),
 			)
 			continue
