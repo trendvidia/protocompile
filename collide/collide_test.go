@@ -86,7 +86,7 @@ func TestNoCollisionWhenOnlyOneDefinesIt(t *testing.T) {
 //
 // Compiling each module against only its own root fails to resolve it —
 //
-//	module voya: voya/service.proto:5:1: imported file does not exist
+//	module voya: voya/service.proto:5:1: imported file "pxf/annotations.proto" does not exist
 //
 // — which reports the very arrangement being checked as unreadable. Every
 // module's root is on the import path, and claims are still attributed

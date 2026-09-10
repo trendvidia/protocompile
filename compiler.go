@@ -163,7 +163,7 @@ func (a expResolverAdapter) OpenSource(path string) (io.Reader, error) {
 	src, err := descsrc.Render(fdp)
 	if err != nil {
 		// Never fall through to not-found here. The resolver did answer;
-		// reporting "imported file does not exist" would blame the
+		// reporting the import as not existing would blame the
 		// importing file for a problem in this descriptor.
 		return nil, fmt.Errorf("protocompile: resolver returned a descriptor for %q that cannot be rendered as source: %w", path, err)
 	}

@@ -201,7 +201,7 @@ func TestSearchResultDescUnrenderableIsLoud(t *testing.T) {
 	_, err := (&protocompile.Compiler{Resolver: res}).Compile(context.Background(), "user.proto")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "common.proto", "the error must name the file the resolver answered for")
-	assert.NotContains(t, err.Error(), "imported file does not exist",
+	assert.NotContains(t, err.Error(), "does not exist",
 		"a descriptor the resolver did supply must not be reported as missing")
 }
 
@@ -219,7 +219,7 @@ func TestEmptySearchResultIsStillNotFound(t *testing.T) {
 
 	_, err := (&protocompile.Compiler{Resolver: res}).Compile(context.Background(), "user.proto")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "imported file does not exist")
+	assert.Contains(t, err.Error(), `imported file "common.proto" does not exist`)
 }
 
 // TestWithStandardImportsResolvesStandardImports covers this package's own

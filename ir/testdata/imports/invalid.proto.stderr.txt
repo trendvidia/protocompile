@@ -10,7 +10,7 @@ error: import path must be relative
  6 | import "/root.proto";
    |        ^^^^^^^^^^^^^ this path begins with a `/`
 
-error: imported file does not exist
+error: imported file "does_not_exist.proto" does not exist
   --> testdata/imports/invalid.proto:7:1
    |
  7 | import "does_not_exist.proto";
