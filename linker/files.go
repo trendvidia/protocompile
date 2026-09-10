@@ -15,7 +15,9 @@
 package linker
 
 import (
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"google.golang.org/protobuf/reflect/protodesc"
@@ -181,6 +183,159 @@ type Resolver interface {
 	protodesc.Resolver
 	protoregistry.MessageTypeResolver
 	protoregistry.ExtensionTypeResolver
+}
+
+// ResolverFromFile returns a Resolver that can resolve any element that is
+// visible to the given file. It will search the given file, its imports, and
+// any transitive public imports.
+//
+// Note that this function does not compute any additional indexes for efficient
+// search, so queries generally take linear time, O(n) where n is the number of
+// files whose elements are visible to the given file. Queries for an extension
+// by number have runtime complexity that is linear with the number of messages
+// and extensions defined across those files.
+func ResolverFromFile(f File) Resolver {
+	return fileResolver{f: f}
+}
+
+type fileResolver struct {
+	f File
+}
+
+func (r fileResolver) FindFileByPath(path string) (protoreflect.FileDescriptor, error) {
+	return resolveInFile(r.f, false, nil, func(f File) (protoreflect.FileDescriptor, error) {
+		if f.Path() == path {
+			return f, nil
+		}
+		return nil, protoregistry.NotFound
+	})
+}
+
+func (r fileResolver) FindDescriptorByName(name protoreflect.FullName) (protoreflect.Descriptor, error) {
+	return resolveInFile(r.f, false, nil, func(f File) (protoreflect.Descriptor, error) {
+		if d := f.FindDescriptorByName(name); d != nil {
+			return d, nil
+		}
+		return nil, protoregistry.NotFound
+	})
+}
+
+func (r fileResolver) FindMessageByName(message protoreflect.FullName) (protoreflect.MessageType, error) {
+	return resolveInFile(r.f, false, nil, func(f File) (protoreflect.MessageType, error) {
+		d := f.FindDescriptorByName(message)
+		if d != nil {
+			md, ok := d.(protoreflect.MessageDescriptor)
+			if !ok {
+				return nil, fmt.Errorf("%q is %s, not a message", message, descriptorTypeWithArticle(d))
+			}
+			return dynamicpb.NewMessageType(md), nil
+		}
+		return nil, protoregistry.NotFound
+	})
+}
+
+func (r fileResolver) FindMessageByURL(url string) (protoreflect.MessageType, error) {
+	fullName := messageNameFromURL(url)
+	return r.FindMessageByName(protoreflect.FullName(fullName))
+}
+
+func (r fileResolver) FindExtensionByName(field protoreflect.FullName) (protoreflect.ExtensionType, error) {
+	return resolveInFile(r.f, false, nil, func(f File) (protoreflect.ExtensionType, error) {
+		d := f.FindDescriptorByName(field)
+		if d != nil {
+			fld, ok := d.(protoreflect.FieldDescriptor)
+			if !ok || !fld.IsExtension() {
+				return nil, fmt.Errorf("%q is %s, not an extension", field, descriptorTypeWithArticle(d))
+			}
+			if extd, ok := fld.(protoreflect.ExtensionTypeDescriptor); ok {
+				return extd.Type(), nil
+			}
+			return dynamicpb.NewExtensionType(fld), nil
+		}
+		return nil, protoregistry.NotFound
+	})
+}
+
+func (r fileResolver) FindExtensionByNumber(message protoreflect.FullName, field protoreflect.FieldNumber) (protoreflect.ExtensionType, error) {
+	return resolveInFile(r.f, false, nil, func(f File) (protoreflect.ExtensionType, error) {
+		ext := findExtension(f, message, field)
+		if ext != nil {
+			return ext.Type(), nil
+		}
+		return nil, protoregistry.NotFound
+	})
+}
+
+// resolveInFile applies fn to f and then to the files visible from f: its
+// imports, and their transitive public imports. A non-public import is
+// searched only when it is a direct import of f, which is what
+// publicImportsOnly says once the search has left f. The first result that
+// is not protoregistry.NotFound wins; a file is searched at most once per
+// path from f.
+func resolveInFile[T any](f File, publicImportsOnly bool, checked []string, fn func(File) (T, error)) (T, error) {
+	var zero T
+	if f == nil {
+		return zero, protoregistry.NotFound
+	}
+	path := f.Path()
+	if slices.Contains(checked, path) {
+		// already checked
+		return zero, protoregistry.NotFound
+	}
+	checked = append(checked, path)
+
+	res, err := fn(f)
+	if err == nil {
+		// found it
+		return res, nil
+	}
+	if !errors.Is(err, protoregistry.NotFound) {
+		return zero, err
+	}
+
+	imports := f.Imports()
+	for i := range imports.Len() {
+		imp := imports.Get(i)
+		if publicImportsOnly && !imp.IsPublic {
+			continue
+		}
+		res, err := resolveInFile(f.FindImportByPath(imp.Path()), true, checked, fn)
+		if errors.Is(err, protoregistry.NotFound) {
+			continue
+		}
+		if err != nil {
+			return zero, err
+		}
+		return res, nil
+	}
+	return zero, err
+}
+
+func descriptorTypeWithArticle(d protoreflect.Descriptor) string {
+	switch d := d.(type) {
+	case protoreflect.MessageDescriptor:
+		return "a message"
+	case protoreflect.FieldDescriptor:
+		if d.IsExtension() {
+			return "an extension"
+		}
+		return "a field"
+	case protoreflect.OneofDescriptor:
+		return "a oneof"
+	case protoreflect.EnumDescriptor:
+		return "an enum"
+	case protoreflect.EnumValueDescriptor:
+		return "an enum value"
+	case protoreflect.ServiceDescriptor:
+		return "a service"
+	case protoreflect.MethodDescriptor:
+		return "a method"
+	case protoreflect.FileDescriptor:
+		return "a file"
+	default:
+		// shouldn't be possible
+		return fmt.Sprintf("a %T", d)
+	}
 }
 
 // messageNameFromURL extracts the message FQN from a `type.googleapis.com/...`-shaped URL.
