@@ -80,7 +80,7 @@ func TestResolverFromFile(t *testing.T) {
 		}
 		for _, name := range []protoreflect.FullName{"priv.Priv", "priv.priv_ext", "privpub.PrivPub", "nope.Nope"} {
 			_, err := r.FindDescriptorByName(name)
-			assert.ErrorIs(t, err, protoregistry.NotFound, "%s is not visible from root.proto", name)
+			require.ErrorIs(t, err, protoregistry.NotFound, "%s is not visible from root.proto", name)
 		}
 	})
 
@@ -93,7 +93,7 @@ func TestResolverFromFile(t *testing.T) {
 		}
 		for _, path := range []string{"private.proto", "privpub.proto", "nope.proto"} {
 			_, err := r.FindFileByPath(path)
-			assert.ErrorIs(t, err, protoregistry.NotFound, "%s is not visible from root.proto", path)
+			require.ErrorIs(t, err, protoregistry.NotFound, "%s is not visible from root.proto", path)
 		}
 	})
 
@@ -104,12 +104,12 @@ func TestResolverFromFile(t *testing.T) {
 		assert.Equal(t, protoreflect.FullName("pub.Pub"), mt.Descriptor().FullName())
 
 		_, err = r.FindMessageByName("privpub.PrivPub")
-		assert.ErrorIs(t, err, protoregistry.NotFound)
+		require.ErrorIs(t, err, protoregistry.NotFound)
 
 		// A visible name of the wrong kind is an error, not a miss.
 		_, err = r.FindMessageByName("pub.pub_ext")
 		require.Error(t, err)
-		assert.NotErrorIs(t, err, protoregistry.NotFound)
+		require.NotErrorIs(t, err, protoregistry.NotFound)
 		assert.Contains(t, err.Error(), "not a message")
 	})
 
@@ -127,11 +127,11 @@ func TestResolverFromFile(t *testing.T) {
 		assert.Equal(t, protoreflect.FieldNumber(51235), xt.TypeDescriptor().Number())
 
 		_, err = r.FindExtensionByName("priv.priv_ext")
-		assert.ErrorIs(t, err, protoregistry.NotFound)
+		require.ErrorIs(t, err, protoregistry.NotFound)
 
 		_, err = r.FindExtensionByName("pub.Pub")
 		require.Error(t, err)
-		assert.NotErrorIs(t, err, protoregistry.NotFound)
+		require.NotErrorIs(t, err, protoregistry.NotFound)
 		assert.Contains(t, err.Error(), "not an extension")
 	})
 
@@ -142,7 +142,7 @@ func TestResolverFromFile(t *testing.T) {
 		assert.Equal(t, protoreflect.FullName("pub.pub_ext"), xt.TypeDescriptor().FullName())
 
 		_, err = r.FindExtensionByNumber("google.protobuf.MessageOptions", 51236)
-		assert.ErrorIs(t, err, protoregistry.NotFound)
+		require.ErrorIs(t, err, protoregistry.NotFound)
 	})
 }
 
@@ -156,7 +156,7 @@ func TestResolverFromFileVersusFilesAsResolver(t *testing.T) {
 	files := compileSources(t, visibilitySources, "root.proto")
 
 	_, err := files.AsResolver().FindDescriptorByName("d.Direct")
-	assert.ErrorIs(t, err, protoregistry.NotFound, "AsResolver sees only the listed files")
+	require.ErrorIs(t, err, protoregistry.NotFound, "AsResolver sees only the listed files")
 
 	d, err := linker.ResolverFromFile(files[0]).FindDescriptorByName("d.Direct")
 	require.NoError(t, err)
