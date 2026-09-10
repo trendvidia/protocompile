@@ -422,3 +422,60 @@ message M {
 }
 `)
 }
+
+// TestProto2OneofMemberTakesNoLabel pins that a member of a real oneof is
+// written without a cardinality keyword under proto2 (#220).
+//
+// label() answered `optional ` for every LABEL_OPTIONAL field under proto2
+// without asking whether the field sat in a oneof, and the parser rejects
+// `optional` inside a oneof block. Every proto2 file with a oneof — the
+// protovalidate schema among them — therefore failed to compile through
+// SearchResult.Desc. A field outside the oneof keeps its `optional`.
+func TestProto2OneofMemberTakesNoLabel(t *testing.T) {
+	const src = `syntax = "proto2";
+message M {
+  oneof kind {
+    string a = 1;
+    int32 b = 2;
+  }
+  optional string c = 3;
+}
+`
+	requireRoundTrip(t, src)
+
+	fdp := &descriptorpb.FileDescriptorProto{
+		Name:    proto.String("t.proto"),
+		Package: proto.String("x"),
+		MessageType: []*descriptorpb.DescriptorProto{{
+			Name:      proto.String("M"),
+			OneofDecl: []*descriptorpb.OneofDescriptorProto{{Name: proto.String("kind")}},
+			Field: []*descriptorpb.FieldDescriptorProto{
+				{Name: proto.String("a"), Number: proto.Int32(1), Label: descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(), Type: descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(), OneofIndex: proto.Int32(0)},
+				{Name: proto.String("b"), Number: proto.Int32(2), Label: descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(), Type: descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(), OneofIndex: proto.Int32(0)},
+				{Name: proto.String("c"), Number: proto.Int32(3), Label: descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(), Type: descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum()},
+			},
+		}},
+	}
+	rendered, err := descsrc.Render(fdp)
+	require.NoError(t, err)
+	assert.Contains(t, rendered, "    string a = 1;\n")
+	assert.Contains(t, rendered, "    int32 b = 2;\n")
+	assert.Contains(t, rendered, "  optional string c = 3;\n")
+	assert.NotContains(t, rendered, "optional string a")
+}
+
+// TestProto3OptionalKeepsItsKeywordBesideARealOneof pins the boundary the
+// fix above must not cross: a proto3 `optional` field is backed by a
+// synthetic oneof, which is not written as a block, so that field keeps
+// its keyword while a member of a declared oneof next to it does not.
+func TestProto3OptionalKeepsItsKeywordBesideARealOneof(t *testing.T) {
+	requireRoundTrip(t, `syntax = "proto3";
+message M {
+  optional string p = 1;
+  oneof kind {
+    string a = 2;
+    int32 b = 3;
+  }
+}
+`)
+}

@@ -84,6 +84,73 @@ func TestSearchResultDescIsHonoured(t *testing.T) {
 	assert.Equal(t, "common.Shared", string(msg.Fields().Get(0).Message().FullName()))
 }
 
+// TestSearchResultDescHonoursAProto2Oneof is the shape #220 was filed
+// about: the protoregistry.GlobalFiles pattern handing back a proto2 file
+// that declares a oneof — buf/validate/validate.proto is one. The renderer
+// wrote each member with an `optional` label, which the parser refuses
+// inside a oneof block, so every such file failed as
+// `common.proto:N:5: unexpected \`optional\“. A proto2 file's descriptor
+// also arrives with Syntax unset, which is the shape protodesc produces,
+// and the renderer must read that as proto2.
+func TestSearchResultDescHonoursAProto2Oneof(t *testing.T) {
+	t.Parallel()
+
+	fdp := &descriptorpb.FileDescriptorProto{
+		Name:    proto.String("common.proto"),
+		Package: proto.String("common"),
+		MessageType: []*descriptorpb.DescriptorProto{{
+			Name:      proto.String("Shared"),
+			OneofDecl: []*descriptorpb.OneofDescriptorProto{{Name: proto.String("kind")}},
+			Field: []*descriptorpb.FieldDescriptorProto{
+				{
+					Name: proto.String("a"), Number: proto.Int32(1), JsonName: proto.String("a"),
+					Label:      descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+					Type:       descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+					OneofIndex: proto.Int32(0),
+				},
+				{
+					Name: proto.String("b"), Number: proto.Int32(2), JsonName: proto.String("b"),
+					Label:      descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+					Type:       descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
+					OneofIndex: proto.Int32(0),
+				},
+				{
+					Name: proto.String("c"), Number: proto.Int32(3), JsonName: proto.String("c"),
+					Label: descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+					Type:  descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+				},
+			},
+		}},
+	}
+	fd, err := protodesc.NewFile(fdp, nil)
+	require.NoError(t, err)
+	// protodesc leaves Syntax unset on proto2; keep the fixture honest.
+	require.Empty(t, protodesc.ToFileDescriptorProto(fd).GetSyntax())
+
+	res := protocompile.ResolverFunc(func(path string) (protocompile.SearchResult, error) {
+		switch path {
+		case "user.proto":
+			return protocompile.SearchResult{Source: strings.NewReader(descUserSrc)}, nil
+		case "common.proto":
+			return protocompile.SearchResult{Desc: fd}, nil
+		}
+		return protocompile.SearchResult{}, nil
+	})
+
+	files, err := (&protocompile.Compiler{Resolver: res}).Compile(context.Background(), "user.proto")
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+
+	shared := files[0].Messages().Get(0).Fields().Get(0).Message()
+	require.Equal(t, "common.Shared", string(shared.FullName()))
+	// The oneof survived the round trip, with both members and nothing else.
+	require.Equal(t, 1, shared.Oneofs().Len())
+	kind := shared.Oneofs().Get(0)
+	assert.Equal(t, "kind", string(kind.Name()))
+	assert.Equal(t, 2, kind.Fields().Len())
+	assert.Nil(t, shared.Fields().ByName("c").ContainingOneof())
+}
+
 // TestSearchResultProtoIsHonoured is the same for the Proto field.
 func TestSearchResultProtoIsHonoured(t *testing.T) {
 	t.Parallel()

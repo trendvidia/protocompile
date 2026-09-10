@@ -362,6 +362,15 @@ func (r *renderer) label(f *descriptorpb.FieldDescriptorProto) (string, error) {
 		}
 		return "required ", nil
 	case descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL:
+		// A member of a real oneof takes no label in any syntax: the
+		// `oneof` block it is written inside carries the cardinality, and
+		// the parser rejects `optional` there. A synthetic oneof (the one
+		// behind a proto3 `optional` field) is not written as a block, so
+		// its sole member keeps its keyword. Under proto2 every oneof is
+		// real, so this is the arm below that would otherwise misfire.
+		if f.OneofIndex != nil && !f.GetProto3Optional() {
+			return "", nil
+		}
 		// proto3 writes `optional` only for explicit-presence fields, which
 		// are exactly the proto3_optional ones. proto2 always writes it.
 		// Editions carry presence in features and write neither.
