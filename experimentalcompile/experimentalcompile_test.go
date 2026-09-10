@@ -16,6 +16,7 @@ package experimentalcompile_test
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -459,4 +460,122 @@ message Greeting {
 	require.NoError(t, err)
 	require.Len(t, files, 1)
 	return protoutil.ProtoFromFileDescriptor(files[0])
+}
+
+// TestDuplicateSymbolAcrossRoots is the repro from issue #224: two roots
+// that both declare `x.M`, neither importing the other, must fail the
+// way a third root importing both already does. Each root's IR only sees
+// its own import closure, so the cross-file checks have to run over the
+// set of roots handed to one Compile.
+func TestDuplicateSymbolAcrossRoots(t *testing.T) {
+	t.Parallel()
+
+	resolver := sourceMapResolver(map[string]string{
+		"a.proto":             `syntax = "proto3"; package x; message M {}`,
+		"third_party/a.proto": `syntax = "proto3"; package x; message M {}`,
+	})
+
+	t.Run("default reporter", func(t *testing.T) {
+		t.Parallel()
+		c := protocompile.Compiler{Resolver: resolver}
+		files, err := c.Compile(t.Context(), "a.proto", "third_party/a.proto")
+		require.Error(t, err)
+		assert.Nil(t, files)
+		var ewp reporter.ErrorWithPos
+		require.ErrorAs(t, err, &ewp)
+		assert.Contains(t, err.Error(), "`M` declared multiple times")
+		assert.Equal(t, "a.proto", ewp.GetPosition().Filename,
+			"the diagnostic points at the first declaration, like the single-root case")
+	})
+
+	t.Run("continuing reporter", func(t *testing.T) {
+		t.Parallel()
+		var errs []reporter.ErrorWithPos
+		c := protocompile.Compiler{
+			Resolver: resolver,
+			Reporter: reporter.NewReporter(func(err reporter.ErrorWithPos) error {
+				errs = append(errs, err)
+				return nil
+			}, nil),
+		}
+		_, err := c.Compile(t.Context(), "a.proto", "third_party/a.proto")
+		require.ErrorIs(t, err, reporter.ErrInvalidSource)
+		require.Len(t, errs, 1, "one duplicate, one diagnostic")
+		assert.Contains(t, errs[0].Error(), "`M` declared multiple times")
+	})
+}
+
+// TestDuplicateSymbolAcrossRootsSamePathTwice guards the fix for #224
+// against a false positive: the same file named twice as a root is one
+// file, not two declarations of everything in it.
+func TestDuplicateSymbolAcrossRootsSamePathTwice(t *testing.T) {
+	t.Parallel()
+
+	c := protocompile.Compiler{Resolver: sourceMapResolver(map[string]string{
+		"a.proto": `syntax = "proto3"; package x; message M {}`,
+	})}
+	files, err := c.Compile(t.Context(), "a.proto", "a.proto")
+	require.NoError(t, err)
+	require.Len(t, files, 2)
+}
+
+// TestDuplicateSymbolAcrossRootsImportingEachOther guards the other
+// false positive: when one root imports another, the imported root's
+// symbols are visible from both, but declared once.
+func TestDuplicateSymbolAcrossRootsImportingEachOther(t *testing.T) {
+	t.Parallel()
+
+	c := protocompile.Compiler{Resolver: sourceMapResolver(map[string]string{
+		"a.proto": `syntax = "proto3"; package x; import public "b.proto"; message A { B b = 1; }`,
+		"b.proto": `syntax = "proto3"; package x; message B {}`,
+	})}
+	files, err := c.Compile(t.Context(), "a.proto", "b.proto")
+	require.NoError(t, err)
+	require.Len(t, files, 2)
+}
+
+// TestDuplicateExtensionTagAcrossRoots covers the second check the
+// workspace-level Link query runs and a per-root Compile did not: two
+// files extending the same message with the same tag. The IR of a
+// single root does not check its imports against each other for this,
+// so the check runs over the roots and their transitive imports.
+func TestDuplicateExtensionTagAcrossRoots(t *testing.T) {
+	t.Parallel()
+
+	const ext = `syntax = "proto2"; package x;
+import "google/protobuf/descriptor.proto";
+extend google.protobuf.MessageOptions { optional string %s = 51234; }`
+	resolver := sourceMapResolver(map[string]string{
+		"a.proto":    fmt.Sprintf(ext, "a"),
+		"b.proto":    fmt.Sprintf(ext, "b"),
+		"both.proto": `syntax = "proto3"; package x; import "a.proto"; import "b.proto"; message M { option (x.a) = "1"; option (x.b) = "2"; }`,
+	})
+
+	t.Run("two roots", func(t *testing.T) {
+		t.Parallel()
+		c := protocompile.Compiler{Resolver: resolver}
+		_, err := c.Compile(t.Context(), "a.proto", "b.proto")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "51234")
+	})
+
+	t.Run("one root importing both", func(t *testing.T) {
+		t.Parallel()
+		c := protocompile.Compiler{Resolver: resolver}
+		_, err := c.Compile(t.Context(), "both.proto")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "51234")
+	})
+}
+
+// sourceMapResolver serves the given path→source map and reports every
+// other path as not found.
+func sourceMapResolver(sources map[string]string) protocompile.Resolver {
+	return protocompile.ResolverFunc(func(path string) (protocompile.SearchResult, error) {
+		src, ok := sources[path]
+		if !ok {
+			return protocompile.SearchResult{}, os.ErrNotExist
+		}
+		return protocompile.SearchResult{Source: io.NopCloser(strings.NewReader(src))}, nil
+	})
 }

@@ -21,6 +21,7 @@ import (
 	"github.com/trendvidia/protocompile/internal/ext/mapsx"
 	"github.com/trendvidia/protocompile/internal/ext/slicesx"
 	"github.com/trendvidia/protocompile/ir"
+	"github.com/trendvidia/protocompile/report"
 	"github.com/trendvidia/protocompile/seq"
 	"github.com/trendvidia/protocompile/source"
 )
@@ -70,10 +71,23 @@ func (l Link) Execute(t *incremental.Task) ([]*ir.File, error) {
 		return nil, err
 	}
 
-	// Symbols are already deduplicated among imported files during the IR queries.
-	ir.DedupExportedSymbols(t.Report(), files...)
-	// Extension numbers are not deduped among imports during the IR queries, so all imported
-	// files are added to this check. We avoid adding duplicated imported files.
+	LinkChecks(t.Report(), files...)
+	return files, nil
+}
+
+// LinkChecks runs the whole-compilation checks that no single [IR] query
+// can: duplicate exported symbols across files, and duplicate extension
+// tags across files and their transitive imports. [Link] runs them over
+// a [source.Workspace]; a caller that resolves [IR] queries itself, such
+// as the compiler's Compile, runs them over the roots it got back.
+//
+// Symbols are already deduplicated within each file's import closure
+// while its IR is lowered, so files is checked as given. Extension
+// numbers are not deduplicated among imports during the IR queries, so
+// every transitive import is added to that check, each file once.
+func LinkChecks(r *report.Report, files ...*ir.File) {
+	ir.DedupExportedSymbols(r, files...)
+
 	seen := make(map[string]*ir.File, len(files))
 	for _, file := range files {
 		seen[file.Path()] = file
@@ -87,7 +101,5 @@ func (l Link) Execute(t *incremental.Task) ([]*ir.File, error) {
 			}
 		}
 	}
-	// Make a copy of the files slice
-	ir.DedupExtensions(t.Report(), slices.Concat(files, requiredImports)...)
-	return files, nil
+	ir.DedupExtensions(r, slices.Concat(files, requiredImports)...)
 }

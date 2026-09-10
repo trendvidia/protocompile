@@ -99,6 +99,14 @@ func Compile(ctx context.Context, args exphook.Args, files []string) (linker.Fil
 		return nil, err
 	}
 
+	// Each root's IR checks symbols within that root's own import closure,
+	// and nothing relates one root to another: two roots that both declared
+	// `x.M` compiled without error, and so did one root whose two imports
+	// extend the same message with the same tag (#224). Run the checks the
+	// workspace-level Link query runs, over the roots that lowered, before
+	// the diagnostics are routed.
+	queries.LinkChecks(rpt, loweredRoots(results)...)
+
 	// Route every diagnostic through the caller's reporter. The handler
 	// implements the legacy contract on top of it: an Error callback
 	// returning non-nil aborts the batch with that error, returning nil
@@ -173,6 +181,26 @@ func Compile(ctx context.Context, args exphook.Args, files []string) (linker.Fil
 		return out, err
 	}
 	return out, nil
+}
+
+// loweredRoots returns the distinct IR files among results, skipping
+// roots that failed to lower. The same path named twice as a root is one
+// file, not two declarations of everything in it, so files are distinct
+// by identity.
+func loweredRoots(results []incremental.Result[*ir.File]) []*ir.File {
+	seen := make(map[*ir.File]struct{}, len(results))
+	roots := make([]*ir.File, 0, len(results))
+	for _, r := range results {
+		if r.Fatal != nil || r.Value == nil {
+			continue
+		}
+		if _, dup := seen[r.Value]; dup {
+			continue
+		}
+		seen[r.Value] = struct{}{}
+		roots = append(roots, r.Value)
+	}
+	return roots
 }
 
 // diagErrorWithPos converts an experimental [report.Diagnostic] into
