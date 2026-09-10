@@ -74,6 +74,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/trendvidia/protocompile"
+	"github.com/trendvidia/protocompile/reporter"
 )
 
 // Module is one unit whose namespace claims are compared against the others.
@@ -319,12 +320,30 @@ func collectModule(
 	// report it as claiming its own names twice.
 	paths = dedupe(paths)
 
+	// Compile rejects a name declared by two of its roots (#224), which
+	// is one of the collisions this package exists to report, with both
+	// files named. So the reporter records every diagnostic and lets the
+	// batch finish: each file still compiles on its own, and the duplicate
+	// is claimed twice below. Any other diagnostic is the module failing
+	// to compile, and is returned as before.
+	var diags []reporter.ErrorWithPos
 	compiler := protocompile.Compiler{
 		Resolver: &protocompile.SourceResolver{ImportPaths: roots},
+		Reporter: reporter.NewReporter(func(err reporter.ErrorWithPos) error {
+			diags = append(diags, err)
+			return nil
+		}, nil),
 	}
 	files, err := compiler.Compile(ctx, paths...)
 	if err != nil {
-		return err
+		for _, d := range diags {
+			if !isDuplicateDeclaration(d) {
+				return d
+			}
+		}
+		if !errors.Is(err, reporter.ErrInvalidSource) {
+			return err
+		}
 	}
 
 	// Only what this module declares counts. Compile also returns the
@@ -336,7 +355,13 @@ func collectModule(
 		own[p] = true
 	}
 
-	for _, f := range files {
+	for i, f := range files {
+		if f == nil {
+			// Only a reported error leaves a slot empty, and every reported
+			// error was a duplicate declaration, which does not stop a file
+			// from compiling on its own. Not silently a clean module.
+			return fmt.Errorf("%s did not compile", paths[i])
+		}
 		path := f.Path()
 		if !own[path] {
 			continue
@@ -351,6 +376,14 @@ func collectModule(
 		}
 	}
 	return nil
+}
+
+// isDuplicateDeclaration reports whether d is the compiler's diagnostic
+// for a name declared in two files of the batch. The compiler exposes no
+// tag on the errors it reports, so this matches the message; the
+// dup_within fixture fails the build if the wording moves.
+func isDuplicateDeclaration(d reporter.ErrorWithPos) bool {
+	return strings.Contains(d.Unwrap().Error(), "declared multiple times")
 }
 
 // dedupe returns paths with repeats removed, order preserved.
