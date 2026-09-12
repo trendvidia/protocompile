@@ -1,6 +1,6 @@
 module github.com/trendvidia/protocompile/internal/benchmarks
 
-go 1.25.6
+go 1.26.0
 
 require (
 	github.com/jhump/protoreflect v1.14.1 // MUST NOT be updated to v1.15 or higher
@@ -9,7 +9,7 @@ require (
 	google.golang.org/protobuf v1.36.12
 )
 
-require golang.org/x/sync v0.22.0 // indirect
+require golang.org/x/sync v0.23.0 // indirect
 
 require (
 	buf.build/gen/go/bufbuild/protodescriptor/protocolbuffers/go v1.36.12-20250109164928-1da0de137947.1 // indirect
