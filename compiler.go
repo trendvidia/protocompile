@@ -83,7 +83,9 @@ type Compiler struct {
 	// warning that leaves the message without one. google/protobuf/
 	// files never get one; a caller that also compiles its own canonical
 	// schemas from source leaves them out by returning false for their
-	// paths. Nil, the default, generates none.
+	// paths. Nil, the default, generates none: the owner decided on #248
+	// (2026-10-28) that protocompile's output stays identical to protoc's
+	// unless a caller asks, and protowire's tools ask.
 	NullMask func(path string) bool
 }
 
