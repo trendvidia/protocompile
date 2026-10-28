@@ -586,8 +586,11 @@ func (t *task) run(caller *Task, q *AnyQuery, async bool) (output *result) {
 // waitUntilDone waits for this task to be completed by another goroutine.
 func (t *task) waitUntilDone(caller *Task, output *result, q *AnyQuery, async bool) *result {
 	if err := t.checkCycle(caller, q); err != nil {
-		output.Fatal = err
-		return output
+		// output is the leader's result, which every waiter on this task
+		// shares. The cycle is this caller's, so it gets a result of its own:
+		// writing the error into output raced with other waiters detecting
+		// the same cycle, and with the leader setting its own result.
+		return &result{Result: Result[any]{Fatal: err}, runID: caller.runID}
 	}
 
 	// If this task is being executed synchronously with its caller, we need to
