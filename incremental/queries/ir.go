@@ -214,6 +214,21 @@ func (i IR) Execute(t *incremental.Task) (*ir.File, error) {
 		}
 	}
 
-	ir, _ := i.Session.Lower(file, t.Report(), importer)
-	return ir, nil
+	prior := len(t.Report().Diagnostics)
+	lowered, _ := i.Session.Lower(file, t.Report(), importer)
+
+	// A file whose lowering crashed is only partly built: lowering stops at
+	// the panic, so later stages, such as the one that links it to
+	// descriptor.proto's builtins, never ran. Handing it on as a result
+	// let descriptor generation dereference what was never set
+	// (protocompile#253). A file with ordinary errors is still returned,
+	// since lowering finished. A crashed one fails here, the crash itself
+	// already reported as a diagnostic, so a file importing it gets an
+	// import error instead of the partial file.
+	for _, d := range t.Report().Diagnostics[prior:] {
+		if d.Level() == report.ICE {
+			return nil, fmt.Errorf("lowering %q did not complete; see its diagnostics", i.Path)
+		}
+	}
+	return lowered, nil
 }
