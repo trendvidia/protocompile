@@ -46,6 +46,28 @@ func TestCyclic(t *testing.T) {
 	)
 }
 
+// Several queries entering one cycle at once each detect it while another
+// task leads the query they wait on. Each must get its own cycle error:
+// the detecting waiter wrote it into the leader's result, which every
+// waiter shares, so two waiters raced on it (go test -race), and a
+// waiter's cycle could stand in for the leader's own result.
+func TestCyclicConcurrentEntries(t *testing.T) {
+	t.Parallel()
+	for range 50 {
+		exec := incremental.New(incremental.WithParallelism(8))
+		queries := []incremental.Query[int]{
+			Cyclic{Mod: 5, Step: 0}, Cyclic{Mod: 5, Step: 1}, Cyclic{Mod: 5, Step: 2},
+			Cyclic{Mod: 5, Step: 3}, Cyclic{Mod: 5, Step: 4},
+		}
+		results, _, err := incremental.Run(t.Context(), exec, queries...)
+		require.NoError(t, err)
+		for i, r := range results {
+			require.Error(t, r.Fatal, "query %d", i)
+			assert.Contains(t, r.Fatal.Error(), "cycle detected", "query %d", i)
+		}
+	}
+}
+
 // Cyclic is a query that queries itself, for triggering cycle detection.
 type Cyclic struct {
 	Mod, Step int
