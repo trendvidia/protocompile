@@ -138,6 +138,26 @@ func buildImports(file *File, r *report.Report, importer Importer) {
 	// Otherwise, try to look it up.
 	dproto, err := importer(-1, DescriptorProtoPath, ast.DeclImport{})
 
+	// A descriptor.proto that imports this file, directly or not, closes a
+	// cycle through the implicit import: a vendored descriptor.proto that
+	// imports field_mask.proto, say. That is the user's cycle, not a
+	// compiler bug, so report it as one, and lower against the baked-in
+	// descriptor.proto so the file is complete; the error fails the
+	// compile either way (protocompile#253).
+	var cycle *ErrCycle
+	if errors.As(err, &cycle) {
+		if len(cycle.Cycle) > 0 {
+			diagnoseCycle(r, cycle)
+		} else {
+			r.Errorf("detected cyclic import while importing %q", DescriptorProtoPath)
+		}
+		r.Errorf("%q imports %q implicitly, which closes the cycle", file.Path(), DescriptorProtoPath).Apply(
+			report.Helpf("every file imports %q for option and feature resolution; "+
+				"a vendored copy of it must not import, directly or not, a file that needs it", DescriptorProtoPath),
+		)
+		dproto, err = file.session.fallbackDescriptorProto(), nil
+	}
+
 	if err != nil {
 		panic(fmt.Errorf("could not import %q: %w", DescriptorProtoPath, err))
 	}
