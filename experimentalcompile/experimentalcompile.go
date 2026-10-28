@@ -84,6 +84,12 @@ func Compile(ctx context.Context, args exphook.Args, files []string) (linker.Fil
 	opener := experimentalOpener(args.Resolver)
 	executor := incremental.New()
 	session := &ir.Session{}
+	if args.NullMask != nil {
+		// Lowering imports the mask's type and reports what stops a
+		// message getting one; descriptor generation adds it
+		// (protocompile#248).
+		session.NullMask = &pathMasker{args.NullMask}
+	}
 
 	qs := make([]incremental.Query[*ir.File], len(files))
 	for i, f := range files {
@@ -106,17 +112,6 @@ func Compile(ctx context.Context, args exphook.Args, files []string) (linker.Fil
 	// workspace-level Link query runs, over the roots that lowered, before
 	// the diagnostics are routed.
 	queries.LinkChecks(rpt, loweredRoots(results)...)
-
-	// The `_null` mask is added in descriptor generation; what stops a
-	// message getting one is reported here, with the rest of lowering's
-	// diagnostics (protocompile#248).
-	if args.NullMask != nil {
-		for file := range ir.TopoSort(loweredRoots(results)) {
-			if args.NullMask(file.Path()) {
-				ir.CheckNullMasks(rpt, file)
-			}
-		}
-	}
 
 	// Route every diagnostic through the caller's reporter. The handler
 	// implements the legacy contract on top of it: an Error callback
@@ -145,9 +140,6 @@ func Compile(ctx context.Context, args exphook.Args, files []string) (linker.Fil
 	errsReported := handler.Error() != nil
 
 	fdpOpts := fdpOptionsFor(args.SourceInfoMode)
-	if args.NullMask != nil {
-		fdpOpts = append(fdpOpts, fdp.NullMasks(&pathMasker{args.NullMask}))
-	}
 
 	out := make(linker.Files, len(results))
 	for i, r := range results {
@@ -355,6 +347,9 @@ func buildExperimentalRegistry(top *ir.File, fdpOpts []fdp.DescriptorOption) (*p
 		for i := range imports.Len() {
 			_ = register(imports.At(i).File, false)
 		}
+		if mask := irFile.NullMaskImport(); mask != nil {
+			_ = register(mask, false)
+		}
 
 		// Skip files already in the global registry (WKTs).
 		if _, err := protoregistry.GlobalFiles.FindFileByPath(path); err == nil {
@@ -479,10 +474,10 @@ func (p protoUnmarshal) do(data []byte, m protoreflect.ProtoMessage) error {
 	return protoUnmarshalImpl(p.resolver, data, m)
 }
 
-// pathMasker selects files for [fdp.NullMasks] by path. It is used by
+// pathMasker is an [ir.NullMasker] over a path predicate. It is used by
 // pointer, which keeps it comparable.
 type pathMasker struct {
 	selects func(path string) bool
 }
 
-func (m *pathMasker) NullMask(file *ir.File) bool { return m.selects(file.Path()) }
+func (m *pathMasker) NullMask(path string) bool { return m.selects(path) }

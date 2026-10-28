@@ -17,6 +17,7 @@ package ir
 import (
 	"strings"
 
+	"github.com/trendvidia/protocompile/ast"
 	"github.com/trendvidia/protocompile/internal/tags"
 	"github.com/trendvidia/protocompile/ir/presence"
 	"github.com/trendvidia/protocompile/report"
@@ -47,19 +48,77 @@ const (
 	NullMaskImport = "google/protobuf/field_mask.proto"
 )
 
-// NullMaskFile reports whether masks may be generated in file.
-// Protobuf's own files never get one: rewriting
-// google/protobuf/descriptor.proto, whose proto2 option messages all
-// have fields with presence, would change protobuf's descriptors. Nor
-// does a file that imports [NullMaskImport] with `import option`: a
-// descriptor may not list one file as both a regular and an option
-// dependency, and [CheckNullMasks] reports it.
-func NullMaskFile(file *File) bool {
-	if !nullMaskPath(file.Path()) {
+// NullMasker selects files for [Session.NullMask].
+//
+// This is an interface, rather than a function, so that implementations
+// can be comparable: a [Session] is part of incremental query keys.
+type NullMasker interface {
+	// NullMask reports whether messages in the file at path get a
+	// generated `_null` mask.
+	NullMask(path string) bool
+}
+
+// NullMasks reports whether messages in f get a generated `_null` mask:
+// its session selects it, it is not one of protobuf's own files, and it
+// does not import [NullMaskImport] with `import option`. Protobuf's own
+// files never get one: rewriting google/protobuf/descriptor.proto, whose
+// proto2 option messages all have fields with presence, would change
+// protobuf's descriptors. A descriptor may not list one file as both a
+// regular and an option dependency, so an option import turns masks off
+// for the file, and lowering reports it.
+func (f *File) NullMasks() bool {
+	if !f.nullMaskSelected() {
 		return false
 	}
-	_, optionImport := nullMaskOptionImport(file)
+	_, optionImport := nullMaskOptionImport(f)
 	return !optionImport
+}
+
+// NullMaskImport returns the file declaring [NullMaskTypeName] when f gets
+// `_null` masks and does not import it itself, and nil otherwise.
+// Descriptor generation lists it as a dependency once a message gets a
+// mask, and [TopoSort] orders it before f, so a descriptor set carries
+// it. It is not one of f's [File.Imports]: f cannot name its symbols.
+func (f *File) NullMaskImport() *File {
+	if f == nil {
+		return nil
+	}
+	return f.nullMaskImport
+}
+
+func (f *File) nullMaskSelected() bool {
+	return f != nil && f.session.NullMaskSelects(f.Path())
+}
+
+// NullMaskSelects reports whether [Session.NullMask] selects the file at
+// path: it is set, it selects path, and path is not one of protobuf's own
+// files. Those never get a mask, and must not ask for [NullMaskImport]
+// either: field_mask.proto imports descriptor.proto implicitly, so a
+// descriptor.proto that asked for field_mask.proto would close a cycle.
+func (s *Session) NullMaskSelects(path string) bool {
+	return s != nil && s.NullMask != nil && nullMaskPath(path) && s.NullMask.NullMask(path)
+}
+
+// importNullMask resolves [NullMaskImport] for a file that gets masks and
+// does not import it directly. It runs once the file's own imports are
+// in the table, and before name resolution.
+func importNullMask(file *File, r *report.Report, importer Importer) {
+	if !file.NullMasks() {
+		return
+	}
+	for imp := range seq.Values(file.Imports()) {
+		if imp.File != nil && imp.Path() == NullMaskImport {
+			return
+		}
+	}
+	mask, err := importer(-2, NullMaskImport, ast.DeclImport{})
+	if err != nil || mask == nil {
+		r.Errorf("could not import %q for the generated `%s` mask: %v", NullMaskImport, NullMaskName, err).Apply(
+			report.Helpf("masks need the well-known %q to be available to the compiler", NullMaskImport),
+		)
+		return
+	}
+	file.nullMaskImport = mask
 }
 
 func nullMaskPath(path string) bool {
@@ -78,8 +137,8 @@ func nullMaskOptionImport(file *File) (Import, bool) {
 }
 
 // NeedsNullMask reports whether lowering with masks enabled adds a
-// `_null` field to ty. It does not consult [NullMaskFile]; callers apply
-// their file filter first.
+// `_null` field to ty. It does not consult [File.NullMasks]; callers
+// check the file first.
 func NeedsNullMask(ty Type) bool {
 	return planNullMask(ty).add
 }
@@ -170,7 +229,7 @@ func covers(r ReservedRange) bool {
 	return start <= NullMaskNumber && NullMaskNumber <= end
 }
 
-// CheckNullMasks reports, for every message in file, why masks-enabled
+// checkNullMasks reports, for every message in file, why masks-enabled
 // lowering cannot add its `_null` field: an authored field that takes the
 // number or the JSON name is an error, a range or name the author
 // reserved is a warning (the message gets no mask, and its nulls do not
@@ -178,10 +237,7 @@ func covers(r ReservedRange) bool {
 // singular FieldMask is an error. A well-formed hand-declared `_null`
 // wins, and needs no report. So is an `import option` of
 // [NullMaskImport] in a file where a message would get a mask.
-func CheckNullMasks(r *report.Report, file *File) {
-	if !nullMaskPath(file.Path()) {
-		return
-	}
+func checkNullMasks(r *report.Report, file *File) {
 	optionImport, hasOptionImport := nullMaskOptionImport(file)
 	for ty := range seq.Values(file.AllTypes()) {
 		plan := planNullMask(ty)

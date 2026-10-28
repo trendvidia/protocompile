@@ -34,6 +34,13 @@ import (
 //
 // A zero [Session] is ready to use.
 type Session struct {
+	// NullMask, when non-nil, selects the files whose messages get a
+	// generated `_null` mask (protocompile#248; see [NeedsNullMask]).
+	// Lowering imports [NullMaskImport] for them and reports what stops a
+	// message getting one, and descriptor generation adds the field. Set
+	// it before the session lowers its first file. Nil generates none.
+	NullMask NullMasker
+
 	intern   intern.Table
 	builtins builtinIDs
 
@@ -234,4 +241,10 @@ func lower(file *File, r *report.Report, importer Importer) {
 	diagnoseUnusedImports(file, r)
 	validateConstraints(file, r)
 	checkDeprecated(file, r)
+
+	// What stops a message getting its `_null` mask needs presence and
+	// features, so it waits for both.
+	if file.nullMaskSelected() {
+		checkNullMasks(r, file)
+	}
 }

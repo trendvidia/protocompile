@@ -51,7 +51,6 @@ type Options struct {
 	// by default, and a caller opts out with EmitGoogleAPIHTTP(false).
 	suppressGoogleAPIHTTP bool
 	exclude               Excluder
-	nullMask              NullMasker
 }
 
 type generator struct {
@@ -86,7 +85,7 @@ func (g *generator) file(file *ir.File, fdp *descriptorpb.FileDescriptorProto) {
 	defer g.debug.done(&fdp.SourceCodeInfo)
 
 	fdp.Name = addr(file.Path())
-	g.nullMasks = g.nullMask != nil && ir.NullMaskFile(file) && g.nullMask.NullMask(file)
+	g.nullMasks = file.NullMasks()
 	g.nullMaskAdded = false
 
 	if file.Package() != "" {
@@ -940,3 +939,4 @@ func visibility(ty ir.Type) *descriptorpb.SymbolVisibility {
 // addr is a helper for creating a pointer out of any type, because Go is
 // missing the syntax &"foo", etc.
 func addr[T any](v T) *T { return &v }
+

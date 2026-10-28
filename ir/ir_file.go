@@ -115,6 +115,12 @@ type File struct {
 
 		symbols arena.Arena[rawSymbol]
 	}
+
+	// nullMaskImport is [NullMaskImport] when this file gets `_null`
+	// masks and does not import it itself. It is not in the import
+	// table: its symbols are not visible to the file, and it has no
+	// import declaration. See [File.NullMaskImport].
+	nullMaskImport *File
 }
 
 type withContext = id.HasContext[*File]
@@ -463,10 +469,21 @@ func TopoSort(files []*File) iter.Seq[*File] {
 		files,
 		func(f *File) *File { return f },
 		func(f *File) iter.Seq[*File] {
-			return seq.Map(
+			deps := seq.Map(
 				f.imports.Directs(),
 				func(i Import) *File { return i.File },
 			)
+			if f.nullMaskImport == nil {
+				return deps
+			}
+			return func(yield func(*File) bool) {
+				for dep := range deps {
+					if !yield(dep) {
+						return
+					}
+				}
+				yield(f.nullMaskImport)
+			}
 		},
 	)
 }

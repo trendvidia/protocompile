@@ -15,6 +15,8 @@
 package queries
 
 import (
+	"fmt"
+
 	"github.com/trendvidia/protocompile/ast"
 	"github.com/trendvidia/protocompile/incremental"
 	"github.com/trendvidia/protocompile/internal/ext/iterx"
@@ -134,16 +136,41 @@ func (i IR) Execute(t *incremental.Task) (*ir.File, error) {
 		Path:    ir.DescriptorProtoPath,
 	}
 
+	// A file the session gives `_null` masks also needs the mask's type,
+	// whether or not it imports it: lowering asks for it with n == -2
+	// (protocompile#248). Resolving it for a file that turns out to need
+	// none, or imports it itself, costs one cached query.
+	maskQuery := -1
+	if i.Session.NullMaskSelects(i.Path) {
+		maskQuery = len(queries)
+		queries = append(queries, IR{
+			Opener:  i.Opener,
+			Session: i.Session,
+			Path:    ir.NullMaskImport,
+		})
+		errors = append(errors, nil)
+	}
+
 	imports, err := incremental.Resolve(t, queries...)
 	if err != nil {
 		return nil, err
 	}
 
 	importer := func(n int, _ string, _ ast.DeclImport) (*ir.File, error) {
-		if n == -1 {
+		switch n {
+		case -1:
 			// The lowering code will call the importer with n == -1 if it needs
 			// descriptor.proto but it isn't imported (transitively).
 			n = len(queries) - 1
+			if maskQuery >= 0 {
+				n--
+			}
+		case -2:
+			// ...and with n == -2 for the `_null` mask's type.
+			if maskQuery < 0 {
+				return nil, fmt.Errorf("%s was not resolved for %s", ir.NullMaskImport, i.Path)
+			}
+			n = maskQuery
 		}
 
 		result := imports[n]
