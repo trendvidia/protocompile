@@ -3,7 +3,7 @@ module github.com/trendvidia/protocompile
 go 1.26.0
 
 require (
-	buf.build/gen/go/bufbuild/protodescriptor/protocolbuffers/go v1.36.12-20250109164928-1da0de137947.1
+	buf.build/gen/go/bufbuild/protodescriptor/protocolbuffers/go v1.36.12-20261012172039-ff528c23443f.2
 	github.com/bmatcuk/doublestar/v4 v4.10.4
 	github.com/google/go-cmp v0.7.0
 	github.com/petermattis/goid v0.0.0-20260113132338-7c7de50cc741
