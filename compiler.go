@@ -81,10 +81,9 @@ type Compiler struct {
 	// an authored field that takes the mask's number or JSON name is an
 	// error, and a range or name the author reserved over it is a
 	// warning that leaves the message without one. google/protobuf/
-	// files never get one. Nil, the default, generates none.
-	//
-	// Honoured by the experimental pipeline only; the legacy pipeline
-	// (`PROTOCOMPILE_PARSER=legacy`) ignores it.
+	// files never get one; a caller that also compiles its own canonical
+	// schemas from source leaves them out by returning false for their
+	// paths. Nil, the default, generates none.
 	NullMask func(path string) bool
 }
 

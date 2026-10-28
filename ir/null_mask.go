@@ -17,6 +17,7 @@ package ir
 import (
 	"strings"
 
+	"github.com/trendvidia/protocompile/internal/tags"
 	"github.com/trendvidia/protocompile/ir/presence"
 	"github.com/trendvidia/protocompile/report"
 	"github.com/trendvidia/protocompile/seq"
@@ -46,12 +47,34 @@ const (
 	NullMaskImport = "google/protobuf/field_mask.proto"
 )
 
-// NullMaskFile reports whether masks may be generated in the file at
-// path. Protobuf's own files never get one: rewriting
+// NullMaskFile reports whether masks may be generated in file.
+// Protobuf's own files never get one: rewriting
 // google/protobuf/descriptor.proto, whose proto2 option messages all
-// have fields with presence, would change protobuf's descriptors.
-func NullMaskFile(path string) bool {
+// have fields with presence, would change protobuf's descriptors. Nor
+// does a file that imports [NullMaskImport] with `import option`: a
+// descriptor may not list one file as both a regular and an option
+// dependency, and [CheckNullMasks] reports it.
+func NullMaskFile(file *File) bool {
+	if !nullMaskPath(file.Path()) {
+		return false
+	}
+	_, optionImport := nullMaskOptionImport(file)
+	return !optionImport
+}
+
+func nullMaskPath(path string) bool {
 	return !strings.HasPrefix(path, "google/protobuf/")
+}
+
+// nullMaskOptionImport returns file's `import option` of
+// [NullMaskImport], if it has one.
+func nullMaskOptionImport(file *File) (Import, bool) {
+	for imp := range seq.Values(file.Imports()) {
+		if imp.Option && imp.File != nil && imp.Path() == NullMaskImport {
+			return imp, true
+		}
+	}
+	return Import{}, false
 }
 
 // NeedsNullMask reports whether lowering with masks enabled adds a
@@ -117,20 +140,29 @@ func planNullMask(ty Type) nullMaskPlan {
 
 // canHoldNull reports whether a PXF null may bind to m: a singular field
 // with explicit presence, as protowire#339 settles it. A message field,
-// wrappers included, a proto3 `optional` scalar, a oneof member and a
-// proto2 singular field qualify; a proto3 scalar without `optional`, a
-// repeated field and a map do not.
+// wrappers included, a proto3 `optional` scalar, a oneof member, a
+// proto2 singular field and an editions field without IMPLICIT presence
+// qualify; a proto3 scalar without `optional`, an IMPLICIT editions
+// scalar, a repeated field and a map do not.
 func canHoldNull(m Member) bool {
 	switch m.Presence() {
-	case presence.Explicit, presence.Shared, presence.Required:
+	case presence.Shared, presence.Required:
 		return true
 	case presence.Repeated, presence.Unknown:
 		return false
-	default:
-		// Every singular message field has presence, whatever the IR
-		// records for a proto3 one.
-		return m.Element().IsMessage()
 	}
+	// Every singular message field has presence, whatever the IR
+	// records for a proto3 one.
+	if m.Element().IsMessage() {
+		return true
+	}
+	if m.Context().Syntax().IsEdition() {
+		// The IR records every unlabeled editions field as Explicit; its
+		// presence is the resolved features.field_presence.
+		v, _ := m.FeatureSet().Lookup(m.Context().builtins().FeaturePresence).Value().AsInt()
+		return v != tags.FeatureSet_FieldPresence_Implicit
+	}
+	return m.Presence() == presence.Explicit
 }
 
 func covers(r ReservedRange) bool {
@@ -144,14 +176,24 @@ func covers(r ReservedRange) bool {
 // reserved is a warning (the message gets no mask, and its nulls do not
 // survive protobuf binary), and a hand-declared `_null` that is not a
 // singular FieldMask is an error. A well-formed hand-declared `_null`
-// wins, and needs no report.
+// wins, and needs no report. So is an `import option` of
+// [NullMaskImport] in a file where a message would get a mask.
 func CheckNullMasks(r *report.Report, file *File) {
-	if !NullMaskFile(file.Path()) {
+	if !nullMaskPath(file.Path()) {
 		return
 	}
+	optionImport, hasOptionImport := nullMaskOptionImport(file)
 	for ty := range seq.Values(file.AllTypes()) {
 		plan := planNullMask(ty)
 		switch {
+		case plan.add && hasOptionImport:
+			r.Errorf("`%s` is imported with `import option`, but the generated `%s` mask in `%s` needs it as a regular import",
+				NullMaskImport, NullMaskName, ty.FullName()).Apply(
+				report.Snippet(optionImport.Decl),
+				report.Helpf("the mask is a `%s` field, which only a regular `import` can provide; "+
+					"change this to `import \"%s\";`", NullMaskTypeName, NullMaskImport),
+			)
+			hasOptionImport = false // Once per file.
 		case !plan.declared.IsZero():
 			d := plan.declared
 			if d.Presence() == presence.Repeated || d.Element().FullName() != NullMaskTypeName {

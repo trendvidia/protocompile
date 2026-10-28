@@ -303,3 +303,86 @@ func TestNullMask_FilterByPath(t *testing.T) {
 	s := files[0].Imports().Get(0).FileDescriptor
 	assert.Nil(t, s.Messages().ByName("S").Fields().ByName("_null"))
 }
+
+// In an editions file a field's presence is its resolved
+// features.field_presence, not its label: an IMPLICIT scalar cannot hold
+// null, while an EXPLICIT or LEGACY_REQUIRED one, a message field, and a
+// scalar under the edition's EXPLICIT default can.
+func TestNullMask_Editions(t *testing.T) {
+	t.Parallel()
+	files, _, errs := nullMaskCompile(t, true, map[string]string{"e.proto": `
+edition = "2023";
+package e;
+option features.field_presence = IMPLICIT;
+message Plain { int32 n = 1; string s = 2; repeated int32 l = 3; }
+message Explicit { int32 n = 1 [features.field_presence = EXPLICIT]; }
+message Required { int32 n = 1 [features.field_presence = LEGACY_REQUIRED]; }
+message Message { Plain p = 1; }
+`, "d.proto": `
+edition = "2023";
+package d;
+message Default { int32 n = 1; }
+`}, "e.proto", "d.proto")
+	require.Empty(t, errs)
+	for msg, want := range map[string]bool{"Plain": false, "Explicit": true, "Required": true, "Message": true} {
+		md := files[0].Messages().ByName(protoreflect.Name(msg))
+		require.NotNil(t, md, msg)
+		assert.Equal(t, want, md.Fields().ByName("_null") != nil, "%s gets a mask", msg)
+	}
+	assert.NotNil(t, files[1].Messages().ByName("Default").Fields().ByName("_null"),
+		"edition 2023 defaults to EXPLICIT presence")
+
+	files, _, errs = nullMaskCompile(t, true, map[string]string{"i.proto": `
+edition = "2023";
+package i;
+option features.field_presence = IMPLICIT;
+message Plain { int32 n = 1; }
+`}, "i.proto")
+	require.Empty(t, errs)
+	assert.NotContains(t, protoutil.ProtoFromFileDescriptor(files[0]).GetDependency(), "google/protobuf/field_mask.proto",
+		"a file with no mask gains no dependency")
+}
+
+// A file that already imports field_mask.proto keeps a single dependency
+// on it when a mask is added.
+func TestNullMask_FieldMaskAlreadyImported(t *testing.T) {
+	t.Parallel()
+	files, _, errs := nullMaskCompile(t, true, map[string]string{"f.proto": `
+syntax = "proto3";
+package f;
+import "google/protobuf/field_mask.proto";
+message M { google.protobuf.FieldMask paths = 1; }
+`}, "f.proto")
+	require.Empty(t, errs)
+	assert.NotNil(t, files[0].Messages().ByName("M").Fields().ByName("_null"))
+	deps := protoutil.ProtoFromFileDescriptor(files[0]).GetDependency()
+	assert.Equal(t, []string{"google/protobuf/field_mask.proto"}, deps)
+}
+
+// The mask needs field_mask.proto as a regular import, and a descriptor
+// may not list a file as both a regular and an option dependency, so an
+// `import option` of it is an error where a message would get a mask, and
+// harmless where none would.
+func TestNullMask_OptionImportOfFieldMask(t *testing.T) {
+	t.Parallel()
+	_, _, errs := nullMaskCompile(t, true, map[string]string{"o.proto": `
+edition = "2024";
+package o;
+import option "google/protobuf/field_mask.proto";
+message M { int32 n = 1; }
+message N { int32 n = 1; }
+`}, "o.proto")
+	require.Len(t, errs, 1, "reported once per file")
+	assert.Contains(t, errs[0],
+		"`google/protobuf/field_mask.proto` is imported with `import option`, but the generated `_null` mask in `o.M` needs it as a regular import")
+
+	files, _, errs := nullMaskCompile(t, true, map[string]string{"q.proto": `
+edition = "2024";
+package q;
+import option "google/protobuf/field_mask.proto";
+option features.field_presence = IMPLICIT;
+message M { int32 n = 1; }
+`}, "q.proto")
+	require.Empty(t, errs)
+	assert.Nil(t, files[0].Messages().ByName("M").Fields().ByName("_null"))
+}

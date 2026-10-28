@@ -58,7 +58,6 @@ import (
 	"github.com/trendvidia/protocompile/linker"
 	"github.com/trendvidia/protocompile/report"
 	"github.com/trendvidia/protocompile/reporter"
-	"github.com/trendvidia/protocompile/seq"
 	"github.com/trendvidia/protocompile/source"
 )
 
@@ -112,7 +111,7 @@ func Compile(ctx context.Context, args exphook.Args, files []string) (linker.Fil
 	// message getting one is reported here, with the rest of lowering's
 	// diagnostics (protocompile#248).
 	if args.NullMask != nil {
-		for _, file := range closure(loweredRoots(results)) {
+		for file := range ir.TopoSort(loweredRoots(results)) {
 			if args.NullMask(file.Path()) {
 				ir.CheckNullMasks(rpt, file)
 			}
@@ -478,25 +477,6 @@ type protoUnmarshal struct {
 
 func (p protoUnmarshal) do(data []byte, m protoreflect.ProtoMessage) error {
 	return protoUnmarshalImpl(p.resolver, data, m)
-}
-
-// closure returns roots and every file they import, each once.
-func closure(roots []*ir.File) []*ir.File {
-	seen := make(map[*ir.File]bool, len(roots))
-	var out []*ir.File
-	add := func(f *ir.File) {
-		if f != nil && !seen[f] {
-			seen[f] = true
-			out = append(out, f)
-		}
-	}
-	for _, root := range roots {
-		add(root)
-		for imp := range seq.Values(root.TransitiveImports()) {
-			add(imp.File)
-		}
-	}
-	return out
 }
 
 // pathMasker selects files for [fdp.NullMasks] by path. It is used by

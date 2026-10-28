@@ -86,7 +86,7 @@ func (g *generator) file(file *ir.File, fdp *descriptorpb.FileDescriptorProto) {
 	defer g.debug.done(&fdp.SourceCodeInfo)
 
 	fdp.Name = addr(file.Path())
-	g.nullMasks = g.nullMask != nil && ir.NullMaskFile(file.Path()) && g.nullMask.NullMask(file)
+	g.nullMasks = g.nullMask != nil && ir.NullMaskFile(file) && g.nullMask.NullMask(file)
 	g.nullMaskAdded = false
 
 	if file.Package() != "" {
