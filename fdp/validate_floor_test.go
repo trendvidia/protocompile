@@ -15,8 +15,10 @@
 package fdp_test
 
 import (
+	"os"
 	"regexp"
 	"runtime/debug"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -54,6 +56,13 @@ func TestValidateProtosFloorIsNotStale(t *testing.T) {
 				version = dep.Replace.Version
 			}
 		}
+	}
+	if len(info.Deps) == 0 {
+		// Go 1.26 records no dependencies in a test binary's build info
+		// (Go 1.27 does), so the linked version cannot be read there. The
+		// go.mod requirement is the floor consumers inherit, and with a
+		// pruned module graph it names the version this module selects.
+		version = goModRequirement(t, "../go.mod", validateProtosModule)
 	}
 	require.NotEmptyf(t, version, "%s is not linked into fdp; if that is deliberate, delete this test", validateProtosModule)
 
@@ -110,4 +119,19 @@ func TestBSRTimestamp(t *testing.T) {
 	older, _ := bsrTimestamp("v1.36.12-20240920164238-5a7b106cbb87.1")
 	newer, _ := bsrTimestamp("v1.36.11-20260415201107-50325440f8f2.1")
 	assert.Less(t, older, newer, "proto timestamps must order by time even where versions order the other way")
+}
+
+// goModRequirement returns the version go.mod at path requires for module,
+// or "" if it requires none.
+func goModRequirement(t *testing.T, path, module string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	for line := range strings.Lines(string(data)) {
+		fields := strings.Fields(strings.TrimPrefix(strings.TrimSpace(line), "require "))
+		if len(fields) >= 2 && fields[0] == module {
+			return fields[1]
+		}
+	}
+	return ""
 }
