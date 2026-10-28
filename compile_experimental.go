@@ -17,20 +17,15 @@ package protocompile
 import (
 	// Blank-import the experimental compile pipeline so its `init` runs
 	// at program start and the experimental implementation registers
-	// with [exphook]. [Compile]'s dispatch table then routes through it
-	// by default — see compiler.go for the precedence rules and the
-	// `PROTOCOMPILE_PARSER=legacy` env-var kill switch.
+	// with [exphook]. [Compiler.Compile] always routes through it: the
+	// legacy pipeline, and the `PROTOCOMPILE_PARSER=legacy` env var that
+	// selected it, were removed in Track C.
 	//
-	// This blank import is what makes the M1 default flip work. It is
-	// only possible because the experimental pipeline no longer depends
-	// on this package transitively: the experimental sub-packages
-	// import the dependency-free `wellknownimports/fs` sub-package for
-	// their embedded data, and `experimentalcompile` itself imports
-	// `internal/exphook` rather than this package for its contract.
-	//
-	// Once Track C deletes the legacy pipeline, this file and the
-	// env-var kill switch will both be removed; the experimental
-	// pipeline becomes the only option and there is no further
-	// dispatch decision to make.
+	// This blank import is only possible because the experimental
+	// pipeline does not depend on this package transitively: the
+	// experimental sub-packages import the dependency-free
+	// `wellknownimports/fs` sub-package for their embedded data, and
+	// `experimentalcompile` itself imports `internal/exphook` rather
+	// than this package for its contract.
 	_ "github.com/trendvidia/protocompile/experimentalcompile"
 )

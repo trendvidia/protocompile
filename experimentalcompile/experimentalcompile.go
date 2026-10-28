@@ -107,6 +107,17 @@ func Compile(ctx context.Context, args exphook.Args, files []string) (linker.Fil
 	// the diagnostics are routed.
 	queries.LinkChecks(rpt, loweredRoots(results)...)
 
+	// The `_null` mask is added in descriptor generation; what stops a
+	// message getting one is reported here, with the rest of lowering's
+	// diagnostics (protocompile#248).
+	if args.NullMask != nil {
+		for file := range ir.TopoSort(loweredRoots(results)) {
+			if args.NullMask(file.Path()) {
+				ir.CheckNullMasks(rpt, file)
+			}
+		}
+	}
+
 	// Route every diagnostic through the caller's reporter. The handler
 	// implements the legacy contract on top of it: an Error callback
 	// returning non-nil aborts the batch with that error, returning nil
@@ -134,6 +145,9 @@ func Compile(ctx context.Context, args exphook.Args, files []string) (linker.Fil
 	errsReported := handler.Error() != nil
 
 	fdpOpts := fdpOptionsFor(args.SourceInfoMode)
+	if args.NullMask != nil {
+		fdpOpts = append(fdpOpts, fdp.NullMasks(&pathMasker{args.NullMask}))
+	}
 
 	out := make(linker.Files, len(results))
 	for i, r := range results {
@@ -464,3 +478,11 @@ type protoUnmarshal struct {
 func (p protoUnmarshal) do(data []byte, m protoreflect.ProtoMessage) error {
 	return protoUnmarshalImpl(p.resolver, data, m)
 }
+
+// pathMasker selects files for [fdp.NullMasks] by path. It is used by
+// pointer, which keeps it comparable.
+type pathMasker struct {
+	selects func(path string) bool
+}
+
+func (m *pathMasker) NullMask(file *ir.File) bool { return m.selects(file.Path()) }

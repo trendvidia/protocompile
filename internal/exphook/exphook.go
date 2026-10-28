@@ -81,6 +81,10 @@ type Args struct {
 	// RetainASTs requests that the returned [linker.File]s also
 	// satisfy the IRHolder interface in `experimentalcompile`.
 	RetainASTs bool
+
+	// NullMask is `protocompile.Compiler.NullMask`: when non-nil, it
+	// selects the files whose messages get a generated `_null` mask.
+	NullMask func(path string) bool
 }
 
 // CompileFunc is the registered implementation of the experimental
