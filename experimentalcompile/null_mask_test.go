@@ -146,12 +146,15 @@ syntax = "proto2";
 package p;
 message M { optional int32 a = 1; repeated int32 r = 2; }
 message R { repeated int32 r = 1; }
+message Strict { required int32 r = 1; }
+message StrictMessage { required M m = 1; }
 `}, "p.proto")
 	require.Empty(t, errs)
-	m, _ := findMessage(files[0].Messages(), "p.M")
-	assert.NotNil(t, m.Fields().ByName("_null"))
-	r, _ := findMessage(files[0].Messages(), "p.R")
-	assert.Nil(t, r.Fields().ByName("_null"))
+	for msg, want := range map[string]bool{"M": true, "R": false, "Strict": false, "StrictMessage": false} {
+		md, ok := findMessage(files[0].Messages(), protoreflect.FullName("p."+msg))
+		require.True(t, ok, msg)
+		assert.Equal(t, want, md.Fields().ByName("_null") != nil, "%s gets a mask", msg)
+	}
 }
 
 // An imported file compiled from source gets masks too, so a message has
@@ -306,8 +309,9 @@ func TestNullMask_FilterByPath(t *testing.T) {
 
 // In an editions file a field's presence is its resolved
 // features.field_presence, not its label: an IMPLICIT scalar cannot hold
-// null, while an EXPLICIT or LEGACY_REQUIRED one, a message field, and a
-// scalar under the edition's EXPLICIT default can.
+// null, while an EXPLICIT one, a message field, and a scalar under the
+// edition's EXPLICIT default can. A LEGACY_REQUIRED field cannot, message
+// or scalar (protowire#379).
 func TestNullMask_Editions(t *testing.T) {
 	t.Parallel()
 	files, _, errs := nullMaskCompile(t, true, map[string]string{"e.proto": `
@@ -317,6 +321,7 @@ option features.field_presence = IMPLICIT;
 message Plain { int32 n = 1; string s = 2; repeated int32 l = 3; }
 message Explicit { int32 n = 1 [features.field_presence = EXPLICIT]; }
 message Required { int32 n = 1 [features.field_presence = LEGACY_REQUIRED]; }
+message RequiredMessage { Plain p = 1 [features.field_presence = LEGACY_REQUIRED]; }
 message Message { Plain p = 1; }
 `, "d.proto": `
 edition = "2023";
@@ -324,7 +329,7 @@ package d;
 message Default { int32 n = 1; }
 `}, "e.proto", "d.proto")
 	require.Empty(t, errs)
-	for msg, want := range map[string]bool{"Plain": false, "Explicit": true, "Required": true, "Message": true} {
+	for msg, want := range map[string]bool{"Plain": false, "Explicit": true, "Required": false, "RequiredMessage": false, "Message": true} {
 		md := files[0].Messages().ByName(protoreflect.Name(msg))
 		require.NotNil(t, md, msg)
 		assert.Equal(t, want, md.Fields().ByName("_null") != nil, "%s gets a mask", msg)

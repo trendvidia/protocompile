@@ -216,28 +216,30 @@ func planNullMask(ty Type) nullMaskPlan {
 // canHoldNull reports whether a PXF null may bind to m: a singular field
 // with explicit presence, as protowire#339 settles it. A message field,
 // wrappers included, a proto3 `optional` scalar, a oneof member, a
-// proto2 singular field and an editions field without IMPLICIT presence
-// qualify; a proto3 scalar without `optional`, an IMPLICIT editions
-// scalar, a repeated field and a map do not.
+// proto2 `optional` field and an EXPLICIT editions field qualify; a proto3
+// scalar without `optional`, an IMPLICIT editions scalar, a repeated field
+// and a map do not. Nor does a proto2 required or LEGACY_REQUIRED field:
+// a null there would leave a required field unset, so it is rejected
+// (protowire#379).
 func canHoldNull(m Member) bool {
 	switch m.Presence() {
-	case presence.Shared, presence.Required:
+	case presence.Shared:
 		return true
-	case presence.Repeated, presence.Unknown:
+	case presence.Required, presence.Repeated, presence.Unknown:
 		return false
-	}
-	// Every singular message field has presence, whatever the IR
-	// records for a proto3 one.
-	if m.Element().IsMessage() {
-		return true
 	}
 	if m.Context().Syntax().IsEdition() {
 		// The IR records every unlabeled editions field as Explicit; its
 		// presence is the resolved features.field_presence.
 		v, _ := m.FeatureSet().Lookup(m.Context().builtins().FeaturePresence).Value().AsInt()
-		return v != tags.FeatureSet_FieldPresence_Implicit
+		if v == tags.FeatureSet_FieldPresence_LegacyRequired {
+			return false
+		}
+		return m.Element().IsMessage() || v == tags.FeatureSet_FieldPresence_Explicit
 	}
-	return m.Presence() == presence.Explicit
+	// Every singular message field has presence, whatever the IR
+	// records for a proto3 one.
+	return m.Element().IsMessage() || m.Presence() == presence.Explicit
 }
 
 func covers(r ReservedRange) bool {
