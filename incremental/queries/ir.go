@@ -88,11 +88,21 @@ func (i IR) Execute(t *incremental.Task) (*ir.File, error) {
 		return nil, dp[0].Fatal
 	}
 
+	// A file the session gives `_null` masks also needs the mask's type,
+	// whether or not it imports it: lowering asks for it with n == -2
+	// (protocompile#248). Resolving it for a file that turns out to need
+	// none, or imports it itself, costs one cached query.
+	masked := i.Session.NullMaskSelects(i.Path)
+
 	// Resolve all of the imports in the AST.
-	queries := make([]incremental.Query[*ir.File],
-		// Preallocate for one extra query here, corresponding to the
-		// descriptor.proto query.
-		iterx.Count(file.Imports())+1)
+	direct := iterx.Count(file.Imports())
+	descriptorQuery, maskQuery := direct, -1
+	extra := 1 // The descriptor.proto query.
+	if masked {
+		maskQuery = direct + 1
+		extra++
+	}
+	queries := make([]incremental.Query[*ir.File], direct+extra)
 	errors := make([]error, len(queries))
 	for j, decl := range iterx.Enumerate(file.Imports()) {
 		lit := decl.ImportPath().AsLiteral().AsString()
@@ -130,25 +140,17 @@ func (i IR) Execute(t *incremental.Task) (*ir.File, error) {
 		}
 	}
 
-	queries[len(queries)-1] = IR{
+	queries[descriptorQuery] = IR{
 		Opener:  i.Opener,
 		Session: i.Session,
 		Path:    ir.DescriptorProtoPath,
 	}
-
-	// A file the session gives `_null` masks also needs the mask's type,
-	// whether or not it imports it: lowering asks for it with n == -2
-	// (protocompile#248). Resolving it for a file that turns out to need
-	// none, or imports it itself, costs one cached query.
-	maskQuery := -1
-	if i.Session.NullMaskSelects(i.Path) {
-		maskQuery = len(queries)
-		queries = append(queries, IR{
+	if masked {
+		queries[maskQuery] = IR{
 			Opener:  i.Opener,
 			Session: i.Session,
 			Path:    ir.NullMaskImport,
-		})
-		errors = append(errors, nil)
+		}
 	}
 
 	imports, err := incremental.Resolve(t, queries...)
@@ -161,10 +163,7 @@ func (i IR) Execute(t *incremental.Task) (*ir.File, error) {
 		case -1:
 			// The lowering code will call the importer with n == -1 if it needs
 			// descriptor.proto but it isn't imported (transitively).
-			n = len(queries) - 1
-			if maskQuery >= 0 {
-				n--
-			}
+			n = descriptorQuery
 		case -2:
 			// ...and with n == -2 for the `_null` mask's type.
 			if maskQuery < 0 {

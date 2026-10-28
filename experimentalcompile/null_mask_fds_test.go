@@ -77,7 +77,7 @@ func TestNullMask_DescriptorSetCarriesFieldMask(t *testing.T) {
 	}, "m.proto", fdp.Options{})
 	require.Empty(t, diagnostics(r, report.Error))
 
-	var names []string
+	names := make([]string, 0, len(fds.GetFile()))
 	for _, f := range fds.GetFile() {
 		names = append(names, f.GetName())
 	}
@@ -87,7 +87,9 @@ func TestNullMask_DescriptorSetCarriesFieldMask(t *testing.T) {
 	require.NoError(t, err, "the set must load without the global registry")
 	d, err := reg.FindDescriptorByName("m.M")
 	require.NoError(t, err)
-	mask := d.(protoreflect.MessageDescriptor).Fields().ByName("_null")
+	md, ok := d.(protoreflect.MessageDescriptor)
+	require.True(t, ok)
+	mask := md.Fields().ByName("_null")
 	require.NotNil(t, mask)
 	assert.Equal(t, protoreflect.FullName("google.protobuf.FieldMask"), mask.Message().FullName())
 }
@@ -170,7 +172,8 @@ message M { Inner i = 1; }`}, "e.proto", fdp.Options{})
 	require.NoError(t, err)
 	d, err := reg.FindDescriptorByName("e.M")
 	require.NoError(t, err)
-	md := d.(protoreflect.MessageDescriptor)
+	md, ok := d.(protoreflect.MessageDescriptor)
+	require.True(t, ok)
 	require.Equal(t, protoreflect.GroupKind, md.Fields().ByName("i").Kind(),
 		"control: the authored field follows DELIMITED")
 	mask := md.Fields().ByName("_null")
