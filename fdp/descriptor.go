@@ -71,8 +71,10 @@ func DescriptorProto(file *ir.File, options ...DescriptorOption) (*descriptorpb.
 // DescriptorSetBytes generates a FileDescriptorSet for the given files, and returns the
 // result as an encoded byte slice.
 //
-// The resulting FileDescriptorSet is always fully linked: it contains all dependencies except
-// the WKTs, and all names are fully-qualified.
+// The resulting FileDescriptorSet is always fully linked: it contains every file named as a
+// dependency of a file in it, well-known types included, unless [ExcludeFiles] leaves it out,
+// and all names are fully-qualified. A file with a generated `_null` mask depends on
+// google/protobuf/field_mask.proto whether or not it imports it (see [ir.Session.NullMask]).
 func DescriptorSetBytes(files []*ir.File, options ...DescriptorOption) ([]byte, error) {
 	var g generator
 	g.init(options...)

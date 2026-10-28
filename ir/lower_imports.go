@@ -46,8 +46,8 @@ const DescriptorProtoPath = "google/protobuf/descriptor.proto"
 //
 // When the session's [Session.NullMask] selects the file, it is also
 // called with [NullMaskImport] and an index value of -2, unless the file
-// imports it directly. Returning an error or a zero file is reported as
-// an error.
+// declares an import of it. Returning an error or a zero file is reported
+// as an error if a message in the file needs the mask.
 type Importer func(n int, path string, decl ast.DeclImport) (*File, error)
 
 // ErrCycle is returned by an [Importer] when encountering an import cycle.
@@ -117,7 +117,7 @@ func buildImports(file *File, r *report.Report, importer Importer) {
 	// in all of *their* transitive imports.
 	file.imports.Recurse(dedup)
 
-	importNullMask(file, r, importer)
+	importNullMask(file, importer)
 
 	// Check if descriptor.proto was transitively imported. If not, import it.
 	if idx, ok := file.imports.byPath[file.session.builtins.DescriptorFile]; ok {

@@ -83,13 +83,10 @@ func init() {
 func Compile(ctx context.Context, args exphook.Args, files []string) (linker.Files, error) {
 	opener := experimentalOpener(args.Resolver)
 	executor := incremental.New()
-	session := &ir.Session{}
-	if args.NullMask != nil {
-		// Lowering imports the mask's type and reports what stops a
-		// message getting one; descriptor generation adds it
-		// (protocompile#248).
-		session.NullMask = &pathMasker{args.NullMask}
-	}
+	// With NullMask set, lowering imports the mask's type and reports what
+	// stops a message getting one; descriptor generation adds it
+	// (protocompile#248).
+	session := &ir.Session{NullMask: args.NullMask}
 
 	qs := make([]incremental.Query[*ir.File], len(files))
 	for i, f := range files {
@@ -473,11 +470,3 @@ type protoUnmarshal struct {
 func (p protoUnmarshal) do(data []byte, m protoreflect.ProtoMessage) error {
 	return protoUnmarshalImpl(p.resolver, data, m)
 }
-
-// pathMasker is an [ir.NullMasker] over a path predicate. It is used by
-// pointer, which keeps it comparable.
-type pathMasker struct {
-	selects func(path string) bool
-}
-
-func (m *pathMasker) NullMask(path string) bool { return m.selects(path) }

@@ -38,8 +38,9 @@ type Session struct {
 	// generated `_null` mask (protocompile#248; see [NeedsNullMask]).
 	// Lowering imports [NullMaskImport] for them and reports what stops a
 	// message getting one, and descriptor generation adds the field. Set
-	// it before the session lowers its first file. Nil generates none.
-	NullMask NullMasker
+	// it before the session lowers its first file. It is given canonical
+	// paths. Nil generates none.
+	NullMask func(path string) bool
 
 	intern   intern.Table
 	builtins builtinIDs

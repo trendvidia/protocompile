@@ -15,6 +15,7 @@
 package experimentalcompile_test
 
 import (
+	"io/fs"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -32,23 +33,28 @@ import (
 	"github.com/trendvidia/protocompile/source"
 )
 
-// allPaths is an [ir.NullMasker] selecting every file.
-type allPaths struct{}
-
-func (allPaths) NullMask(string) bool { return true }
+// allPaths selects every file for [ir.Session.NullMask].
+func allPaths(string) bool { return true }
 
 // nullMaskFDS builds the descriptor set for root through [queries.FDS], the
 // path `pxf build` takes, with `_null` masks on, as `pxf build` would.
 func nullMaskFDS(t *testing.T, sources map[string]string, root string, options fdp.Options) (*descriptorpb.FileDescriptorSet, *report.Report) {
 	t.Helper()
+	return nullMaskFDSWith(t, source.WKTs(), allPaths, sources, root, options)
+}
+
+// nullMaskFDSWith is [nullMaskFDS] with the well-known types from wkts, and
+// masks in the files masker selects.
+func nullMaskFDSWith(t *testing.T, wkts source.Opener, masker func(string) bool, sources map[string]string, root string, options fdp.Options) (*descriptorpb.FileDescriptorSet, *report.Report) {
+	t.Helper()
 	files := source.NewMap(nil)
 	for path, text := range sources {
 		files.Add(path, text)
 	}
-	chain := source.Openers{files, source.WKTs()}
+	chain := source.Openers{files, wkts}
 	results, r, err := incremental.Run(t.Context(), incremental.New(), queries.FDS{
 		Opener:    &chain,
-		Session:   &ir.Session{NullMask: allPaths{}},
+		Session:   &ir.Session{NullMask: masker},
 		Workspace: source.NewWorkspace(root),
 		Options:   options,
 	})
@@ -77,11 +83,7 @@ func TestNullMask_DescriptorSetCarriesFieldMask(t *testing.T) {
 	}, "m.proto", fdp.Options{})
 	require.Empty(t, diagnostics(r, report.Error))
 
-	names := make([]string, 0, len(fds.GetFile()))
-	for _, f := range fds.GetFile() {
-		names = append(names, f.GetName())
-	}
-	assert.Equal(t, []string{"google/protobuf/field_mask.proto", "m.proto"}, names)
+	assert.Equal(t, []string{"google/protobuf/field_mask.proto", "m.proto"}, fileNames(fds))
 
 	reg, err := protodesc.NewFiles(fds)
 	require.NoError(t, err, "the set must load without the global registry")
@@ -140,12 +142,104 @@ func TestNullMask_ImplicitImportIsInvisible(t *testing.T) {
 	}, "p.proto", fdp.Options{})
 	assert.Empty(t, diagnostics(r, report.Error))
 	assert.Empty(t, diagnostics(r, report.Warning))
-	for _, f := range fds.GetFile() {
-		if f.GetName() == "p.proto" {
-			assert.Empty(t, f.GetDependency(), "no message needs a mask, so no dependency")
-		}
-	}
+	assert.Equal(t, []string{"p.proto"}, fileNames(fds),
+		"no message needs a mask, so the set does not carry field_mask.proto")
+	assert.Empty(t, fds.GetFile()[0].GetDependency(), "no message needs a mask, so no dependency")
 	_, err := protodesc.NewFiles(fds)
+	require.NoError(t, err)
+}
+
+func fileNames(fds *descriptorpb.FileDescriptorSet) []string {
+	names := make([]string, 0, len(fds.GetFile()))
+	for _, f := range fds.GetFile() {
+		names = append(names, f.GetName())
+	}
+	return names
+}
+
+// withoutFieldMask serves every well-known type but field_mask.proto.
+type withoutFieldMask struct{}
+
+func (*withoutFieldMask) Open(path string) (*source.File, error) {
+	if path == ir.NullMaskImport {
+		return nil, fs.ErrNotExist
+	}
+	return source.WKTs().Open(path)
+}
+
+// Without field_mask.proto, only a file with a message that needs a mask
+// fails, once, at that message; it gets no mask and no dependency, so its
+// descriptor stays loadable. A file with no such message is unaffected.
+func TestNullMask_FieldMaskUnavailable(t *testing.T) {
+	t.Parallel()
+	fds, r := nullMaskFDSWith(t, &withoutFieldMask{}, allPaths, map[string]string{
+		"p.proto": `syntax = "proto3"; package p; message P { int32 n = 1; }`,
+	}, "p.proto", fdp.Options{})
+	assert.Empty(t, r.Diagnostics, "p.P needs no mask, so it needs no field_mask.proto")
+	assert.Equal(t, []string{"p.proto"}, fileNames(fds))
+
+	fds, r = nullMaskFDSWith(t, &withoutFieldMask{}, allPaths, map[string]string{
+		"q.proto": `syntax = "proto3"; package q; message Q { optional int32 n = 1; }`,
+	}, "q.proto", fdp.Options{})
+	require.Len(t, r.Diagnostics, 1)
+	d := &r.Diagnostics[0]
+	assert.Equal(t, report.Error, d.Level())
+	assert.Contains(t, d.Message(), "could not import \"google/protobuf/field_mask.proto\" for the generated `_null` mask in `q.Q`")
+	assert.Equal(t, "message Q { optional int32 n = 1; }", d.Primary().Text(), "the error points at the message")
+
+	require.Equal(t, []string{"q.proto"}, fileNames(fds))
+	q := fds.GetFile()[0]
+	assert.Empty(t, q.GetDependency())
+	assert.Empty(t, q.GetMessageType()[0].GetField()[1:], "no `_null` field without its type")
+	_, err := protodesc.NewFiles(fds)
+	require.NoError(t, err)
+}
+
+// A file that imports field_mask.proto itself, and cannot open it, gets
+// one error, at its import, and not a second one for the mask.
+func TestNullMask_DirectImportMissing(t *testing.T) {
+	t.Parallel()
+	_, r := nullMaskFDSWith(t, &withoutFieldMask{}, allPaths, map[string]string{
+		"q.proto": `syntax = "proto3"; package q; import "google/protobuf/field_mask.proto"; message Q { optional int32 n = 1; }`,
+	}, "q.proto", fdp.Options{})
+	errs := diagnostics(r, report.Error)
+	require.Len(t, errs, 1, "%v", errs)
+	assert.Contains(t, errs[0], `imported file "google/protobuf/field_mask.proto" does not exist`)
+}
+
+// The session's masker sees canonical paths, in the query that resolves
+// field_mask.proto as in lowering: a root spelled "./d.proto" is d.proto.
+func TestNullMask_NonCanonicalRoot(t *testing.T) {
+	t.Parallel()
+	fds, r := nullMaskFDSWith(t, source.WKTs(), func(path string) bool { return path == "d.proto" }, map[string]string{
+		"./d.proto": `syntax = "proto3"; package d; message D { optional int32 n = 1; }`,
+	}, "./d.proto", fdp.Options{})
+	require.Empty(t, r.Diagnostics)
+	assert.Equal(t, []string{"google/protobuf/field_mask.proto", "d.proto"}, fileNames(fds))
+	_, err := protodesc.NewFiles(fds)
+	require.NoError(t, err)
+}
+
+// fdp.DescriptorSetBytes over a lowered file carries field_mask.proto as
+// queries.FDS does (protocompile#250).
+func TestNullMask_DescriptorSetBytes(t *testing.T) {
+	t.Parallel()
+	files := source.NewMap(nil)
+	files.Add("m.proto", `syntax = "proto3"; package m; message M { optional int32 o = 1; }`)
+	chain := source.Openers{files, source.WKTs()}
+	results, r, err := incremental.Run(t.Context(), incremental.New(), queries.IR{
+		Opener:  &chain,
+		Session: &ir.Session{NullMask: allPaths},
+		Path:    "m.proto",
+	})
+	require.NoError(t, err)
+	require.Empty(t, r.Diagnostics)
+	raw, err := fdp.DescriptorSetBytes([]*ir.File{results[0].Value})
+	require.NoError(t, err)
+	fds := new(descriptorpb.FileDescriptorSet)
+	require.NoError(t, proto.Unmarshal(raw, fds))
+	assert.Equal(t, []string{"google/protobuf/field_mask.proto", "m.proto"}, fileNames(fds))
+	_, err = protodesc.NewFiles(fds)
 	require.NoError(t, err)
 }
 

@@ -91,8 +91,9 @@ func (i IR) Execute(t *incremental.Task) (*ir.File, error) {
 	// A file the session gives `_null` masks also needs the mask's type,
 	// whether or not it imports it: lowering asks for it with n == -2
 	// (protocompile#248). Resolving it for a file that turns out to need
-	// none, or imports it itself, costs one cached query.
-	masked := i.Session.NullMaskSelects(i.Path)
+	// none, or imports it itself, costs one cached query. Lowering selects
+	// by the canonical path, so this must too.
+	masked := i.Session.NullMaskSelects(ir.CanonicalizeFilePath(i.Path))
 
 	// Resolve all of the imports in the AST.
 	direct := iterx.Count(file.Imports())
@@ -146,10 +147,25 @@ func (i IR) Execute(t *incremental.Task) (*ir.File, error) {
 		Path:    ir.DescriptorProtoPath,
 	}
 	if masked {
-		queries[maskQuery] = IR{
-			Opener:  i.Opener,
-			Session: i.Session,
-			Path:    ir.NullMaskImport,
+		// As for an import: a missing file is not reported here, but by
+		// lowering, and only if a message in the file needs the mask.
+		r, err := incremental.Resolve(t, File{
+			Opener:      i.Opener,
+			Path:        ir.NullMaskImport,
+			ReportError: false,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if err := r[0].Fatal; err != nil {
+			queries[maskQuery] = incremental.ZeroQuery[*ir.File]{}
+			errors[maskQuery] = err
+		} else {
+			queries[maskQuery] = IR{
+				Opener:  i.Opener,
+				Session: i.Session,
+				Path:    ir.NullMaskImport,
+			}
 		}
 	}
 
