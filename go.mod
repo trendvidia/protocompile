@@ -11,7 +11,7 @@ require (
 	github.com/protocolbuffers/protoscope v0.0.0-20221109213918-8e7a6aafa2c9
 	github.com/rivo/uniseg v0.4.7
 	github.com/stretchr/testify v1.12.1
-	github.com/tidwall/btree v1.8.1
+	github.com/tidwall/btree v1.8.2
 	golang.org/x/exp v0.0.0-20250911091902-df9299821621
 	golang.org/x/sync v0.24.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20260807164820-c8921c73eeea
