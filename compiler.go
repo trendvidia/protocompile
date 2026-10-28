@@ -72,6 +72,20 @@ type Compiler struct {
 	// experimental IR (and AST) via a type assertion. If false, ASTs
 	// may be garbage-collected after Compile returns.
 	RetainASTs bool
+
+	// NullMask, when non-nil, selects the files whose messages get a
+	// generated `_null` field of type google.protobuf.FieldMask, the
+	// field PXF decoders record null fields in so that a null survives
+	// protobuf binary (protocompile#248). A message gets one when it has
+	// a field able to hold a PXF null and declares no `_null` itself;
+	// an authored field that takes the mask's number or JSON name is an
+	// error, and a range or name the author reserved over it is a
+	// warning that leaves the message without one. google/protobuf/
+	// files never get one. Nil, the default, generates none.
+	//
+	// Honoured by the experimental pipeline only; the legacy pipeline
+	// (`PROTOCOMPILE_PARSER=legacy`) ignores it.
+	NullMask func(path string) bool
 }
 
 // RegisterExperimentalCompile is preserved as a compatibility shim for
@@ -94,6 +108,7 @@ func RegisterExperimentalCompile(fn func(ctx context.Context, c *Compiler, files
 			Reporter:       args.Reporter,
 			SourceInfoMode: SourceInfoMode(args.SourceInfoMode),
 			RetainASTs:     args.RetainASTs,
+			NullMask:       args.NullMask,
 		}, files)
 	})
 }
@@ -128,6 +143,7 @@ func (c *Compiler) expArgs() exphook.Args {
 		Reporter:       c.Reporter,
 		SourceInfoMode: int(c.SourceInfoMode),
 		RetainASTs:     c.RetainASTs,
+		NullMask:       c.NullMask,
 	}
 }
 

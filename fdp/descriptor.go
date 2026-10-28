@@ -184,3 +184,29 @@ func ExcludeFiles(exclude Excluder) DescriptorOption {
 		o.exclude = exclude
 	})
 }
+
+// NullMasker is used with [NullMasks].
+//
+// This is an interface, rather than a function, so that implementations can be comparable for
+// use in queries.
+type NullMasker interface {
+	// NullMask reports whether messages in file get a generated `_null`
+	// mask.
+	NullMask(file *ir.File) bool
+}
+
+// NullMasks adds a `_null` field of type google.protobuf.FieldMask, at
+// [ir.NullMaskNumber], to every message in the files masker selects that
+// has a field able to hold a PXF null (protocompile#248): the field PXF
+// decoders record null fields in, so that a null survives protobuf
+// binary. A file that gets a mask also gets google/protobuf/field_mask.proto
+// as a dependency. See [ir.NeedsNullMask] for which messages qualify;
+// google/protobuf/ files never do. [ir.CheckNullMasks] reports the
+// messages that cannot get one.
+//
+// Masks are off by default: the zero [Options] adds none.
+func NullMasks(masker NullMasker) DescriptorOption {
+	return descriptorOption(func(o *Options) {
+		o.nullMask = masker
+	})
+}

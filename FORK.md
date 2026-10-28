@@ -47,6 +47,21 @@ specified in protowire's **RFC-001 — Protowire Schema Extensions**
   retired because `50100`/`50101` are SBE's `schema_id` / `version` on
   FileOptions. This document named the latter until 2026-08-30.
 
+The fork also adds one opt-in lowering that is not part of the schema
+language:
+
+- **The `_null` mask** (`Compiler.NullMask`, `fdp.NullMasks`;
+  protocompile#248). A PXF `null` survives protobuf binary only through a
+  `google.protobuf.FieldMask _null` field, where decoders record the null
+  fields. With masks on, lowering adds that field, at number 536870911,
+  to every message that has a field able to hold `null` (a singular field
+  with presence; protowire#339) and declares no `_null` of its own. An
+  authored field that takes the number or the JSON name `Null` is an
+  error; an extension or reserved range over the number, or `reserved
+  "_null"`, leaves the message without a mask and warns.
+  `google/protobuf/` files never get one. Off by default, so output
+  matches protoc unless a caller asks.
+
 These additions are vendor-specific and not expected to land in
 upstream `bufbuild/protocompile`, which serves the broader
 protobuf community. The two-branch model expresses that cleanly:

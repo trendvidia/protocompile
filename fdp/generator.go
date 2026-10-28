@@ -51,12 +51,17 @@ type Options struct {
 	// by default, and a caller opts out with EmitGoogleAPIHTTP(false).
 	suppressGoogleAPIHTTP bool
 	exclude               Excluder
+	nullMask              NullMasker
 }
 
 type generator struct {
 	currentFile *ir.File
 	Options
 	debug *debug
+
+	// Whether the current file gets `_null` masks, and whether any
+	// message in it got one (protocompile#248).
+	nullMasks, nullMaskAdded bool
 }
 
 func (g *generator) files(files []*ir.File, fds *descriptorpb.FileDescriptorSet) {
@@ -81,6 +86,8 @@ func (g *generator) file(file *ir.File, fdp *descriptorpb.FileDescriptorProto) {
 	defer g.debug.done(&fdp.SourceCodeInfo)
 
 	fdp.Name = addr(file.Path())
+	g.nullMasks = g.nullMask != nil && ir.NullMaskFile(file.Path()) && g.nullMask.NullMask(file)
+	g.nullMaskAdded = false
 
 	if file.Package() != "" {
 		fdp.Package = addr(string(file.Package()))
@@ -171,6 +178,10 @@ func (g *generator) file(file *ir.File, fdp *descriptorpb.FileDescriptorProto) {
 		msgIndex++
 	}
 
+	if g.nullMaskAdded && !slices.Contains(fdp.Dependency, ir.NullMaskImport) {
+		fdp.Dependency = append(fdp.Dependency, ir.NullMaskImport)
+	}
+
 	for i, service := range seq.All(file.Services()) {
 		g.debug.in(tags.File_Service, int32(i))(func() {
 			g.service(service, slicesx.PushNew(&fdp.Service))
@@ -240,6 +251,18 @@ func (g *generator) message(ty ir.Type, mdp *descriptorpb.DescriptorProto) {
 		g.debug.in(tags.Message_Field, int32(i))(func() {
 			g.field(field, slicesx.PushNew(&mdp.Field))
 		})
+	}
+	if g.nullMasks && ir.NeedsNullMask(ty) {
+		// Generated, so it has no source location.
+		mdp.Field = append(mdp.Field, &descriptorpb.FieldDescriptorProto{
+			Name:     addr(ir.NullMaskName),
+			JsonName: addr(ir.NullMaskJSONName),
+			Number:   addr(ir.NullMaskNumber),
+			Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+			Type:     descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
+			TypeName: addr("." + string(ir.NullMaskTypeName)),
+		})
+		g.nullMaskAdded = true
 	}
 
 	var extnIndex int32

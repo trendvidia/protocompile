@@ -58,6 +58,7 @@ import (
 	"github.com/trendvidia/protocompile/linker"
 	"github.com/trendvidia/protocompile/report"
 	"github.com/trendvidia/protocompile/reporter"
+	"github.com/trendvidia/protocompile/seq"
 	"github.com/trendvidia/protocompile/source"
 )
 
@@ -107,6 +108,17 @@ func Compile(ctx context.Context, args exphook.Args, files []string) (linker.Fil
 	// the diagnostics are routed.
 	queries.LinkChecks(rpt, loweredRoots(results)...)
 
+	// The `_null` mask is added in descriptor generation; what stops a
+	// message getting one is reported here, with the rest of lowering's
+	// diagnostics (protocompile#248).
+	if args.NullMask != nil {
+		for _, file := range closure(loweredRoots(results)) {
+			if args.NullMask(file.Path()) {
+				ir.CheckNullMasks(rpt, file)
+			}
+		}
+	}
+
 	// Route every diagnostic through the caller's reporter. The handler
 	// implements the legacy contract on top of it: an Error callback
 	// returning non-nil aborts the batch with that error, returning nil
@@ -134,6 +146,9 @@ func Compile(ctx context.Context, args exphook.Args, files []string) (linker.Fil
 	errsReported := handler.Error() != nil
 
 	fdpOpts := fdpOptionsFor(args.SourceInfoMode)
+	if args.NullMask != nil {
+		fdpOpts = append(fdpOpts, fdp.NullMasks(&pathMasker{args.NullMask}))
+	}
 
 	out := make(linker.Files, len(results))
 	for i, r := range results {
@@ -464,3 +479,30 @@ type protoUnmarshal struct {
 func (p protoUnmarshal) do(data []byte, m protoreflect.ProtoMessage) error {
 	return protoUnmarshalImpl(p.resolver, data, m)
 }
+
+// closure returns roots and every file they import, each once.
+func closure(roots []*ir.File) []*ir.File {
+	seen := make(map[*ir.File]bool, len(roots))
+	var out []*ir.File
+	add := func(f *ir.File) {
+		if f != nil && !seen[f] {
+			seen[f] = true
+			out = append(out, f)
+		}
+	}
+	for _, root := range roots {
+		add(root)
+		for imp := range seq.Values(root.TransitiveImports()) {
+			add(imp.File)
+		}
+	}
+	return out
+}
+
+// pathMasker selects files for [fdp.NullMasks] by path. It is used by
+// pointer, which keeps it comparable.
+type pathMasker struct {
+	selects func(path string) bool
+}
+
+func (m *pathMasker) NullMask(file *ir.File) bool { return m.selects(file.Path()) }
