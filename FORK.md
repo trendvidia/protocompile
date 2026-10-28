@@ -55,7 +55,8 @@ language:
   `google.protobuf.FieldMask _null` field, where decoders record the null
   fields. With masks on, lowering adds that field, at number 536870911,
   to every message that has a field able to hold `null` (a singular field
-  with presence; protowire#339) and declares no `_null` of its own. An
+  with explicit presence that is not proto2 `required` or
+  `LEGACY_REQUIRED`; protowire#339, #379) and declares no `_null` of its own. An
   authored field that takes the number or the JSON name `Null`, or an
   `import option` of `google/protobuf/field_mask.proto`, is an
   error; an extension or reserved range over the number, or `reserved
