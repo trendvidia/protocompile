@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
@@ -144,4 +145,35 @@ func TestNullMask_ImplicitImportIsInvisible(t *testing.T) {
 	}
 	_, err := protodesc.NewFiles(fds)
 	require.NoError(t, err)
+}
+
+// In an editions file the mask is length-prefixed even under
+// `message_encoding = DELIMITED` on the file: its encoding is part of its
+// wire contract (protocompile#251). The authored field in the same file
+// is the control: it does become a group.
+func TestNullMask_EditionsDelimitedStaysLengthPrefixed(t *testing.T) {
+	t.Parallel()
+	fds, r := nullMaskFDS(t, map[string]string{"e.proto": `edition = "2023"; package e;
+option features.message_encoding = DELIMITED;
+message Inner { int32 x = 1; }
+message M { Inner i = 1; }`}, "e.proto", fdp.Options{})
+	require.Empty(t, diagnostics(r, report.Error))
+
+	// Authored options stay unknown bytes until a round trip folds them
+	// (see the fdp package doc); without it DELIMITED is invisible.
+	raw, err := proto.Marshal(fds)
+	require.NoError(t, err)
+	fds = new(descriptorpb.FileDescriptorSet)
+	require.NoError(t, proto.Unmarshal(raw, fds))
+
+	reg, err := protodesc.NewFiles(fds)
+	require.NoError(t, err)
+	d, err := reg.FindDescriptorByName("e.M")
+	require.NoError(t, err)
+	md := d.(protoreflect.MessageDescriptor)
+	require.Equal(t, protoreflect.GroupKind, md.Fields().ByName("i").Kind(),
+		"control: the authored field follows DELIMITED")
+	mask := md.Fields().ByName("_null")
+	require.NotNil(t, mask)
+	assert.Equal(t, protoreflect.MessageKind, mask.Kind(), "the mask must not be a group")
 }

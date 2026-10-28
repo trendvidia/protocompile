@@ -28,13 +28,15 @@
 // [DescriptorProtoBytes] output is unaffected: parsing it performs
 // that fold.
 //
-// Three categories are exempt and always typed in memory: the
+// Four categories are exempt and always typed in memory: the
 // protowire.schema.v1 carrier extensions (AnnotationList, SourceMap,
 // file-scope declaration lists); `options.map_entry` on synthetic
 // map-entry messages, which reflection consumers such as
 // [google.golang.org/protobuf/reflect/protodesc.NewFile] need for map
 // classification; and the `google.api.http` rule the compiler itself
-// lowers `@http` into (see [EmitGoogleAPIHTTP]). All three are
+// lowers `@http` into (see [EmitGoogleAPIHTTP]); and the feature pin on a
+// generated `_null` mask in an editions file (see [ir.Session.NullMask]).
+// All four are
 // compiler-synthesized rather than author-written, which is why they
 // are set as typed extensions and not folded into the option bytes.
 package fdp
