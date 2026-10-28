@@ -51,7 +51,6 @@ type Options struct {
 	// by default, and a caller opts out with EmitGoogleAPIHTTP(false).
 	suppressGoogleAPIHTTP bool
 	exclude               Excluder
-	nullMask              NullMasker
 }
 
 type generator struct {
@@ -86,7 +85,7 @@ func (g *generator) file(file *ir.File, fdp *descriptorpb.FileDescriptorProto) {
 	defer g.debug.done(&fdp.SourceCodeInfo)
 
 	fdp.Name = addr(file.Path())
-	g.nullMasks = g.nullMask != nil && ir.NullMaskFile(file) && g.nullMask.NullMask(file)
+	g.nullMasks = file.NullMasks()
 	g.nullMaskAdded = false
 
 	if file.Package() != "" {
@@ -261,6 +260,7 @@ func (g *generator) message(ty ir.Type, mdp *descriptorpb.DescriptorProto) {
 			Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
 			Type:     descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
 			TypeName: addr("." + string(ir.NullMaskTypeName)),
+			Options:  nullMaskOptions(ty),
 		})
 		g.nullMaskAdded = true
 	}
@@ -940,3 +940,19 @@ func visibility(ty ir.Type) *descriptorpb.SymbolVisibility {
 // addr is a helper for creating a pointer out of any type, because Go is
 // missing the syntax &"foo", etc.
 func addr[T any](v T) *T { return &v }
+
+// nullMaskOptions pins the generated mask's encoding in an editions file,
+// so that `features.message_encoding = DELIMITED` on the file or a parent
+// message cannot make it a group: the mask's wire contract is fixed, like
+// its number (protocompile#251). Proto2 and proto3 fields are always
+// length-prefixed, and carry no features.
+func nullMaskOptions(ty ir.Type) *descriptorpb.FieldOptions {
+	if !ty.Context().Syntax().IsEdition() {
+		return nil
+	}
+	return &descriptorpb.FieldOptions{
+		Features: &descriptorpb.FeatureSet{
+			MessageEncoding: descriptorpb.FeatureSet_LENGTH_PREFIXED.Enum(),
+		},
+	}
+}

@@ -15,6 +15,8 @@
 package queries
 
 import (
+	"fmt"
+
 	"github.com/trendvidia/protocompile/ast"
 	"github.com/trendvidia/protocompile/incremental"
 	"github.com/trendvidia/protocompile/internal/ext/iterx"
@@ -86,11 +88,22 @@ func (i IR) Execute(t *incremental.Task) (*ir.File, error) {
 		return nil, dp[0].Fatal
 	}
 
+	// A file the session gives `_null` masks also needs the mask's type,
+	// whether or not it imports it: lowering asks for it with n == -2
+	// (protocompile#248). Resolving it for a file that turns out to need
+	// none, or imports it itself, costs one cached query. Lowering selects
+	// by the canonical path, so this must too.
+	masked := i.Session.NullMaskSelects(ir.CanonicalizeFilePath(i.Path))
+
 	// Resolve all of the imports in the AST.
-	queries := make([]incremental.Query[*ir.File],
-		// Preallocate for one extra query here, corresponding to the
-		// descriptor.proto query.
-		iterx.Count(file.Imports())+1)
+	direct := iterx.Count(file.Imports())
+	descriptorQuery, maskQuery := direct, -1
+	extra := 1 // The descriptor.proto query.
+	if masked {
+		maskQuery = direct + 1
+		extra++
+	}
+	queries := make([]incremental.Query[*ir.File], direct+extra)
 	errors := make([]error, len(queries))
 	for j, decl := range iterx.Enumerate(file.Imports()) {
 		lit := decl.ImportPath().AsLiteral().AsString()
@@ -128,10 +141,32 @@ func (i IR) Execute(t *incremental.Task) (*ir.File, error) {
 		}
 	}
 
-	queries[len(queries)-1] = IR{
+	queries[descriptorQuery] = IR{
 		Opener:  i.Opener,
 		Session: i.Session,
 		Path:    ir.DescriptorProtoPath,
+	}
+	if masked {
+		// As for an import: a missing file is not reported here, but by
+		// lowering, and only if a message in the file needs the mask.
+		r, err := incremental.Resolve(t, File{
+			Opener:      i.Opener,
+			Path:        ir.NullMaskImport,
+			ReportError: false,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if err := r[0].Fatal; err != nil {
+			queries[maskQuery] = incremental.ZeroQuery[*ir.File]{}
+			errors[maskQuery] = err
+		} else {
+			queries[maskQuery] = IR{
+				Opener:  i.Opener,
+				Session: i.Session,
+				Path:    ir.NullMaskImport,
+			}
+		}
 	}
 
 	imports, err := incremental.Resolve(t, queries...)
@@ -140,10 +175,17 @@ func (i IR) Execute(t *incremental.Task) (*ir.File, error) {
 	}
 
 	importer := func(n int, _ string, _ ast.DeclImport) (*ir.File, error) {
-		if n == -1 {
+		switch n {
+		case -1:
 			// The lowering code will call the importer with n == -1 if it needs
 			// descriptor.proto but it isn't imported (transitively).
-			n = len(queries) - 1
+			n = descriptorQuery
+		case -2:
+			// ...and with n == -2 for the `_null` mask's type.
+			if maskQuery < 0 {
+				return nil, fmt.Errorf("%s was not resolved for %s", ir.NullMaskImport, i.Path)
+			}
+			n = maskQuery
 		}
 
 		result := imports[n]

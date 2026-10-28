@@ -28,13 +28,15 @@
 // [DescriptorProtoBytes] output is unaffected: parsing it performs
 // that fold.
 //
-// Three categories are exempt and always typed in memory: the
+// Four categories are exempt and always typed in memory: the
 // protowire.schema.v1 carrier extensions (AnnotationList, SourceMap,
 // file-scope declaration lists); `options.map_entry` on synthetic
 // map-entry messages, which reflection consumers such as
 // [google.golang.org/protobuf/reflect/protodesc.NewFile] need for map
 // classification; and the `google.api.http` rule the compiler itself
-// lowers `@http` into (see [EmitGoogleAPIHTTP]). All three are
+// lowers `@http` into (see [EmitGoogleAPIHTTP]); and the feature pin on a
+// generated `_null` mask in an editions file (see [ir.Session.NullMask]).
+// All four are
 // compiler-synthesized rather than author-written, which is why they
 // are set as typed extensions and not folded into the option bytes.
 package fdp
@@ -69,8 +71,10 @@ func DescriptorProto(file *ir.File, options ...DescriptorOption) (*descriptorpb.
 // DescriptorSetBytes generates a FileDescriptorSet for the given files, and returns the
 // result as an encoded byte slice.
 //
-// The resulting FileDescriptorSet is always fully linked: it contains all dependencies except
-// the WKTs, and all names are fully-qualified.
+// The resulting FileDescriptorSet is always fully linked: it contains every file named as a
+// dependency of a file in it, well-known types included, unless [ExcludeFiles] leaves it out,
+// and all names are fully-qualified. A file with a generated `_null` mask depends on
+// google/protobuf/field_mask.proto whether or not it imports it (see [ir.Session.NullMask]).
 func DescriptorSetBytes(files []*ir.File, options ...DescriptorOption) ([]byte, error) {
 	var g generator
 	g.init(options...)
@@ -182,31 +186,5 @@ type Excluder interface {
 func ExcludeFiles(exclude Excluder) DescriptorOption {
 	return descriptorOption(func(o *Options) {
 		o.exclude = exclude
-	})
-}
-
-// NullMasker is used with [NullMasks].
-//
-// This is an interface, rather than a function, so that implementations can be comparable for
-// use in queries.
-type NullMasker interface {
-	// NullMask reports whether messages in file get a generated `_null`
-	// mask.
-	NullMask(file *ir.File) bool
-}
-
-// NullMasks adds a `_null` field of type google.protobuf.FieldMask, at
-// [ir.NullMaskNumber], to every message in the files masker selects that
-// has a field able to hold a PXF null (protocompile#248): the field PXF
-// decoders record null fields in, so that a null survives protobuf
-// binary. A file that gets a mask also gets google/protobuf/field_mask.proto
-// as a dependency. See [ir.NeedsNullMask] for which messages qualify;
-// google/protobuf/ files never do. [ir.CheckNullMasks] reports the
-// messages that cannot get one.
-//
-// Masks are off by default: the zero [Options] adds none.
-func NullMasks(masker NullMasker) DescriptorOption {
-	return descriptorOption(func(o *Options) {
-		o.nullMask = masker
 	})
 }

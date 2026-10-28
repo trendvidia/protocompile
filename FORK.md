@@ -50,8 +50,8 @@ specified in protowire's **RFC-001 — Protowire Schema Extensions**
 The fork also adds one opt-in lowering that is not part of the schema
 language:
 
-- **The `_null` mask** (`Compiler.NullMask`, `fdp.NullMasks`;
-  protocompile#248). A PXF `null` survives protobuf binary only through a
+- **The `_null` mask** (`Compiler.NullMask`, or `ir.Session.NullMask` for
+  callers driving the incremental queries; protocompile#248). A PXF `null` survives protobuf binary only through a
   `google.protobuf.FieldMask _null` field, where decoders record the null
   fields. With masks on, lowering adds that field, at number 536870911,
   to every message that has a field able to hold `null` (a singular field
@@ -60,8 +60,13 @@ language:
   `import option` of `google/protobuf/field_mask.proto`, is an
   error; an extension or reserved range over the number, or `reserved
   "_null"`, leaves the message without a mask and warns.
-  `google/protobuf/` files never get one. Off by default, so output
-  matches protoc unless a caller asks.
+  `google/protobuf/` files never get one. The mask is length-prefixed in
+  every file, editions files with `message_encoding = DELIMITED`
+  included. A file that gets a mask without importing
+  `field_mask.proto` gets it as a dependency, and a descriptor set
+  carries it (protocompile#250). Off by default, so output matches protoc
+  unless a caller asks: decided by the owner on #248 (2026-10-28), with
+  protowire's tools opting in.
 
 These additions are vendor-specific and not expected to land in
 upstream `bufbuild/protocompile`, which serves the broader

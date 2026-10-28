@@ -43,6 +43,11 @@ const DescriptorProtoPath = "google/protobuf/descriptor.proto"
 // This function will also be called with [DescriptorProtoPath] if it isn't
 // transitively imported by the lowered file, with an index value of -1.
 // Returning an error or a zero file will trigger an ICE.
+//
+// When the session's [Session.NullMask] selects the file, it is also
+// called with [NullMaskImport] and an index value of -2, unless the file
+// declares an import of it. Returning an error or a zero file is reported
+// as an error if a message in the file needs the mask.
 type Importer func(n int, path string, decl ast.DeclImport) (*File, error)
 
 // ErrCycle is returned by an [Importer] when encountering an import cycle.
@@ -111,6 +116,8 @@ func buildImports(file *File, r *report.Report, importer Importer) {
 	// Having found all of the imports that are not cyclic, we now need to pull
 	// in all of *their* transitive imports.
 	file.imports.Recurse(dedup)
+
+	importNullMask(file, importer)
 
 	// Check if descriptor.proto was transitively imported. If not, import it.
 	if idx, ok := file.imports.byPath[file.session.builtins.DescriptorFile]; ok {
