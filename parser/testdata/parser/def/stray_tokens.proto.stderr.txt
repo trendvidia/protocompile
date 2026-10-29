@@ -1,0 +1,33 @@
+error: unexpected integer literal in file scope
+  --> testdata/parser/def/stray_tokens.proto:8:1
+   |
+ 8 | 1
+   | ^ expected identifier, `;`, `.`, `@`, `(...)`, or `{...}`
+
+error: unexpected tokens in file scope
+  --> testdata/parser/def/stray_tokens.proto:11:1
+   |
+11 | 1 2
+   | ^^^ expected identifier, `;`, `.`, `@`, `(...)`, or `{...}`
+
+error: unexpected tokens in file scope
+  --> testdata/parser/def/stray_tokens.proto:14:1
+   |
+14 | 1 2 3
+   | ^^^^^ expected identifier, `;`, `.`, `@`, `(...)`, or `{...}`
+
+error: unexpected tokens in file scope
+  --> testdata/parser/def/stray_tokens.proto:17:1
+   |
+17 | 0 1234 0x0f 1.5 "str" 6
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+   |  |
+   |  expected identifier, `;`, `.`, `@`, `(...)`, or `{...}`
+
+error: unexpected tokens in message definition
+  --> testdata/parser/def/stray_tokens.proto:19:5
+   |
+19 |     7 8 9
+   |     ^^^^^ expected identifier, `;`, `.`, `@`, `(...)`, or `{...}`
+
+encountered 5 errors

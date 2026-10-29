@@ -60,7 +60,7 @@ func parseDecl(p *parser, c *token.Cursor, in taxa.Noun) ast.DeclAny {
 			Where: in.In(),
 			Want:  startsDecl,
 		})
-	case 2:
+	default:
 		p.Error(errtoken.Unexpected{
 			What:  source.JoinSeq(slices.Values(unexpected)),
 			Where: in.In(),

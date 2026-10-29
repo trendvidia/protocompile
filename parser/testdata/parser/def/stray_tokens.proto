@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package test;
+
+// Runs of tokens that cannot start a declaration (#277). Every run is an
+// error, however long: three or more used to be consumed with no
+// diagnostic, so a file of bare numbers parsed clean and printed empty.
+1
+message A {}
+
+1 2
+message B {}
+
+1 2 3
+message C {}
+
+0 1234 0x0f 1.5 "str" 6
+message D {
+    7 8 9
+    int32 x = 1;
+}
