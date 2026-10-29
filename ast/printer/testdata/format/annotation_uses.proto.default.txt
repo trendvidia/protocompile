@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package test;
+
+annotation required;
+annotation validate(rule: expression, code: string = "", message: string = "");
+annotation deprecated_since(version: string);
+
+function tempo_ordered(t: TempoRange);
+
+// Beats per minute, 40-220, min <= max.
+@validate(tempo_ordered(this), code = "tempo.min_le_max", message = "min_bpm must not exceed max_bpm")
+message TempoRange {
+  int32 min_bpm = 1 @required;
+  int32 max_bpm = 2 [deprecated = true] @required @validate(this <= 220);
+}
+
+@deprecated_since("1.2")
+@myco.marker
+message Descriptor {
+  float energy = 1
+    @validate(this >= 0.0 && this <= 1.0, code = "descriptor.energy.range", message = "energy must be within [0, 1]");
+  TempoRange tempo = 3 @required; // trailing comment
+  float valence = 4 /* before */ @required() /* after */;
+
+  // Doc on the oneof.
+  @required
+  oneof source {
+    string url = 5 @validate(this != "");
+    bytes blob = 6;
+  }
+
+  @validate(this != NONE)
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    KIND_A = 1 @deprecated_since("1.1");
+    KIND_B = 2 [deprecated = true] @deprecated_since("1.0");
+  }
+
+  @deprecated_since("1.0")
+  message Nested {}
+}
+
+@deprecated_since("1.0")
+service Tempo {
+  @deprecated_since("1.1")
+  rpc Get(TempoRange) returns (Descriptor);
+
+  @required
+  @deprecated_since("1.2")
+  rpc Put(Descriptor) returns (TempoRange) {}
+}
+
+type Bpm = int32 @validate(this >= 40 && this <= 220);
+function in_range(lo: int32, hi: int32) @deprecated_since("1.3");
+
+message Edge {
+  string a = 1
+    @validate(
+      // why the rule holds
+      this != "", code = "edge.a" /* inline */
+    ) // after the args
+  ;
+  string b = 2 @validate({min: 1, max: [2, 3]}) @required() @required;
+  string c = 3 [
+    (opt) = {
+      x: 1
+    }
+  ] @required @deprecated_since("1.0");
+}
