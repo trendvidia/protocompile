@@ -192,7 +192,10 @@ $(BIN)/golangci-lint: internal/tools/go.mod internal/tools/go.sum
 
 $(CACHE)/protoc-$(PROTOC_VERSION).zip:
 	@mkdir -p $(@D)
-	curl -o $@ -fsSL https://github.com/protocolbuffers/protobuf/releases/download/v$(PROTOC_VERSION)/protoc-$(PROTOC_ARTIFACT_VERSION)-$(PROTOC_ARTIFACT_SUFFIX).zip
+	@# --retry-all-errors: a hosted runner starts with no cache, and GitHub's
+	@# release download has refused one of six parallel jobs with a 403,
+	@# which plain --retry does not retry (#290).
+	curl --retry 5 --retry-all-errors --retry-delay 2 -o $@ -fsSL https://github.com/protocolbuffers/protobuf/releases/download/v$(PROTOC_VERSION)/protoc-$(PROTOC_ARTIFACT_VERSION)-$(PROTOC_ARTIFACT_SUFFIX).zip
 
 .PHONY: protoc
 protoc: $(PROTOC)
