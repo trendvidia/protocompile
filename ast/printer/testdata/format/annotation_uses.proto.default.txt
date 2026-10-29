@@ -9,7 +9,11 @@ annotation deprecated_since(version: string);
 function tempo_ordered(t: TempoRange);
 
 // Beats per minute, 40-220, min <= max.
-@validate(tempo_ordered(this), code = "tempo.min_le_max", message = "min_bpm must not exceed max_bpm")
+@validate(
+  tempo_ordered(this),
+  code = "tempo.min_le_max",
+  message = "min_bpm must not exceed max_bpm"
+)
 message TempoRange {
   int32 min_bpm = 1 @required;
   int32 max_bpm = 2 [deprecated = true] @required @validate(this <= 220);
@@ -19,7 +23,11 @@ message TempoRange {
 @myco.marker
 message Descriptor {
   float energy = 1
-    @validate(this >= 0.0 && this <= 1.0, code = "descriptor.energy.range", message = "energy must be within [0, 1]");
+    @validate(
+      this >= 0.0 && this <= 1.0,
+      code = "descriptor.energy.range",
+      message = "energy must be within [0, 1]"
+    );
   TempoRange tempo = 3 @required; // trailing comment
   float valence = 4 /* before */ @required() /* after */;
 

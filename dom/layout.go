@@ -45,7 +45,11 @@ func (l *layout) layoutFlat(cursor cursor) (total int, broken bool) {
 	for tag, cursor := range cursor {
 		switch tag.kind {
 		case kindText, kindSpace, kindBreak:
-			if l.prevText != nil {
+			// Only tags that render when flat take part in merging here: a
+			// break that renders only when broken must not delete the space
+			// beside it from the flat width, or every softline separator is
+			// undercounted.
+			if l.prevText != nil && tag.renderIf(Flat) {
 				prev, next := shouldMerge(l.prevText, tag)
 				if !prev {
 					total -= l.prevText.width
@@ -116,10 +120,10 @@ func (l *layout) layoutBroken(cursor cursor) {
 			//
 			// 1. The would cause overflow of the global max width.
 			//
-			// 2. The group itself is too wide.
+			// 2. The group would end past its own column limit.
 			tag.broken = tag.broken ||
 				tag.column+tag.width > l.MaxWidth ||
-				tag.width > tag.limit
+				tag.column+tag.width > tag.limit
 
 			if !tag.broken {
 				// No need to recurse; we are leaving this group unbroken.

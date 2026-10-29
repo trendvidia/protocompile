@@ -972,12 +972,32 @@ func (p *printer) withIndent(fn func(p *printer)) {
 
 // withGroup runs fn with a grouped printer, swapping the sink temporarily.
 func (p *printer) withGroup(fn func(p *printer)) {
+	p.withGroupWidth(p.options.Formatting.MaxWidth, fn)
+}
+
+// withGroupWidth is like [printer.withGroup], but the group breaks when it
+// would end past column width, which may be tighter than
+// [Formatting.MaxWidth].
+func (p *printer) withGroupWidth(width int, fn func(p *printer)) {
 	originalPush := p.push
-	p.push(dom.Group(p.options.Formatting.MaxWidth, func(groupSink dom.Sink) {
+	p.push(dom.Group(width, func(groupSink dom.Sink) {
 		p.push = groupSink
 		fn(p)
 	}))
 	p.push = originalPush
+}
+
+// annotationMaxWidth is the column past which annotation uses and the
+// parameter lists of `annotation` and `function` declarations wrap, under
+// every preset (#281). [Legacy] sets no width for stock syntax because buf
+// format has none, but buf has no layout for these constructs at all.
+const annotationMaxWidth = 100
+
+// annotationWidth returns the column limit for an annotation layout group.
+// It leaves one column for the `;` that follows a trailing annotation use or
+// a declaration's parameter list, which prints after the group closes.
+func (p *printer) annotationWidth() int {
+	return min(p.options.Formatting.MaxWidth, annotationMaxWidth) - 1
 }
 
 // emitComment trims trailing whitespace from a comment token and emits
