@@ -742,7 +742,6 @@ func (p *printer) printCompactOptions(co ast.CompactOptions) {
 			p.emitTriviaSlot(slots, entries.Len())
 		})
 		p.emitTrivia(gapNone)
-		p.push(tagSoftbreak)
 		p.printToken(closeTok, gapNone)
 	})
 }

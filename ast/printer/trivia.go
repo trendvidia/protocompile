@@ -412,9 +412,10 @@ func (idx *triviaIndex) walkDecl(cursor *token.Cursor, startToken token.Token, m
 	}
 	// At end of scope with leftover pending from the main loop (no `;` or `}`
 	// was found), extract inline comments as trailing on the end token.
-	// Comments after a newline are pushed back so they flow to the close
-	// token's leading via walkFused. Pure whitespace is discarded since the
-	// printer provides appropriate gaps.
+	// Everything from the first newline on is pushed back so it flows to the
+	// close token's leading via walkFused: comments, and whitespace too, so
+	// that a round trip keeps a close bracket on its own line (format mode
+	// drops whitespace from pending anyway).
 	if atEndOfScope && len(pending) > 0 && len(trailing) == 0 {
 		firstNewline := firstNewlineIndex(pending)
 		if sliceHasComment(pending[:firstNewline]) {
@@ -426,9 +427,9 @@ func (idx *triviaIndex) walkDecl(cursor *token.Cursor, startToken token.Token, m
 			// so that blankBeforeClose is true for the scope.
 			_, detachedRest := splitDetached(rest)
 			hasBlankLine = len(rest) > len(detachedRest)
-			for range rest {
-				cursor.PrevSkippable()
-			}
+		}
+		for range rest {
+			cursor.PrevSkippable()
 		}
 	}
 	// At end of scope with no newline, if trailing on `;` has a block
