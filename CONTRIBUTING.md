@@ -96,6 +96,16 @@ whose trigger says so:
   shipped in that window. If it is ever disabled again, say so here — a
   gate nobody can see is worse than one that does not exist.
 
+One workflow runs on a schedule, and it tests nothing:
+
+- `upstream-mirror` (`.github/workflows/upstream-mirror.yaml`) — Mondays
+  and manual dispatch, on `ubuntu-latest`. It fast-forwards `main` to
+  upstream `bufbuild/protocompile:main` (see FORK.md). `main` went five
+  months stale with nothing to show it, and seven upstream printer fixes
+  were missed (#274, #280). It fails rather than guessing when `main` has
+  diverged, or when upstream changed `.github/workflows/`, which its token
+  may not push; the failure prints the command to push by hand.
+
 ### Manual cloud CI when you want it
 
 `ci` now runs on every pull request by itself. Dispatch a workflow by

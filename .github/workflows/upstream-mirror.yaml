@@ -1,0 +1,52 @@
+name: upstream-mirror
+# Keeps `main` a fast-forward mirror of upstream bufbuild/protocompile `main`,
+# as FORK.md describes. It went five months stale without anyone noticing,
+# and seven upstream printer fixes were missed with it (#274, #280).
+#
+# This is the repository's one scheduled workflow, an exception to the
+# trigger policy in CONTRIBUTING.md (owner's decision on #280). It does no
+# testing; it only moves `main`, and it fails loudly when it cannot:
+#
+#   - `main` has diverged from upstream: nothing is pushed. Someone must
+#     decide what happened, since `main` takes no direct commits.
+#   - the new upstream commits change `.github/workflows/`: GITHUB_TOKEN may
+#     not push those (GitHub requires the `workflows` permission, which it
+#     cannot have), so the run fails with the command to push by hand. That
+#     was 8 of 140 upstream commits from 2025-10 to 2026-10.
+#
+# A push made with GITHUB_TOKEN starts no other workflow, so upstream's own
+# workflows on `main` do not run from it.
+on:
+  schedule:
+    - cron: '17 6 * * 1' # Mondays 06:17 UTC; schedules run on the default branch only
+  workflow_dispatch: {} # manual runs via `gh workflow run upstream-mirror.yaml`
+permissions:
+  contents: write
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Fast-forward main to upstream
+        run: |
+          git fetch --no-tags https://github.com/bufbuild/protocompile.git main
+          upstream=$(git rev-parse FETCH_HEAD)
+          current=$(git rev-parse HEAD)
+          echo "main=$current upstream=$upstream"
+          if [ "$current" = "$upstream" ]; then
+            echo "main already matches upstream"
+            exit 0
+          fi
+          if ! git merge-base --is-ancestor "$current" "$upstream"; then
+            echo "::error::main ($current) has diverged from upstream ($upstream); it cannot be fast-forwarded. main takes no direct commits, so find out what landed on it."
+            exit 1
+          fi
+          if [ -n "$(git diff --name-only "$current" "$upstream" -- .github/workflows)" ]; then
+            echo "::error::upstream changed .github/workflows, which GITHUB_TOKEN may not push. Push it by hand: git fetch https://github.com/bufbuild/protocompile.git main && git push origin $upstream:refs/heads/main"
+            exit 1
+          fi
+          git push origin "$upstream:refs/heads/main"
+          echo "main fast-forwarded $current..$upstream ($(git rev-list --count "$current..$upstream") commits)"
