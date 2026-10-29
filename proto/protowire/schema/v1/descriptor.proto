@@ -15,7 +15,9 @@
 // Protowire Schema Extensions — descriptor-level lowering targets.
 //
 // Vendored from `trendvidia/protowire` (`proto/schema/v1/descriptor.proto`)
-// at commit cc2126a3bcdde38c1f727315b7fdd20bd337cf33 — a revision that
+// at commit bfd932ceb3a555a117061fe65c17b889945b4a90 — a revision that
+// carries Expression.enum_values (protowire#432) and the file options
+// trendvidia/protos#1 sets (protowire#434), and
 // includes the finalized Literal carrier shape (protowire#99: EnumLiteral,
 // LiteralValue list elements) and the ratified descriptor_path grammar
 // (protowire#106). For protocompile's B4 lowering pass. The vendored copy
@@ -37,6 +39,12 @@ package protowire.schema.v1;
 import "google/protobuf/any.proto";
 import "google/protobuf/descriptor.proto";
 import "pxf/bignum.proto";
+
+option csharp_namespace = "Protowire.Protos.Schema.V1";
+option go_package = "github.com/trendvidia/protos/protowire/schema/v1;schemav1";
+option java_multiple_files = true;
+option java_outer_classname = "DescriptorProto";
+option java_package = "org.protowire.protos.schema.v1";
 
 // ── Annotation carrier ────────────────────────────────────────────────────
 
@@ -214,6 +222,21 @@ message Expression {
 
   // Position of the expression's opening delimiter in the source file.
   SourceLocation location = 3;
+
+  // Enum value references found within this expression (RFC-001 section
+  // 5.4, issue #427), one per distinct spelling, resolved by the compiler
+  // from the annotated declaration's scope. An engine substitutes each
+  // spelling's number and never resolves a name itself; a reference in
+  // `source` with no entry here is a load-time error.
+  repeated EnumValueRef enum_values = 4;
+}
+
+// EnumValueRef is one enum value reference in an expression: the
+// spelling as written (`MODE_MATCH`, `Mode.MODE_MATCH`) and what it
+// resolved to.
+message EnumValueRef {
+  string spelling = 1;
+  EnumLiteral value = 2;
 }
 
 message FunctionRef {
@@ -281,8 +304,9 @@ enum ParamType {
   //
   // The compiler checks it (section 5.1, section 8.1): the fragment must
   // parse under the section 5.4 grammar; every call must resolve to a
-  // visible `function` declaration or be one of the seven builtins (size,
-  // starts_with, ends_with, contains, matches, now, is_nan); a declared
+  // visible `function` declaration or be one of the nine builtins (size,
+  // starts_with, ends_with, contains, matches, now, is_nan, defined,
+  // unique); every other name must resolve to an enum value; a declared
   // function's arity must match its declaration and a builtin's its
   // form. So, given `function matches(value: string, pattern: string)`,
   // `@validate(mathces(this, "^a"))` is a compile error at the call.

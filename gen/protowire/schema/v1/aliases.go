@@ -38,6 +38,7 @@ type (
 	EnrichedViolation           = protos.EnrichedViolation
 	EntryKind                   = protos.EntryKind
 	EnumLiteral                 = protos.EnumLiteral
+	EnumValueRef                = protos.EnumValueRef
 	ExecutionMode               = protos.ExecutionMode
 	Expression                  = protos.Expression
 	FieldPath                   = protos.FieldPath
