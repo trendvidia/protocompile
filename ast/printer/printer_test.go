@@ -15,9 +15,14 @@
 package printer_test
 
 import (
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/trendvidia/protocompile/ast"
 	"github.com/trendvidia/protocompile/ast/printer"
 	"github.com/trendvidia/protocompile/internal/golden"
 	"github.com/trendvidia/protocompile/parser"
@@ -178,4 +183,74 @@ func TestFormat(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestAnnotationUses checks that printing keeps every annotation use,
+// leading and trailing, in round-trip mode and under each format preset:
+// re-parsing the output must yield the same uses, in the same order, with
+// the same arguments up to whitespace.
+func TestAnnotationUses(t *testing.T) {
+	t.Parallel()
+
+	const path = "testdata/roundtrip/annotation_uses.proto"
+	text, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	parse := func(t *testing.T, text string) *ast.File {
+		t.Helper()
+		errs := &report.Report{}
+		file, _ := parser.Parse(path, source.NewFile(path, text), errs)
+		for _, d := range errs.Diagnostics {
+			require.Greater(t, d.Level(), report.Error, "parse error: %s", d.Message())
+		}
+		return file
+	}
+	want := annotationUses(parse(t, string(text)))
+	// A positive marker that the corpus exercises what it claims to,
+	// so an empty extraction cannot pass vacuously.
+	require.Len(t, want, 27)
+
+	for _, opts := range []printer.Options{
+		{},
+		{Format: true, Formatting: printer.Legacy()},
+		{Format: true, Formatting: printer.Default()},
+	} {
+		got, err := printer.PrintFile(opts, parse(t, string(text)))
+		require.NoError(t, err)
+		assert.Equal(t, want, annotationUses(parse(t, got)), "format=%v:\n%s", opts.Format, got)
+	}
+}
+
+// annotationUses lists every annotation use in file, in source order, as
+// its text with whitespace removed.
+func annotationUses(file *ast.File) []string {
+	var uses []string
+	var walk func(decls seq.Indexer[ast.DeclAny])
+	use := func(ann ast.DeclAnnotationUse) {
+		uses = append(uses, strings.Join(strings.Fields(ann.Span().Text()), ""))
+	}
+	collect := func(anns seq.Indexer[ast.DeclAnnotationUse]) {
+		for ann := range seq.Values(anns) {
+			use(ann)
+		}
+	}
+	walk = func(decls seq.Indexer[ast.DeclAny]) {
+		for decl := range seq.Values(decls) {
+			switch decl.Kind() {
+			case ast.DeclKindDef:
+				collect(decl.AsDef().Annotations())
+				walk(decl.AsDef().Body().Decls())
+			case ast.DeclKindType:
+				collect(decl.AsType().Annotations())
+			case ast.DeclKindFunction:
+				collect(decl.AsFunction().Annotations())
+			case ast.DeclKindAnnotation:
+				collect(decl.AsAnnotation().Annotations())
+			case ast.DeclKindAnnotationUse:
+				use(decl.AsAnnotationUse())
+			}
+		}
+	}
+	walk(file.Decls())
+	return uses
 }

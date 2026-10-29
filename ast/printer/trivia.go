@@ -135,6 +135,12 @@ func firstNewlineIndex(tokens []token.Token) int {
 type triviaIndex struct {
 	attached map[token.ID]attachedTrivia
 	detached map[token.ID]detachedTrivia
+
+	// slotStart maps the first token of each declaration in a scope to
+	// the index of the detached slot that precedes it. Printers that
+	// walk a scope's tokens rather than its AST decls (see
+	// [printer.printTokenTree]) use it to emit each slot in place.
+	slotStart map[token.ID]int
 }
 
 // scopeTrivia returns the detached trivia for a tokens scope.
@@ -155,6 +161,16 @@ func (idx *triviaIndex) tokenTrivia(id token.ID) (attachedTrivia, bool) {
 	return att, ok
 }
 
+// slotBefore returns the index of the detached slot that precedes id,
+// and true, when id is the first token of a declaration in its scope.
+func (idx *triviaIndex) slotBefore(id token.ID) (int, bool) {
+	if idx == nil {
+		return 0, false
+	}
+	i, ok := idx.slotStart[id]
+	return i, ok
+}
+
 // buildTriviaIndex walks the entire token stream and builds the trivia index.
 //
 // For each non-skippable token, it collects all preceding skippable tokens
@@ -167,8 +183,9 @@ func (idx *triviaIndex) tokenTrivia(id token.ID) (attachedTrivia, bool) {
 // enabling it to survive if the following declaration is deleted.
 func buildTriviaIndex(stream *token.Stream) *triviaIndex {
 	idx := &triviaIndex{
-		attached: make(map[token.ID]attachedTrivia),
-		detached: make(map[token.ID]detachedTrivia),
+		attached:  make(map[token.ID]attachedTrivia),
+		detached:  make(map[token.ID]detachedTrivia),
+		slotStart: make(map[token.ID]int),
 	}
 	idx.walkScope(stream.Cursor(), 0, scopeModeDecl)
 	return idx
@@ -220,6 +237,7 @@ func (idx *triviaIndex) walkScope(cursor *token.Cursor, scopeID token.ID, mode s
 
 		detached, attached := splitDetached(pending)
 		trivia.slots = append(trivia.slots, detached)
+		idx.slotStart[tok.ID()] = len(trivia.slots) - 1
 
 		// When the first slot has comments but no preceding blank line,
 		// this means comments appeared between the open brace and the
