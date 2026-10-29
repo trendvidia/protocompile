@@ -907,6 +907,8 @@ func TestAnnotationArgBuiltinArity(t *testing.T) {
 		{`this.matches("a", "b")`, []string{"`this.matches(…)` takes 1 argument(s), got 2"}},
 		{`now(this)`, []string{"`now()` takes no arguments, got 1"}},
 		{`this.now()`, []string{"`now()` has no receiver"}},
+		{`this.is_nan(1)`, []string{"`this.is_nan(…)` takes 0 argument(s), got 1"}},
+		{`is_nan()`, []string{"`is_nan(…)` takes 1 argument(s) in function form", "got 0"}},
 		{`this.frobnicate("x")`, []string{"unknown method `frobnicate` on `this`"}},
 	}
 	for _, tc := range cases {
@@ -969,7 +971,7 @@ message M {
 
 // TestAnnotationArgExpressionLanguageFixture compiles protowire's
 // conformance fixture 24_expression_language (every builtin in both
-// forms, `now()`, every operator and literal kind, a declared-function
+// forms, `now()`, `is_nan()`, every operator and literal kind, a declared-function
 // call, an alias rule on a repeated field) with the annotation library
 // inlined: no diagnostic, and the extracted calls are exactly the
 // declared ones.
@@ -1005,7 +1007,8 @@ message Profile {
     @validate(this >= 0 && this < 150 && this != 42 && this > -1);
 
   double score = 5
-    @validate((this > 0.0 && this <= 1.0) || (this == 2.5));
+    @validate((this > 0.0 && this <= 1.0) || (this == 2.5))
+    @validate(!this.is_nan() && !is_nan(this));
 
   bool verified = 6
     @validate(this == true || this == false);
