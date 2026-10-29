@@ -15,7 +15,10 @@
 package printer_test
 
 import (
+	"io/fs"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -29,6 +32,7 @@ import (
 	"github.com/trendvidia/protocompile/report"
 	"github.com/trendvidia/protocompile/seq"
 	"github.com/trendvidia/protocompile/source"
+	"github.com/trendvidia/protocompile/token"
 )
 
 // TestRoundTrip exercises round-tripping a protobuf source through [printer.PrintFile].
@@ -253,4 +257,66 @@ func annotationUses(file *ast.File) []string {
 	}
 	walk(file.Decls())
 	return uses
+}
+
+// TestFormatKeepsComments checks that formatting deletes no comment: for
+// every corpus file that parses, each word of each comment in the source
+// appears, as often, in the comments of the output under each preset.
+// Legacy may rewrite `//` to `/* */` and re-flow block comments, so words
+// are compared, not comment text (#273).
+func TestFormatKeepsComments(t *testing.T) {
+	t.Parallel()
+
+	var paths []string
+	for _, root := range []string{"testdata/format", "testdata/roundtrip", "testdata/bufformat"} {
+		require.NoError(t, filepath.WalkDir(root, func(path string, _ fs.DirEntry, err error) error {
+			if err == nil && strings.HasSuffix(path, ".proto") {
+				paths = append(paths, path)
+			}
+			return err
+		}))
+	}
+	checked := 0
+	for _, path := range paths {
+		text, err := os.ReadFile(path)
+		require.NoError(t, err)
+		errs := &report.Report{}
+		file, _ := parser.Parse(path, source.NewFile(path, string(text)), errs)
+		if slices.ContainsFunc(errs.Diagnostics, func(d report.Diagnostic) bool { return d.Level() <= report.Error }) {
+			continue
+		}
+		want := commentWords(file)
+		for _, preset := range []struct {
+			name string
+			opts printer.Formatting
+		}{{"legacy", printer.Legacy()}, {"default", printer.Default()}} {
+			out, err := printer.PrintFile(printer.Options{Format: true, Formatting: preset.opts}, file)
+			require.NoError(t, err)
+			reparsed, _ := parser.Parse(path, source.NewFile(path, out), &report.Report{})
+			got := commentWords(reparsed)
+			for word, n := range want {
+				assert.GreaterOrEqual(t, got[word], n, "%s [%s]: comment word %q lost", path, preset.name, word)
+			}
+		}
+		checked++
+	}
+	// A positive marker that the corpus was found and parsed.
+	require.Greater(t, checked, 100)
+}
+
+// commentWords counts the words in file's comments.
+func commentWords(file *ast.File) map[string]int {
+	words := map[string]int{}
+	for tok := range file.Stream().All() {
+		if tok.Kind() != token.Comment {
+			continue
+		}
+		text := strings.NewReplacer("//", " ", "/*", " ", "*/", " ").Replace(tok.Text())
+		for _, w := range strings.Fields(text) {
+			if w = strings.Trim(w, "*"); w != "" {
+				words[w]++
+			}
+		}
+	}
+	return words
 }

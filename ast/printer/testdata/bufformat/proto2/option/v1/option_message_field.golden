@@ -62,6 +62,7 @@ message Test {
         // Leading comment on 'foo'.
         foo: "goo" // Trailing comment on foo
 
+        /* Leading comment on ',' */
         // Leading comment on extension name.
         [
           /* One */

@@ -352,10 +352,18 @@ func (p *printer) endsWithInlineBlockComment(tokens []token.Token) bool {
 		(!lastCommentIsLine(tokens) || p.options.Formatting.RewriteTrailingLineCommentsToBlock)
 }
 
-// emitCommaTrivia emits trailing trivia from a comma token that is not
-// itself printed (e.g., commas elided from message literal fields in
+// emitCommaTrivia emits the comments attached to a comma token that is
+// not itself printed (e.g., commas elided from message literal fields in
 // format mode). This ensures comments attached to skipped commas are
 // never lost.
+//
+// A comment trailing the comma prints as trailing the field. One before
+// the comma, as in `foo: "goo" /* c */,`, is left pending, so it prints
+// on its own line before whatever follows, with that element's gap. buf
+// format drops it (see [Legacy]). Printed inline instead, it would be a
+// block comment trailing the value, which the legacy layout moves to its
+// own line on the next format, and a `//` after it then onto another: the
+// output would not be stable.
 func (p *printer) emitCommaTrivia(comma token.Token) {
 	if comma.IsZero() {
 		return
@@ -367,6 +375,9 @@ func (p *printer) emitCommaTrivia(comma token.Token) {
 	}
 
 	p.emitTrailing(att.trailing)
+	if sliceHasComment(att.leading) {
+		p.appendPending(att.leading)
+	}
 }
 
 // emitEmptyDeclTrivia flushes an empty declaration's attached trivia

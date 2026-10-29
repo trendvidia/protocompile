@@ -203,6 +203,13 @@ const (
 //
 // For new code, prefer [Default] — see its docstring for the
 // differences.
+//
+// Where `buf format` (1.74) deletes a comment, Legacy keeps it, so the
+// output can differ there:
+//
+//   - A comment before a message-literal comma that formatting elides,
+//     `foo: "goo" /* c */, // t`: buf drops `/* c */`; Legacy prints it on
+//     its own line before the next element.
 func Legacy() Formatting {
 	return Formatting{
 		MaxWidth:                           math.MaxInt,
