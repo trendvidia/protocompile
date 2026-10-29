@@ -21,9 +21,12 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 
+	"github.com/trendvidia/protocompile/ast"
 	"github.com/trendvidia/protocompile/internal/ext/iterx"
 	"github.com/trendvidia/protocompile/ir"
+	"github.com/trendvidia/protocompile/seq"
 	"github.com/trendvidia/protocompile/source"
+	"github.com/trendvidia/protocompile/token"
 )
 
 // debug is a helper for building SourceCodeInfo.
@@ -91,6 +94,17 @@ func (d *debug) comments(s source.Spanner, path ...int32) {
 // If the last token is fused token, for example, the closing brace of a body, }, based
 // on protoc comment attribution semantics, it checks the opening brace for trailing comments.
 func (d *debug) maybeComments(s source.Spanner, comments bool, path ...int32) {
+	d.defComments(s, ast.DeclDef{}, comments, path...)
+}
+
+// defComments is like [debug.maybeComments] for the definition def, which
+// may be written after a run of leading annotation uses. def's span
+// excludes them, so a doc comment written above the run is attributed to
+// the first use's `@`, not to def's first token. That comment is def's
+// leading comment, and the comments before the `@` are its detached ones;
+// a comment between the run and def's first token is used only when there
+// is none above the run. The location's span stays def's own.
+func (d *debug) defComments(s source.Spanner, def ast.DeclDef, withComments bool, path ...int32) {
 	if d == nil || d.suppressed {
 		return
 	}
@@ -105,7 +119,7 @@ func (d *debug) maybeComments(s source.Spanner, comments bool, path ...int32) {
 
 	loc.Span = locationSpan(span)
 	loc.Path = append(slices.Clone(d.path), path...)
-	if !comments {
+	if !withComments {
 		return
 	}
 
@@ -113,6 +127,15 @@ func (d *debug) maybeComments(s source.Spanner, comments bool, path ...int32) {
 
 	_, start := stream.Around(span.Start)
 	leading := d.commentTracker.attributed[start.ID()]
+	if at := firstLeadingAnnotation(def, span); !at.IsZero() {
+		if above := d.commentTracker.attributed[at.ID()]; above != nil {
+			if leading == nil || above.leadingComment() != "" {
+				leading = above
+			} else {
+				leading = &comments{leading: leading.leading, detached: above.detached}
+			}
+		}
+	}
 	if leading != nil {
 		if leadingComment := leading.leadingComment(); leadingComment != "" {
 			loc.LeadingComments = addr(leadingComment)
@@ -131,6 +154,23 @@ func (d *debug) maybeComments(s source.Spanner, comments bool, path ...int32) {
 			loc.TrailingComments = addr(trailingComment)
 		}
 	}
+}
+
+// firstLeadingAnnotation returns the `@` of the first annotation use
+// written before def, whose own span is span, or the zero token if there
+// is none.
+func firstLeadingAnnotation(def ast.DeclDef, span source.Span) token.Token {
+	first := token.Zero
+	for ann := range seq.Values(def.Annotations()) {
+		at := ann.At()
+		if at.IsZero() || at.Span().Start >= span.Start {
+			continue
+		}
+		if first.IsZero() || at.Span().Start < first.Span().Start {
+			first = at
+		}
+	}
+	return first
 }
 
 // extensions calls do with the Buf-specific SourceCodeInfo extensions.

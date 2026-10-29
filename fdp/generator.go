@@ -241,7 +241,7 @@ func (g *generator) message(ty ir.Type, mdp *descriptorpb.DescriptorProto) {
 	}
 
 	ast := ty.AST().AsMessage()
-	g.debug.comments(ast)
+	g.debug.defComments(ast, ast.Decl, true)
 
 	mdp.Name = addr(ty.Name())
 	g.debug.span(ast.Name, tags.Message_Name)
@@ -414,7 +414,7 @@ func (g *generator) field(f ir.Member, fdp *descriptorpb.FieldDescriptorProto) {
 	// attributed to the synthetic message for the group field, rather than the field itself,
 	// so no tokens are checked for comments.
 	ast := f.AST().AsField()
-	g.debug.maybeComments(ast, !f.IsGroup())
+	g.debug.defComments(ast, ast.Decl, !f.IsGroup())
 
 	fdp.Name = addr(f.Name())
 	g.debug.span(ast.Name, tags.Field_Name)
@@ -557,7 +557,7 @@ func (g *generator) field(f ir.Member, fdp *descriptorpb.FieldDescriptorProto) {
 
 func (g *generator) oneof(o ir.Oneof, odp *descriptorpb.OneofDescriptorProto) {
 	ast := o.AST().AsOneof()
-	g.debug.comments(ast)
+	g.debug.defComments(ast, ast.Decl, true)
 
 	odp.Name = addr(o.Name())
 	g.debug.span(ast.Name, tags.Oneof_Name)
@@ -588,7 +588,7 @@ func (g *generator) oneof(o ir.Oneof, odp *descriptorpb.OneofDescriptorProto) {
 
 func (g *generator) enum(ty ir.Type, edp *descriptorpb.EnumDescriptorProto) {
 	ast := ty.AST().AsEnum()
-	g.debug.comments(ast)
+	g.debug.defComments(ast, ast.Decl, true)
 
 	edp.Name = addr(ty.Name())
 	g.debug.span(ast.Name, tags.Enum_Name)
@@ -656,7 +656,7 @@ func (g *generator) enum(ty ir.Type, edp *descriptorpb.EnumDescriptorProto) {
 
 func (g *generator) enumValue(f ir.Member, evdp *descriptorpb.EnumValueDescriptorProto) {
 	ast := f.AST().AsEnumValue()
-	g.debug.comments(ast)
+	g.debug.defComments(ast, ast.Decl, true)
 
 	evdp.Name = addr(f.Name())
 	g.debug.span(ast.Name, tags.EnumValue_Name)
@@ -688,7 +688,7 @@ func (g *generator) enumValue(f ir.Member, evdp *descriptorpb.EnumValueDescripto
 
 func (g *generator) service(s ir.Service, sdp *descriptorpb.ServiceDescriptorProto) {
 	ast := s.AST().AsService()
-	g.debug.comments(ast)
+	g.debug.defComments(ast, ast.Decl, true)
 
 	sdp.Name = addr(s.Name())
 	g.debug.span(ast.Name, tags.Service_Name)
@@ -747,7 +747,7 @@ func (g *generator) method(m ir.Method, mdp *descriptorpb.MethodDescriptorProto)
 	}
 
 	ast := m.AST().AsMethod()
-	g.debug.comments(ast)
+	g.debug.defComments(ast, ast.Decl, true)
 
 	mdp.Name = addr(m.Name())
 	g.debug.span(ast.Name, tags.Method_Name)
