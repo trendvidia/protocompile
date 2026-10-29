@@ -20,11 +20,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	pwsv1 "github.com/trendvidia/protos/protowire/schema/v1"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 
 	"github.com/trendvidia/protocompile/fdp"
-	pwsv1 "github.com/trendvidia/protocompile/gen/protowire/schema/v1"
 	"github.com/trendvidia/protocompile/incremental"
 	"github.com/trendvidia/protocompile/incremental/queries"
 	"github.com/trendvidia/protocompile/ir"

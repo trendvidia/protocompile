@@ -36,7 +36,7 @@
 package configv1
 
 import (
-	v1 "github.com/trendvidia/protocompile/gen/protowire/schema/v1"
+	v1 "github.com/trendvidia/protos/protowire/schema/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
