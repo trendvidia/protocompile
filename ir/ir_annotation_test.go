@@ -909,6 +909,10 @@ func TestAnnotationArgBuiltinArity(t *testing.T) {
 		{`this.now()`, []string{"`now()` has no receiver"}},
 		{`this.is_nan(1)`, []string{"`this.is_nan(…)` takes 0 argument(s), got 1"}},
 		{`is_nan()`, []string{"`is_nan(…)` takes 1 argument(s) in function form", "got 0"}},
+		{`this.defined(1)`, []string{"`this.defined(…)` takes 0 argument(s), got 1"}},
+		{`defined()`, []string{"`defined(…)` takes 1 argument(s) in function form", "got 0"}},
+		{`this.unique(1)`, []string{"`this.unique(…)` takes 0 argument(s), got 1"}},
+		{`unique(this, 1)`, []string{"`unique(…)` takes 1 argument(s) in function form", "got 2"}},
 		{`this.frobnicate("x")`, []string{"unknown method `frobnicate` on `this`"}},
 	}
 	for _, tc := range cases {
@@ -929,6 +933,64 @@ message M {
 	}
 }
 
+// TestAnnotationArgEnumValueNames pins enum value references in an
+// expression (RFC-001 §5.4, protowire#427): every spelling an enum-typed
+// argument accepts resolves, and a name that resolves to nothing, to a
+// message, or to an enum type rather than one of its values is a compile
+// error at the name.
+func TestAnnotationArgEnumValueNames(t *testing.T) {
+	t.Parallel()
+
+	const decls = `syntax = "proto3";
+package test;
+
+annotation validate(rule: expression);
+
+enum Mode {
+  MODE_UNSPECIFIED = 0;
+  MODE_MATCH = 1;
+}
+
+message Other {}
+`
+	compile := func(t *testing.T, rule string) *report.Report {
+		t.Helper()
+		_, rep := compileForAnnotationTest(t, decls+"message M {\n  Mode v = 1 @validate("+rule+");\n}\n")
+		return rep
+	}
+
+	for _, rule := range []string{
+		`this == MODE_MATCH`,
+		`this == test.MODE_MATCH`,
+		`this == Mode.MODE_MATCH`,
+		`this == test.Mode.MODE_MATCH`,
+		`this in [MODE_UNSPECIFIED, MODE_MATCH] && this.defined()`,
+	} {
+		t.Run(rule, func(t *testing.T) {
+			t.Parallel()
+			rep := compile(t, rule)
+			for _, d := range rep.Diagnostics {
+				assert.False(t, isError(d), "%s: unexpected error: %s", rule, d.Message())
+			}
+		})
+	}
+	for _, tc := range []struct{ rule, name string }{
+		{`this == MODE_NOPE`, "MODE_NOPE"},
+		{`this == Mode.NOPE`, "Mode.NOPE"},
+		{`this == Other`, "Other"},
+		{`this == Mode`, "Mode"},
+		{`this in [MODE_MATCH, MATCH]`, "MATCH"},
+		{`foo > 1`, "foo"}, // Before protowire#427 a syntax error; now an unresolved name.
+	} {
+		t.Run(tc.rule, func(t *testing.T) {
+			t.Parallel()
+			rep := compile(t, tc.rule)
+			assert.True(t, hasErrorContaining(rep, "`"+tc.name+"` is not bound and is not an enum value"),
+				"%s: got %v", tc.rule, rep.Diagnostics)
+		})
+	}
+}
+
 // TestAnnotationArgExpressionSyntax pins that a capture which balances
 // its delimiters (so it passes §5.1 capture) but is not a §5.4
 // expression is a compile error naming what the language lacks.
@@ -941,7 +1003,6 @@ func TestAnnotationArgExpressionSyntax(t *testing.T) {
 	}{
 		{`this >= && this < 150`, "expected an expression, got `&&`"},
 		{`this.name == "x"`, "field selection is not part of the expression language (`this.name`)"},
-		{`foo > 1`, "`foo` is not bound"},
 		{`this < 1 < 2`, "comparison operators do not chain"},
 		{`this + 1 > 0`, "no arithmetic"},
 		{`(this = 1)`, "equality is `==`"}, // Parenthesised: bare `this = …` is a named argument to the capture (§5.1).
