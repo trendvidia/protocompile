@@ -1,14 +1,12 @@
 version: v2
 inputs:
   - directory: .
-    # protowire/schema/v1/descriptor.proto and report.proto are
-    # generated to the public gen/ tree instead — see
-    # buf.gen.public.yaml.
+    # protowire/schema/v1/descriptor.proto, report.proto and
+    # pxf/bignum.proto are generated in github.com/trendvidia/protos;
+    # the copies here are import sources only (trendvidia/protos#1).
     exclude_paths:
       - proto/protowire/schema/v1/descriptor.proto
       - proto/protowire/schema/v1/report.proto
-      # descriptor.proto is public and imports this, so it generates to
-      # the public tree too — a public package cannot reference internal/.
       - proto/pxf/bignum.proto
 managed:
   enabled: true
@@ -18,15 +16,17 @@ managed:
    - path: internal/proto
      file_option: go_package_prefix
      value: 'github.com/trendvidia/protocompile/internal/gen/internal_'
-   # The RFC-001 carrier and report types are public API (issues #92,
-   # #108): generated files that import them (config.pb.go) must
-   # reference the public import path.
+   # Generated files that import these (config.pb.go) reference the Go
+   # packages in github.com/trendvidia/protos.
    - path: protowire/schema/v1/descriptor.proto
      file_option: go_package_prefix
-     value: 'github.com/trendvidia/protocompile/gen'
+     value: 'github.com/trendvidia/protos'
    - path: protowire/schema/v1/report.proto
      file_option: go_package_prefix
-     value: 'github.com/trendvidia/protocompile/gen'
+     value: 'github.com/trendvidia/protos'
+   - path: pxf/bignum.proto
+     file_option: go_package_prefix
+     value: 'github.com/trendvidia/protos'
 plugins:
   - remote: buf.build/protocolbuffers/go
     out: internal/gen

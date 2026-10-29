@@ -21,9 +21,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	pwsv1 "github.com/trendvidia/protos/protowire/schema/v1"
 	"google.golang.org/protobuf/proto"
-
-	pwsv1 "github.com/trendvidia/protocompile/gen/protowire/schema/v1"
 )
 
 // pxfArg compiles `@default(lit)` on a field of the named pxf type and

@@ -19,6 +19,7 @@ import (
 	"math"
 	"strings"
 
+	pwsv1 "github.com/trendvidia/protos/protowire/schema/v1"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/runtime/protoimpl"
 	"google.golang.org/protobuf/types/descriptorpb"
@@ -26,7 +27,6 @@ import (
 
 	"github.com/trendvidia/protocompile/ast"
 	"github.com/trendvidia/protocompile/ast/predeclared"
-	pwsv1 "github.com/trendvidia/protocompile/gen/protowire/schema/v1"
 	"github.com/trendvidia/protocompile/internal/ext/bigx"
 	"github.com/trendvidia/protocompile/ir"
 	"github.com/trendvidia/protocompile/seq"

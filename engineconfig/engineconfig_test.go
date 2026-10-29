@@ -22,8 +22,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	schemav1 "github.com/trendvidia/protocompile/gen/protowire/schema/v1"
+	schemav1 "github.com/trendvidia/protos/protowire/schema/v1"
 )
 
 // conformanceFixture is protowire's golden engine configuration,

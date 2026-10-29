@@ -17,11 +17,11 @@ package fdp
 import (
 	"strings"
 
+	pwsv1 "github.com/trendvidia/protos/protowire/schema/v1"
 	"google.golang.org/genproto/googleapis/api/annotations"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	pwsv1 "github.com/trendvidia/protocompile/gen/protowire/schema/v1"
 	"github.com/trendvidia/protocompile/internal"
 )
 

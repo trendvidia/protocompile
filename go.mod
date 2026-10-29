@@ -1,6 +1,6 @@
 module github.com/trendvidia/protocompile
 
-go 1.26.0
+go 1.26.2
 
 require (
 	buf.build/gen/go/bufbuild/protodescriptor/protocolbuffers/go v1.36.12-20261012172039-ff528c23443f.2
@@ -12,6 +12,7 @@ require (
 	github.com/rivo/uniseg v0.4.7
 	github.com/stretchr/testify v1.12.1
 	github.com/tidwall/btree v1.8.2
+	github.com/trendvidia/protos v0.1.0
 	golang.org/x/exp v0.0.0-20250911091902-df9299821621
 	golang.org/x/sync v0.24.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20260807164820-c8921c73eeea

@@ -20,6 +20,7 @@ import (
 	"strconv"
 
 	descriptorv1 "buf.build/gen/go/bufbuild/protodescriptor/protocolbuffers/go/buf/descriptor/v1"
+	pwsv1 "github.com/trendvidia/protos/protowire/schema/v1"
 	"google.golang.org/genproto/googleapis/api/annotations"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
@@ -27,7 +28,6 @@ import (
 	"github.com/trendvidia/protocompile/ast"
 	"github.com/trendvidia/protocompile/ast/predeclared"
 	"github.com/trendvidia/protocompile/ast/syntax"
-	pwsv1 "github.com/trendvidia/protocompile/gen/protowire/schema/v1"
 	"github.com/trendvidia/protocompile/internal"
 	"github.com/trendvidia/protocompile/internal/ext/cmpx"
 	"github.com/trendvidia/protocompile/internal/ext/iterx"

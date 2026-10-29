@@ -19,7 +19,8 @@ import (
 	"math/big"
 	"strings"
 
-	pxf "github.com/trendvidia/protocompile/gen/pxf"
+	pxf "github.com/trendvidia/protos/pxf"
+
 	"github.com/trendvidia/protocompile/internal/ext/bigx"
 	"github.com/trendvidia/protocompile/ir"
 )
