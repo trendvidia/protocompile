@@ -13,7 +13,7 @@ This repository uses a two-branch model:
 | Branch | Purpose | Default? |
 |---|---|---|
 | **`trendvidia`** | All trendvidia-owned work, including the v1.2 schema-extension parser. Default branch. PRs target this branch. | ✓ |
-| `main` | Mirrors upstream `bufbuild/protocompile:main`. Updated by fast-forward sync from upstream; no direct commits. | |
+| `main` | Mirrors upstream `bufbuild/protocompile:main`. Fast-forwarded weekly by the `upstream-mirror` workflow; no direct commits. | |
 
 The `trendvidia` branch is the default for all development. The
 `main` branch exists only to track upstream so cherry-picking and
