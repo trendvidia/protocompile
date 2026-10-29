@@ -17,6 +17,7 @@ package printer
 import (
 	"github.com/trendvidia/protocompile/ast"
 	"github.com/trendvidia/protocompile/dom"
+	"github.com/trendvidia/protocompile/seq"
 	"github.com/trendvidia/protocompile/token"
 	"github.com/trendvidia/protocompile/token/keyword"
 )
@@ -239,7 +240,8 @@ func (p *printer) printArray(expr ast.ExprArray, gap gapStyle) {
 		return
 	}
 
-	wantBroken := hasComments || p.literalShouldBreak(openTok, closeTok, elements.Len())
+	wantBroken := hasComments ||
+		p.literalShouldBreak(openTok, closeTok, elements.Len(), seq.Values(elements))
 
 	if !wantBroken {
 		// Flat path: emit the elements inside a group with softbreak
@@ -379,7 +381,8 @@ func (p *printer) printDict(expr ast.ExprDict, gap gapStyle) {
 		return
 	}
 
-	wantBroken := hasComments || p.literalShouldBreak(openTok, closeTok, elements.Len())
+	wantBroken := hasComments ||
+		p.literalShouldBreak(openTok, closeTok, elements.Len(), seq.Map(elements, ast.ExprField.Value))
 
 	if !wantBroken {
 		// Flat path: emit fields inside a group with softbreak padding
