@@ -15,7 +15,11 @@
 package printer
 
 import (
+	"strings"
+
 	"github.com/trendvidia/protocompile/ast"
+	"github.com/trendvidia/protocompile/seq"
+	"github.com/trendvidia/protocompile/source"
 	"github.com/trendvidia/protocompile/token"
 )
 
@@ -73,43 +77,99 @@ func (p *printer) printDecl(decl ast.DeclAny, gap gapStyle) {
 	}
 }
 
-// printTrailingAnnotations renders an annotation seq as trailing
-// metadata on a single-line decl. The seq is empty in the current
-// codebase (the parser does not yet emit annotation use sites), so
-// this is defensive — once A5b lands, it will render each `@name(args)`
-// after the decl's body.
-func (p *printer) printTrailingAnnotations(anns interface {
-	Len() int
-	At(int) ast.DeclAnnotationUse
-}) {
-	for i := range anns.Len() {
-		p.printDeclAnnotationUse(anns.At(i), gapSpace)
+// splitAnnotations partitions a declaration's annotation uses into
+// those written before anchor (leading) and after it (trailing), each in
+// source order. The parser keeps both in one seq and the declaration's
+// own span excludes them, so position is what tells them apart. A use
+// with no span (built by an edit, not parsed) goes where its
+// declaration's production writes annotations: trailing when
+// preferTrailing, otherwise leading.
+func splitAnnotations(
+	anns seq.Indexer[ast.DeclAnnotationUse],
+	anchor source.Span,
+	preferTrailing bool,
+) (leading, trailing []ast.DeclAnnotationUse) {
+	for ann := range seq.Values(anns) {
+		isLeading := !preferTrailing
+		if span := ann.Span(); !span.IsZero() && !anchor.IsZero() {
+			isLeading = span.Start < anchor.Start
+		}
+		if isLeading {
+			leading = append(leading, ann)
+		} else {
+			trailing = append(trailing, ann)
+		}
 	}
+	return leading, trailing
+}
+
+// printLeadingAnnotations renders the annotation uses written before a
+// declaration and returns the gap for the declaration's first token.
+// In format mode each use goes on its own line, as does the
+// declaration after them.
+func (p *printer) printLeadingAnnotations(anns []ast.DeclAnnotationUse, gap gapStyle) gapStyle {
+	if len(anns) == 0 {
+		return gap
+	}
+	for _, ann := range anns {
+		p.printDeclAnnotationUse(ann, gap)
+		gap = gapNewline
+	}
+	return gap
+}
+
+// printTrailingAnnotations renders the annotation uses written after a
+// single-line declaration, before its `;`. In format mode they share
+// the declaration's line while it fits, and otherwise move to their own
+// lines one indent deeper.
+func (p *printer) printTrailingAnnotations(anns []ast.DeclAnnotationUse) {
+	if len(anns) == 0 {
+		return
+	}
+	// The `;` follows on the same line, so a trailing `//` comment
+	// must not consume it.
+	defer p.ctx.with(lineToBlock(true))()
+	if !p.options.Format {
+		for _, ann := range anns {
+			p.printDeclAnnotationUse(ann, gapSpace)
+		}
+		return
+	}
+	p.withGroup(func(p *printer) {
+		p.withIndent(func(indented *printer) {
+			for _, ann := range anns {
+				indented.printDeclAnnotationUse(ann, gapSoftline)
+			}
+		})
+	})
 }
 
 func (p *printer) printDeclType(decl ast.DeclType, gap gapStyle) {
-	p.printToken(decl.KeywordToken(), gap)
+	leading, trailing := splitAnnotations(decl.Annotations(), decl.KeywordToken().Span(), true)
+	p.printToken(decl.KeywordToken(), p.printLeadingAnnotations(leading, gap))
 	p.printToken(decl.Name(), gapSpace)
 	p.printToken(decl.Equals(), gapSpace)
 	p.printExpr(decl.Value(), gapSpace)
-	p.printTrailingAnnotations(decl.Annotations())
+	p.printTrailingAnnotations(trailing)
 	p.printToken(decl.Semicolon(), p.semiGap())
 }
 
 func (p *printer) printDeclFunction(decl ast.DeclFunction, gap gapStyle) {
-	p.printToken(decl.KeywordToken(), gap)
+	leading, trailing := splitAnnotations(decl.Annotations(), decl.KeywordToken().Span(), true)
+	p.printToken(decl.KeywordToken(), p.printLeadingAnnotations(leading, gap))
 	p.printToken(decl.Name(), gapSpace)
 	p.printFunctionParams(decl.Parens(), decl.Params())
 	p.printCompactOptions(decl.Options())
-	p.printTrailingAnnotations(decl.Annotations())
+	p.printTrailingAnnotations(trailing)
 	p.printToken(decl.Semicolon(), p.semiGap())
 }
 
 func (p *printer) printDeclAnnotation(decl ast.DeclAnnotation, gap gapStyle) {
-	p.printToken(decl.KeywordToken(), gap)
+	leading, trailing := splitAnnotations(decl.Annotations(), decl.KeywordToken().Span(), true)
+	p.printToken(decl.KeywordToken(), p.printLeadingAnnotations(leading, gap))
 	p.printToken(decl.Name(), gapSpace)
 	p.printAnnotationParams(decl.Parens(), decl.Params())
-	p.printTrailingAnnotations(decl.Annotations())
+	p.printTrailingAnnotations(trailing)
 	p.printToken(decl.Semicolon(), p.semiGap())
 }
 
@@ -171,8 +231,69 @@ func (p *printer) printDeclAnnotationUse(decl ast.DeclAnnotationUse, gap gapStyl
 	p.printToken(decl.At(), gap)
 	p.printPath(decl.Name(), gapNone)
 	// Parens is optional on annotation use sites (the bare `@Name`
-	// form). printToken is a no-op when the token is zero.
-	p.printToken(decl.Parens(), gapNone)
+	// form). printTokenTree is a no-op when the token is zero.
+	p.printTokenTree(decl.Parens(), gapNone)
+}
+
+// printTokenTree prints tok and, when it is fused, every token inside
+// it, as written. An annotation use's arguments are captured as raw
+// token ranges (RFC-001 §5.1) that may hold engine expressions the AST
+// does not model, so they are reproduced token by token rather than
+// rendered from parsed values. In format mode, whitespace between two
+// tokens becomes one space where the source had any, and none just
+// inside the brackets.
+func (p *printer) printTokenTree(tok token.Token, gap gapStyle) {
+	if tok.IsZero() {
+		return
+	}
+	if tok.IsLeaf() {
+		p.printToken(tok, gap)
+		return
+	}
+
+	openTok, closeTok := tok.StartEnd()
+	if p.options.Format && tokenTreeHasComments(tok) {
+		// A comment inside gives no grammar to re-lay the tokens
+		// around, so format mode keeps the brackets' source text,
+		// re-indented as a whole.
+		if att, ok := p.trivia.tokenTrivia(openTok.ID()); ok {
+			p.appendPending(att.leading)
+		}
+		p.emitTrivia(gap)
+		p.emitVerbatimLines(strings.Split(tok.Span().Text(), "\n"))
+		if att, ok := p.trivia.tokenTrivia(closeTok.ID()); ok {
+			p.emitTrailing(att.trailing)
+		}
+		return
+	}
+
+	slots := p.trivia.scopeTrivia(openTok.ID())
+	p.printToken(openTok, gap)
+
+	// The close bracket follows on the same line in format mode, so
+	// a trailing `//` comment must not consume it.
+	restore := p.ctx.with(lineToBlock(true))
+	slot := 0
+	prevEnd := -1 // No space before the first token.
+	children := tok.Children()
+	for child := children.Next(); !child.IsZero(); child = children.Next() {
+		if s, ok := p.trivia.slotBefore(child.ID()); ok {
+			for ; slot <= s; slot++ {
+				p.emitTriviaSlot(slots, slot)
+			}
+		}
+		childGap := gapPreserve
+		if prevEnd >= 0 && child.Span().Start > prevEnd {
+			childGap = gapSpace
+		}
+		p.printTokenTree(child, childGap)
+		_, last := child.StartEnd()
+		prevEnd = last.Span().End
+	}
+	p.emitRemainingTrivia(slots, slot)
+	restore()
+
+	p.printToken(closeTok, gapPreserve)
 }
 
 func (p *printer) printSyntax(decl ast.DeclSyntax, gap gapStyle) {
@@ -214,6 +335,9 @@ func (p *printer) printDefPrefixes(d ast.DeclDef, gap gapStyle) gapStyle {
 }
 
 func (p *printer) printDef(decl ast.DeclDef, gap gapStyle) {
+	leading, _ := p.defAnnotations(decl)
+	gap = p.printLeadingAnnotations(leading, gap)
+
 	switch decl.Classify() {
 	case ast.DefKindOption:
 		p.printOption(decl.AsOption(), gap)
@@ -240,6 +364,21 @@ func (p *printer) printDef(decl ast.DeclDef, gap gapStyle) {
 	}
 }
 
+// defAnnotations splits a definition's annotation uses into leading
+// and trailing. Fields, enum values and the other `;`-terminated
+// productions write theirs trailing; block-bodied ones write them
+// leading (RFC-001 §5.1 hybrid placement).
+func (*printer) defAnnotations(decl ast.DeclDef) (leading, trailing []ast.DeclAnnotationUse) {
+	return splitAnnotations(decl.Annotations(), decl.Span(), decl.Body().IsZero())
+}
+
+// printDefTrailingAnnotations prints the annotation uses written after
+// decl, before its `;`.
+func (p *printer) printDefTrailingAnnotations(decl ast.DeclDef) {
+	_, trailing := p.defAnnotations(decl)
+	p.printTrailingAnnotations(trailing)
+}
+
 // printInvalidDef prints a corrupt or unrecognized definition by emitting
 // whatever tokens it has, in declaration order. This preserves source text
 // for parse-error artifacts rather than silently dropping them.
@@ -255,6 +394,7 @@ func (p *printer) printInvalidDef(decl ast.DeclDef, gap gapStyle) {
 	if !decl.Body().IsZero() {
 		p.printBody(decl.Body())
 	} else {
+		p.printDefTrailingAnnotations(decl)
 		p.printToken(decl.Semicolon(), p.semiGap())
 	}
 }
@@ -271,6 +411,7 @@ func (p *printer) printOption(opt ast.DefOption, gap gapStyle) {
 		p.printExpr(opt.Value, gapSpace)
 		restore()
 	}
+	p.printDefTrailingAnnotations(opt.Decl)
 	p.printToken(opt.Semicolon, p.semiGap())
 }
 
@@ -335,6 +476,7 @@ func (p *printer) printField(f ast.DefField, gap gapStyle) {
 		p.printExpr(f.Tag, gapSpace)
 	}
 	p.printCompactOptions(f.Options)
+	p.printDefTrailingAnnotations(f.Decl)
 	p.printToken(f.Semicolon, p.semiGap())
 }
 
@@ -345,6 +487,7 @@ func (p *printer) printEnumValue(ev ast.DefEnumValue, gap gapStyle) {
 		p.printExpr(ev.Tag, gapSpace)
 	}
 	p.printCompactOptions(ev.Options)
+	p.printDefTrailingAnnotations(ev.Decl)
 	p.printToken(ev.Semicolon, p.semiGap())
 }
 
@@ -355,6 +498,7 @@ func (p *printer) printMethod(m ast.DefMethod, gap gapStyle) {
 	if !m.Body.IsZero() {
 		p.printBody(m.Body)
 	} else {
+		p.printDefTrailingAnnotations(m.Decl)
 		p.printToken(m.Decl.Semicolon(), p.semiGap())
 	}
 }
@@ -742,7 +886,18 @@ func (p *printer) printCompactOptions(co ast.CompactOptions) {
 			p.emitTriviaSlot(slots, entries.Len())
 		})
 		p.emitTrivia(gapNone)
-		p.push(tagSoftbreak)
 		p.printToken(closeTok, gapNone)
 	})
+}
+
+// tokenTreeHasComments reports whether a comment appears anywhere
+// between a fused token's brackets.
+func tokenTreeHasComments(tok token.Token) bool {
+	children := tok.Children()
+	for child := children.NextSkippable(); !child.IsZero(); child = children.NextSkippable() {
+		if child.Kind() == token.Comment || !child.IsLeaf() && tokenTreeHasComments(child) {
+			return true
+		}
+	}
+	return false
 }
