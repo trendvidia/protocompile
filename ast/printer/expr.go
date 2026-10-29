@@ -342,7 +342,7 @@ func (p *printer) printDict(expr ast.ExprDict, gap gapStyle) {
 				for i := range elements.Len() {
 					indented.emitTriviaSlot(trivia, i)
 					indented.printExprField(elements.At(i), gapNewline)
-					indented.emitCommaTrivia(elements.Comma(i))
+					indented.printToken(elements.Comma(i), gapNone)
 				}
 				indented.emitTriviaSlot(trivia, elements.Len())
 			})
