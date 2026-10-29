@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package test;
+
+option (flat) = {a: 1, b: 2};
+option (mixed) = {a: 1, b: 2 c: 3; d: 4};
+option (nested) = {unique: true, items: {enum: {defined_only: true, not_in: [0]}}};
+option (broken) = {
+  a: 1, // first
+  b: 2 ,
+  c: [1, 2],
+};
+
+message M {
+  string f = 1 [(opt) = {a: 1, b: {c: 2, d: 3}}];
+}
