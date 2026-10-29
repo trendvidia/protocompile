@@ -160,14 +160,19 @@ func resolveEnumValueRef(file *File, r *report.Report, scope FullName, path ast.
 	if path.IsZero() {
 		return Member{}
 	}
+	return resolveEnumValueName(file, r, scope, FullName(path.Canonicalized()), path)
+}
 
-	name := FullName(path.Canonicalized())
+// resolveEnumValueName is [resolveEnumValueRef] for a name that is not
+// an AST path: an enum value reference inside an expression capture
+// (RFC-001 §5.4), which resolves exactly as an enum-typed argument does.
+func resolveEnumValueName(file *File, r *report.Report, scope FullName, name FullName, span source.Spanner) Member {
 	ref := symbolRef{
 		File:   file,
 		Report: nil, // Quiet; diagnostics only after both forms fail.
 		scope:  scope,
 		name:   name,
-		span:   path,
+		span:   span,
 		accept: func(k SymbolKind) bool { return k == SymbolKindEnumValue },
 		want:   taxa.EnumValue,
 	}
@@ -355,6 +360,44 @@ func (u AnnotationUse) ExtractCalls(arg ast.AnnotationUseArg) []AnnotationFuncti
 	var calls []AnnotationFunctionCall
 	scanFunctionCalls(u, tokenRange(start, end), &calls)
 	return calls
+}
+
+// AnnotationEnumValue is one enum value reference in an expression-
+// classified annotation argument (RFC-001 §5.4, §8.1): its canonical
+// spelling and the enum value it resolved to.
+type AnnotationEnumValue struct {
+	Spelling string
+	Value    Member
+}
+
+// ExtractEnumValues returns the enum value references in an
+// expression-classified argument, once per distinct spelling in source
+// order, each resolved from the use site's scope as an enum-typed
+// argument is. References that do not resolve are left out; the
+// expression-language check diagnoses them. A capture that does not
+// parse has none.
+func (u AnnotationUse) ExtractEnumValues(arg ast.AnnotationUseArg) []AnnotationEnumValue {
+	span := arg.ValueSpan()
+	if u.IsZero() || span.IsZero() {
+		return nil
+	}
+	_, enums, err := parseExpression(span.Text())
+	if err != nil {
+		return nil
+	}
+	var out []AnnotationEnumValue
+	seen := make(map[string]bool)
+	for _, ref := range enums {
+		if seen[ref.name] {
+			continue
+		}
+		seen[ref.name] = true
+		at := span.File.Span(span.Start+ref.start, span.Start+ref.end)
+		if member := resolveEnumValueName(u.Context(), nil, u.scopeName(), FullName(ref.name), at); !member.IsZero() {
+			out = append(out, AnnotationEnumValue{Spelling: ref.name, Value: member})
+		}
+	}
+	return out
 }
 
 // tokenRange returns an iterator over the natural tokens from start

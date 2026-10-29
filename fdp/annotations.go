@@ -121,7 +121,7 @@ func buildArg(u ir.AnnotationUse, b ir.AnnotationArgBinding, carrier ir.Type) *p
 
 	// `expression` params keep the §5.1 capture verbatim (whitespace-
 	// trimmed, quotes never stripped) together with the function-call
-	// sites extracted per §8.1.
+	// sites and enum value references extracted per §8.1.
 	if b.Param.IsExpression() {
 		expr := &pwsv1.Expression{
 			Source:   strings.TrimSpace(b.Arg.ValueSpan().Text()),
@@ -131,6 +131,16 @@ func buildArg(u ir.AnnotationUse, b ir.AnnotationArgBinding, carrier ir.Type) *p
 			expr.Calls = append(expr.Calls, &pwsv1.FunctionRef{
 				Fqn:   string(call.Target.FullName()),
 				Arity: int32(call.Arity),
+			})
+		}
+		for _, ref := range u.ExtractEnumValues(b.Arg) {
+			expr.EnumValues = append(expr.EnumValues, &pwsv1.EnumValueRef{
+				Spelling: ref.Spelling,
+				Value: &pwsv1.EnumLiteral{
+					EnumType:  string(ref.Value.Parent().FullName()),
+					ValueName: ref.Value.Name(),
+					Number:    ref.Value.Number(),
+				},
 			})
 		}
 		out.Value = &pwsv1.AnnotationArg_Expression{Expression: expr}

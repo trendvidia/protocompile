@@ -15,7 +15,7 @@
 // PXF arbitrary-precision number types.
 //
 // Vendored from `trendvidia/protowire` (`proto/pxf/bignum.proto`) at commit
-// 5646a6ce99760438ea4b98d481e7969f45c6d328.
+// bfd932ceb3a555a117061fe65c17b889945b4a90 (protowire#434: the file options trendvidia/protos#1 sets).
 //
 // Vendored because `protowire/schema/v1/descriptor.proto` imports it:
 // AnnotationArg and LiteralValue carry these three types directly, so an
@@ -29,6 +29,12 @@
 
 syntax = "proto3";
 package pxf;
+
+option csharp_namespace = "Protowire.Protos.Pxf";
+option go_package = "github.com/trendvidia/protos/pxf;pxf";
+option java_multiple_files = true;
+option java_outer_classname = "BignumProto";
+option java_package = "org.protowire.protos.pxf";
 
 // Arbitrary-precision signed integer.
 // Wire: unsigned big-endian absolute value + sign flag.

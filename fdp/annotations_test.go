@@ -264,6 +264,92 @@ message Account {
 	assert.Empty(t, expr.Calls)
 }
 
+// TestAnnotationEmissionExpressionEnumValues verifies RFC-001 §8.1
+// lowering of enum value references (§5.4, protowire#427): each distinct
+// spelling is recorded once, in source order, resolved the way an
+// enum-typed argument resolves — the value's scoped name, package- or
+// message-qualified, or the enum-qualified form — including inside a
+// declared function's arguments. Builtins and `this` are never recorded.
+func TestAnnotationEmissionExpressionEnumValues(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+function known(m: int32, n: int32);
+
+annotation validate(rule: expression);
+
+enum Mode {
+  MODE_UNSPECIFIED = 0;
+  MODE_MATCH = 1;
+  MODE_REGULATE = 2;
+}
+
+message Holder {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    KIND_A = 1;
+    KIND_B = 2;
+  }
+  Kind kind = 1 @validate(this == KIND_A);
+}
+
+message Account {
+  Mode mode = 1
+    @validate(this in [MODE_MATCH, Mode.MODE_REGULATE, test.MODE_MATCH] && this != MODE_UNSPECIFIED && this != MODE_MATCH && this.defined());
+  repeated Mode modes = 2 @validate(this.unique() && unique(this));
+  Holder.Kind kind = 3 @validate(this == Holder.KIND_A || this == Holder.Kind.KIND_B);
+  Mode checked = 4 @validate(known(this, MODE_REGULATE));
+}
+`
+
+	f := compileForFDPTest(t, src)
+	exprOf := func(msg, i int) *pwsv1.Expression {
+		field := f.GetMessageType()[msg].GetField()[i]
+		list, _ := proto.GetExtension(field.Options, pwsv1.E_FieldAnnotations).(*pwsv1.AnnotationList)
+		require.NotNil(t, list, "%s carries no field annotations extension", field.GetName())
+		require.Len(t, list.Entries, 1)
+		expr := list.Entries[0].Args[0].GetExpression()
+		require.NotNil(t, expr)
+		return expr
+	}
+	type ref struct {
+		spelling, enumType, value string
+		number                    int32
+	}
+	refsOf := func(expr *pwsv1.Expression) []ref {
+		out := make([]ref, 0, len(expr.EnumValues))
+		for _, ev := range expr.EnumValues {
+			out = append(out, ref{ev.Spelling, ev.GetValue().GetEnumType(), ev.GetValue().GetValueName(), ev.GetValue().GetNumber()})
+		}
+		if len(out) == 0 {
+			return nil
+		}
+		return out
+	}
+
+	assert.Equal(t, []ref{{"KIND_A", "test.Holder.Kind", "KIND_A", 1}}, refsOf(exprOf(0, 0)),
+		"a bare name resolves from the annotated field's message scope")
+	assert.Equal(t, []ref{
+		{"MODE_MATCH", "test.Mode", "MODE_MATCH", 1},
+		{"Mode.MODE_REGULATE", "test.Mode", "MODE_REGULATE", 2},
+		{"test.MODE_MATCH", "test.Mode", "MODE_MATCH", 1},
+		{"MODE_UNSPECIFIED", "test.Mode", "MODE_UNSPECIFIED", 0},
+	}, refsOf(exprOf(1, 0)), "one entry per distinct spelling, in source order")
+	assert.Empty(t, exprOf(1, 0).Calls, "defined() is a builtin")
+	assert.Empty(t, exprOf(1, 1).EnumValues, "unique() and `this` are not enum values")
+	assert.Equal(t, []ref{
+		{"Holder.KIND_A", "test.Holder.Kind", "KIND_A", 1},
+		{"Holder.Kind.KIND_B", "test.Holder.Kind", "KIND_B", 2},
+	}, refsOf(exprOf(1, 2)))
+	checked := exprOf(1, 3)
+	assert.Equal(t, []ref{{"MODE_REGULATE", "test.Mode", "MODE_REGULATE", 2}}, refsOf(checked),
+		"a name inside a declared function's arguments is recorded too")
+	require.Len(t, checked.Calls, 1)
+	assert.Equal(t, "test.known", checked.Calls[0].Fqn)
+}
+
 // TestAnnotationEmissionListLiteral verifies list-literal args lower
 // into Literal.list with LiteralValue elements (no names, scalar
 // oneof mirroring AnnotationArg fields 10-14).

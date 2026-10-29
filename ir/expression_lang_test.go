@@ -27,9 +27,10 @@ func TestParseExpressionCalls(t *testing.T) {
 	t.Parallel()
 
 	src := `!this.starts_with("@") && t.in_region(this, ["US", "CA"]) && size(this) > 0 || now() < this`
-	calls, err := parseExpression(src)
+	calls, enums, err := parseExpression(src)
 	require.Nil(t, err)
 	require.Len(t, calls, 4)
+	assert.Empty(t, enums)
 
 	assert.Equal(t, exprCall{name: "starts_with", nameStart: 6, nameEnd: 17, start: 6, end: 22, args: 1, method: true}, calls[0])
 	assert.Equal(t, "t.in_region", calls[1].name)
@@ -38,6 +39,26 @@ func TestParseExpressionCalls(t *testing.T) {
 	assert.Equal(t, `t.in_region(this, ["US", "CA"])`, src[calls[1].start:calls[1].end])
 	assert.Equal(t, exprCall{name: "size", nameStart: 61, nameEnd: 65, start: 61, end: 71, args: 1}, calls[2])
 	assert.Equal(t, exprCall{name: "now", nameStart: 79, nameEnd: 82, start: 79, end: 84}, calls[3])
+}
+
+// TestParseExpressionEnumRefs pins the enum value references the parser
+// extracts (RFC-001 §5.4 `enumref`): an identifier run not followed by
+// `(`, with a canonical spelling whatever the spacing. `this`, `true`,
+// `false` and `in` are never references; a run followed by `(` is a call.
+func TestParseExpressionEnumRefs(t *testing.T) {
+	t.Parallel()
+
+	src := `this in [MODE_MATCH, Mode . MODE_REGULATE] && foo > 1 && f(pkg.MODE_X) && true`
+	calls, enums, err := parseExpression(src)
+	require.Nil(t, err)
+	require.Len(t, calls, 1)
+	assert.Equal(t, "f", calls[0].name)
+	assert.Equal(t, []exprEnumRef{
+		{name: "MODE_MATCH", start: 9, end: 19},
+		{name: "Mode.MODE_REGULATE", start: 21, end: 41},
+		{name: "foo", start: 46, end: 49},
+		{name: "pkg.MODE_X", start: 59, end: 69},
+	}, enums)
 }
 
 // TestParseExpressionAccepts pins the shapes the grammar admits,
@@ -59,8 +80,10 @@ func TestParseExpressionAccepts(t *testing.T) {
 		"/* leading */ this.contains(\"a\\\"b\")",
 		`same_domain(this)`,
 		`a.b.c(this, 1, "x", [1, 2], now())`,
+		`this in [MODE_MATCH, Mode.MODE_REGULATE] && this != pkg.MODE_UNSPECIFIED`,
+		`this.defined() && defined(this) && this.unique()`,
 	} {
-		_, err := parseExpression(src)
+		_, _, err := parseExpression(src)
 		assert.Nil(t, err, "%q: %v", src, err)
 	}
 }
@@ -77,7 +100,6 @@ func TestParseExpressionRejects(t *testing.T) {
 	}{
 		{`this >= && this < 150`, "expected an expression, got `&&`", 8, 10},
 		{`this.name == "x"`, "field selection is not part of the expression language (`this.name`)", 5, 9},
-		{`foo > 1`, "`foo` is not bound", 0, 3},
 		{`this < 1 < 2`, "comparison operators do not chain", 9, 10},
 		{`this + 1`, "unexpected character '+': the expression language has no arithmetic", 5, 6},
 		{`"unterminated`, "unterminated string literal", 0, 13},
@@ -90,7 +112,7 @@ func TestParseExpressionRejects(t *testing.T) {
 		{`this.size() this`, "unexpected `this` after the expression", 12, 16},
 	}
 	for _, tc := range cases {
-		calls, err := parseExpression(tc.src)
+		calls, _, err := parseExpression(tc.src)
 		require.NotNil(t, err, "%q parsed: %v", tc.src, calls)
 		assert.Contains(t, err.msg, tc.want, "%q", tc.src)
 		assert.Equal(t, []int{tc.start, tc.end}, []int{err.start, err.end}, "%q: %s", tc.src, err.msg)
