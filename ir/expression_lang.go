@@ -52,11 +52,13 @@ var exprBuiltins = map[string]exprBuiltin{
 	"matches":     {args: 1, receiver: true},
 	"now":         {args: 0, receiver: false},
 	"is_nan":      {args: 0, receiver: true},
+	"defined":     {args: 0, receiver: true},
+	"unique":      {args: 0, receiver: true},
 }
 
 // exprBuiltinList renders the builtin set for diagnostics, in a fixed
 // order.
-const exprBuiltinList = "size, starts_with, ends_with, contains, matches, now, is_nan"
+const exprBuiltinList = "size, starts_with, ends_with, contains, matches, now, is_nan, defined, unique"
 
 // validateExpressionLanguage parses an expression-classified argument's
 // capture under the §5.4 grammar and diagnoses what the compiler owns:
@@ -74,14 +76,14 @@ func validateExpressionLanguage(r *report.Report, u AnnotationUse, target Annota
 		return span.File.Span(span.Start+start, span.Start+end)
 	}
 
-	calls, perr := parseExpression(text)
+	calls, enums, perr := parseExpression(text)
 	if perr != nil {
 		r.Errorf("argument %q for `%s` is not an expression: %s",
 			param.Name(), target.FullName(), perr.msg,
 		).Apply(
 			report.Snippet(sub(perr.start, perr.end)),
 			report.Notef("RFC-001 §5.4: comparisons, `in`, `&&` `||` `!`, literals, `this`, "+
-				"builtin methods on `this`, and declared-function calls"),
+				"enum value names, builtin methods on `this`, and declared-function calls"),
 		)
 		return
 	}
@@ -114,6 +116,20 @@ func validateExpressionLanguage(r *report.Report, u AnnotationUse, target Annota
 		default:
 			checkBuiltinArity(r, call, builtin, sub)
 		}
+	}
+
+	for _, ref := range enums {
+		at := sub(ref.start, ref.end)
+		if !resolveEnumValueName(u.Context(), nil, u.scopeName(), FullName(ref.name), at).IsZero() {
+			continue
+		}
+		r.Errorf("`%s` is not bound and is not an enum value, in argument %q for `%s`",
+			ref.name, param.Name(), target.FullName(),
+		).Apply(
+			report.Snippet(at),
+			report.Helpf("only `this` is bound; an enum value is named `VALUE`, `pkg.VALUE` or `Enum.VALUE`, "+
+				"and a call is written `%s(…)`", ref.name),
+		)
 	}
 }
 
@@ -166,6 +182,13 @@ type exprCall struct {
 	start, end         int // The whole call, through its closing parenthesis.
 	args               int
 	method             bool // `this.m(…)` rather than `m(…)`.
+}
+
+// exprEnumRef is one enum value reference the parser found (RFC-001
+// §5.4 `enumref`): an identifier run not followed by `(`.
+type exprEnumRef struct {
+	name       string // As written: `MODE_MATCH`, `Mode.MODE_MATCH`, `pkg.MODE_MATCH`.
+	start, end int
 }
 
 type exprLexer struct {
@@ -285,16 +308,18 @@ func (l *exprLexer) lexNumber(start int) exprToken {
 }
 
 // exprParser is a recursive-descent parser over one capture. It stops at
-// the first syntax error and records every call site it passes.
+// the first syntax error and records every call site and enum value
+// reference it passes.
 type exprParser struct {
 	err   *exprError
 	calls []exprCall
+	enums []exprEnumRef
 	lex   exprLexer
 	tok   exprToken
 }
 
 // parseExpression parses a capture under the §5.4 grammar and returns
-// its call sites, or the first syntax error.
+// its call sites and enum value references, or the first syntax error.
 //
 // The grammar, verbatim from §5.4 (EBNF repeats its nonterminals by
 // design):
@@ -308,9 +333,11 @@ type exprParser struct {
 //	term    := INT | FLOAT | STRING | "true" | "false" | list
 //	         | "this" postfix*
 //	         | call
+//	         | enumref
 //	         | "(" expr ")"
 //	postfix := "." IDENT "(" args ")"
 //	call    := IDENT ( "." IDENT )* "(" args ")"
+//	enumref := IDENT ( "." IDENT )*        not followed by "("
 //	args    := ( expr ( "," expr )* )?
 //	list    := "[" ( term ( "," term )* )? "]"
 //
@@ -320,7 +347,7 @@ type exprParser struct {
 // reference engine's lexer accepts.
 //
 //nolint:dupword // EBNF: `term ( … term )` and `term "in" term` are the grammar.
-func parseExpression(src string) ([]exprCall, *exprError) {
+func parseExpression(src string) ([]exprCall, []exprEnumRef, *exprError) {
 	p := &exprParser{lex: exprLexer{src: src}}
 	p.advance()
 	p.parseOr()
@@ -332,9 +359,9 @@ func parseExpression(src string) ([]exprCall, *exprError) {
 		}
 	}
 	if p.err != nil {
-		return nil, p.err
+		return nil, nil, p.err
 	}
-	return p.calls, nil
+	return p.calls, p.enums, nil
 }
 
 func (p *exprParser) advance() {
@@ -483,10 +510,12 @@ func (p *exprParser) parsePostfix() {
 }
 
 // parseCall parses `IDENT ("." IDENT)* "(" args ")"` starting at the
-// current identifier.
+// current identifier, or the same run without the parenthesis, which is
+// an enum value reference.
 func (p *exprParser) parseCall() {
 	first := p.tok
 	last := first
+	parts := []string{first.text}
 	p.advance()
 	for p.err == nil && p.isPunct(".") {
 		p.advance()
@@ -495,6 +524,7 @@ func (p *exprParser) parseCall() {
 			return
 		}
 		last = p.tok
+		parts = append(parts, last.text)
 		p.advance()
 	}
 	if p.err != nil {
@@ -502,8 +532,9 @@ func (p *exprParser) parseCall() {
 	}
 	name := p.lex.src[first.start:last.end]
 	if !p.isPunct("(") {
-		p.failf(exprToken{start: first.start, end: last.end},
-			"`%s` is not bound — only `this` is; a call is written `%s(…)`", name, name)
+		// The spelling is canonical (`Mode.X`, whatever the spacing), so an
+		// engine re-parsing the source finds it in Expression.enum_values.
+		p.enums = append(p.enums, exprEnumRef{name: strings.Join(parts, "."), start: first.start, end: last.end})
 		return
 	}
 	args, end := p.parseArgs()
