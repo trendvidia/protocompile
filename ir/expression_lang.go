@@ -51,11 +51,12 @@ var exprBuiltins = map[string]exprBuiltin{
 	"contains":    {args: 1, receiver: true},
 	"matches":     {args: 1, receiver: true},
 	"now":         {args: 0, receiver: false},
+	"is_nan":      {args: 0, receiver: true},
 }
 
 // exprBuiltinList renders the builtin set for diagnostics, in a fixed
 // order.
-const exprBuiltinList = "size, starts_with, ends_with, contains, matches, now"
+const exprBuiltinList = "size, starts_with, ends_with, contains, matches, now, is_nan"
 
 // validateExpressionLanguage parses an expression-classified argument's
 // capture under the §5.4 grammar and diagnoses what the compiler owns:
