@@ -2849,6 +2849,14 @@ enum Mode {
 		{`message M { string s = 1 @validate(this.starts_with("a") || this.size() == 0); }`, nil},
 		{`message M { string s = 1 @validate(this in ["a", "b"]); }`, nil},
 		{`@validate(this) message M {}`, nil}, // No carrier: `this` is unknown.
+		// A field's own rule on a collection binds `this` to the whole
+		// collection (RFC-001 §6.4); a rule from its type alias binds it
+		// to one element.
+		{`message M { repeated bool flags = 1 @validate(this); }`, []string{"the rule's result is `this`, a list here, not a boolean"}},
+		{`message M { map<string, bool> m = 1 @validate(this); }`, []string{"the rule's result is `this`, a map here, not a boolean"}},
+		{`message M { repeated string tags = 1 @validate(this.unique()); }`, nil},
+		{`type Flag = bool @validate(this); message M { repeated Flag flags = 1 @validate(this.unique()); }`, nil},
+		{`type Name = string @validate(this); message M { repeated Name names = 1; }`, []string{"the rule's result is `this`, a `string` here, not a boolean"}},
 	}
 	for _, tc := range cases {
 		_, rep := compileForAnnotationTest(t, head+tc.body+"\n")

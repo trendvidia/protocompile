@@ -81,15 +81,15 @@ func validateExpressionDefault(r *report.Report, target Annotation, param Annota
 		return
 	}
 	verifyCallArities(r, site)
-	validateExpressionLanguage(r, site, fmt.Sprintf("the default of %q in `%s`", param.Name(), target.FullName()), Type{})
+	validateExpressionLanguage(r, site, fmt.Sprintf("the default of %q in `%s`", param.Name(), target.FullName()), thisBinding{})
 }
 
 // checkDefaultedThis checks, at a use site that leaves an
 // `expression`-typed parameter to its default, that the default does not
 // use `this` as a boolean where the carrier makes it something else.
 // The declaration could not: `this` there has no type.
-func checkDefaultedThis(r *report.Report, u AnnotationUse, target Annotation, param AnnotationParam, carrier Type) {
-	if !thisIsNotBool(carrier) {
+func checkDefaultedThis(r *report.Report, u AnnotationUse, target Annotation, param AnnotationParam, this thisBinding) {
+	if !thisIsNotBool(this) {
 		return
 	}
 	span := param.defaultSite().span()
@@ -105,8 +105,8 @@ func checkDefaultedThis(r *report.Report, u AnnotationUse, target Annotation, pa
 			continue
 		}
 		at := span.File.Span(span.Start+need.val.start, span.Start+need.val.end)
-		r.Errorf("%s is `this`, a `%s` here, not a boolean, in the default of %q for `%s`",
-			need.role, carrier.FullName(), param.Name(), target.FullName(),
+		r.Errorf("%s is `this`, %s here, not a boolean, in the default of %q for `%s`",
+			need.role, this.describe(), param.Name(), target.FullName(),
 		).Apply(
 			report.Snippet(u.AST()),
 			report.Snippetf(at, "default declared here"),
@@ -243,7 +243,7 @@ const pxfBigFloatPrec = 256
 //     literal homogeneity and the message-literal explicit-typing
 //     rule.
 func validateAnnotationUseArgs(file *File, r *report.Report) {
-	for u, carrier := range allAnnotationUses(file) {
+	for u, site := range allAnnotationUses(file) {
 		target := u.Target()
 		if target.IsZero() {
 			continue // Already diagnosed in B2.
@@ -307,7 +307,7 @@ func validateAnnotationUseArgs(file *File, r *report.Report) {
 			}
 			if p.HasDefault() {
 				if p.IsExpression() {
-					checkDefaultedThis(r, u, target, p, carrier)
+					checkDefaultedThis(r, u, target, p, site.this)
 				}
 				continue
 			}
@@ -322,7 +322,7 @@ func validateAnnotationUseArgs(file *File, r *report.Report) {
 
 		for _, b := range bindings {
 			if !b.Param.IsZero() {
-				validateAnnotationUseArg(r, u, target, b, carrier)
+				validateAnnotationUseArg(r, u, target, b, site)
 				validateReservedSensitiveClass(r, target, b)
 			}
 		}
@@ -374,9 +374,10 @@ func validateAnnotationUseArg(
 	u AnnotationUse,
 	target Annotation,
 	b AnnotationArgBinding,
-	carrier Type,
+	site annotationCarrier,
 ) {
 	param := b.Param
+	carrier := site.ty
 
 	// Expression-typed params keep the capture verbatim. The compiler's
 	// obligations are call extraction plus declared-function arity
@@ -384,9 +385,8 @@ func validateAnnotationUseArg(
 	// (§5.4, protowire#282) — syntax, name resolution against the
 	// builtin set, and builtin arity.
 	if param.IsExpression() {
-		site := u.exprSite(b.Arg)
-		verifyCallArities(r, site)
-		validateExpressionLanguage(r, site, fmt.Sprintf("argument %q for `%s`", param.Name(), target.FullName()), carrier)
+		verifyCallArities(r, u.exprSite(b.Arg))
+		validateExpressionLanguage(r, u.exprSite(b.Arg), fmt.Sprintf("argument %q for `%s`", param.Name(), target.FullName()), site.this)
 		return
 	}
 
@@ -823,11 +823,27 @@ func describeArgShape(value ast.ExprAny) string {
 	}
 }
 
+// annotationCarrier is what an annotation use is attached to: ty, the
+// element type of the member (zero for anything that is not a member),
+// and what `this` binds to in a rule there.
+type annotationCarrier struct {
+	ty   Type
+	this thisBinding
+}
+
+// thisBinding is what `this` is in a rule: a value of ty (zero when
+// unknown), or a whole collection, named by collection ("a list",
+// "a map").
+type thisBinding struct {
+	ty         Type
+	collection string
+}
+
 // allAnnotationUses yields every materialised [AnnotationUse] in the
 // file by walking every carrier. The walk order matches
 // [resolveAnnotationUses].
-func allAnnotationUses(file *File) func(yield func(AnnotationUse, Type) bool) {
-	return func(yield func(AnnotationUse, Type) bool) {
+func allAnnotationUses(file *File) func(yield func(AnnotationUse, annotationCarrier) bool) {
+	return func(yield func(AnnotationUse, annotationCarrier) bool) {
 		// carrier is the element type of the MEMBER the annotation is
 		// attached to. A message, a service or a declaration is not a
 		// member and passes the zero Type, which is distinct from a member
@@ -841,7 +857,32 @@ func allAnnotationUses(file *File) func(yield func(AnnotationUse, Type) bool) {
 		// against there than on the enum itself.
 		emit := func(uses seq.Indexer[AnnotationUse], carrier Type) bool {
 			for u := range seq.Values(uses) {
-				if !yield(u, carrier) {
+				if !yield(u, annotationCarrier{ty: carrier, this: thisBinding{ty: carrier}}) {
+					return false
+				}
+			}
+			return true
+		}
+		// emitMember is emit for a field or extension. A rule its type
+		// alias chain contributes binds `this` to one element; the
+		// member's own rule on a repeated or map member binds it to the
+		// whole collection (RFC-001 §6.4).
+		emitMember := func(m Member) bool {
+			uses := m.Annotations()
+			chain := len(m.Raw().aliasChainUses)
+			whole := thisBinding{ty: m.Element()}
+			switch {
+			case m.IsMap():
+				whole = thisBinding{collection: "a map"}
+			case m.IsRepeated():
+				whole = thisBinding{collection: "a list"}
+			}
+			for i := range uses.Len() {
+				this := whole
+				if i < chain {
+					this = thisBinding{ty: m.Element()}
+				}
+				if !yield(uses.At(i), annotationCarrier{ty: m.Element(), this: this}) {
 					return false
 				}
 			}
@@ -866,7 +907,7 @@ func allAnnotationUses(file *File) func(yield func(AnnotationUse, Type) bool) {
 				return
 			}
 			for field := range seq.Values(ty.Members()) {
-				if !emit(field.Annotations(), field.Element()) {
+				if !emitMember(field) {
 					return
 				}
 			}
@@ -877,7 +918,7 @@ func allAnnotationUses(file *File) func(yield func(AnnotationUse, Type) bool) {
 			}
 		}
 		for ext := range seq.Values(file.AllExtensions()) {
-			if !emit(ext.Annotations(), ext.Element()) {
+			if !emitMember(ext) {
 				return
 			}
 		}

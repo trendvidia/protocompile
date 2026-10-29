@@ -70,10 +70,10 @@ const exprBuiltinList = "size, starts_with, ends_with, contains, matches, now, i
 // function call sites are the ones [exprSite.calls] resolved; every
 // other call must be a builtin.
 //
-// subject names the capture in diagnostics. carrier is the type `this`
-// binds to, or zero where it is not known (a default, a message-level
-// rule), in which case `this` alone is never refused.
-func validateExpressionLanguage(r *report.Report, site exprSite, subject string, carrier Type) {
+// subject names the capture in diagnostics. this is what `this` binds
+// to, zero where it is not known (a default, a message-level rule), in
+// which case `this` alone is never refused.
+func validateExpressionLanguage(r *report.Report, site exprSite, subject string, this thisBinding) {
 	span := site.span()
 	if span.IsZero() {
 		return
@@ -153,36 +153,46 @@ func validateExpressionLanguage(r *report.Report, site exprSite, subject string,
 			}
 			kind = builtin.result
 		case exprThis:
-			if !thisIsNotBool(carrier) {
+			if !thisIsNotBool(this) {
 				continue
 			}
 		}
-		reportNotBoolean(r, need, kind, subject, carrier, sub(need.val.start, need.val.end))
+		reportNotBoolean(r, need, kind, subject, this, sub(need.val.start, need.val.end))
 	}
 }
 
-// thisIsNotBool reports whether `this`, bound to carrier, is visibly not
-// a boolean: an enum, or a scalar other than bool. A message carrier
-// may be a wrapper that binds as its value (§6.2), and a zero carrier
-// is unknown, so neither is refused.
-func thisIsNotBool(carrier Type) bool {
+// thisIsNotBool reports whether `this` is visibly not a boolean: a
+// collection, an enum, or a scalar other than bool. A message may be a
+// wrapper that binds as its value (§6.2), and an unknown binding is
+// unknown, so neither is refused.
+func thisIsNotBool(this thisBinding) bool {
 	switch {
-	case carrier.IsZero():
-		return false
-	case carrier.IsEnum():
+	case this.collection != "":
 		return true
-	case carrier.IsPredeclared():
-		return carrier.Predeclared() != predeclared.Bool
+	case this.ty.IsZero():
+		return false
+	case this.ty.IsEnum():
+		return true
+	case this.ty.IsPredeclared():
+		return this.ty.Predeclared() != predeclared.Bool
 	}
 	return false
 }
 
+// describe names what `this` is for a diagnostic.
+func (b thisBinding) describe() string {
+	if b.collection != "" {
+		return b.collection
+	}
+	return fmt.Sprintf("a `%s`", b.ty.FullName())
+}
+
 // reportNotBoolean diagnoses a subexpression in a boolean position that
 // is visibly something else (RFC-001 §5.4, protowire#437).
-func reportNotBoolean(r *report.Report, need exprNeed, kind exprKind, subject string, carrier Type, at source.Span) {
+func reportNotBoolean(r *report.Report, need exprNeed, kind exprKind, subject string, this thisBinding, at source.Span) {
 	what := kind.describe()
 	if kind == exprThis {
-		what = fmt.Sprintf("`this`, a `%s` here", carrier.FullName())
+		what = "`this`, " + this.describe() + " here"
 	}
 	d := r.Errorf("%s is %s, not a boolean, in %s", need.role, what, subject).Apply(report.Snippet(at))
 	if kind == exprString && need.role == ruleResult {
