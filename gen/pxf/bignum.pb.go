@@ -15,7 +15,7 @@
 // PXF arbitrary-precision number types.
 //
 // Vendored from `trendvidia/protowire` (`proto/pxf/bignum.proto`) at commit
-// c1089eb5d80e7c38175a8ad71348887ce97baf16.
+// 5646a6ce99760438ea4b98d481e7969f45c6d328.
 //
 // Vendored because `protowire/schema/v1/descriptor.proto` imports it:
 // AnnotationArg and LiteralValue carry these three types directly, so an
@@ -168,9 +168,12 @@ func (x *Decimal) GetNegative() bool {
 	return false
 }
 
-// Arbitrary-precision binary floating point.
+// Arbitrary-precision binary floating point: value = (-1)^negative × mantissa × 2^exponent,
+// rounded to prec bits.
 // Wire: unsigned big-endian integer mantissa + binary exponent + precision + sign flag.
-// PXF text: float literal with arbitrary mantissa precision.
+// PXF text: numeric literal with a precision suffix, "p" and a bit count
+// (e.g. "0.10000000000000001p53"), read at that precision, or at 256 bits
+// without one. See draft -01 § PXF Annotations.
 type BigFloat struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Mantissa      []byte                 `protobuf:"bytes,1,opt,name=mantissa,proto3" json:"mantissa,omitempty"`
