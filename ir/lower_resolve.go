@@ -396,19 +396,7 @@ func unwrapTypeAlias(field Member, alias TypeAlias) (Symbol, []Ref[AnnotationUse
 		}
 		linkUses = append(linkUses, linkUse)
 
-		baseSym := symbolRef{
-			File:   aliasFile,
-			Report: nil, // Quiet; broken bases are diagnosed by [resolveTypeAliasBases].
-
-			span:  current.AST().Value(),
-			scope: current.FullName().Parent(),
-			name:  FullName(current.BaseTypeName()),
-
-			accept: isTypeOrAlias,
-			want:   taxa.Type,
-
-			allowScalars: true,
-		}.resolve()
+		baseSym := resolveAliasBase(current)
 
 		if baseSym.Kind() == SymbolKindTypeAlias {
 			current = baseSym.AsTypeAlias()
@@ -425,6 +413,43 @@ func unwrapTypeAlias(field Member, alias TypeAlias) (Symbol, []Ref[AnnotationUse
 		}
 		return baseSym, uses, chain
 	}
+}
+
+// resolveAliasBase resolves the immediate base of alias, which may be
+// another alias. It is quiet: broken bases are diagnosed by
+// [resolveTypeAliasBases].
+func resolveAliasBase(alias TypeAlias) Symbol {
+	return symbolRef{
+		File: alias.Context(),
+
+		span:  alias.AST().Value(),
+		scope: alias.FullName().Parent(),
+		name:  FullName(alias.BaseTypeName()),
+
+		accept: isTypeOrAlias,
+		want:   taxa.Type,
+
+		allowScalars: true,
+	}.resolve()
+}
+
+// aliasBaseType returns the type alias finally names, following a chain
+// of aliases, or the zero Type when the chain is broken or cyclic.
+func aliasBaseType(alias TypeAlias) Type {
+	seen := map[FullName]bool{}
+	for !alias.IsZero() && !seen[alias.FullName()] {
+		seen[alias.FullName()] = true
+		base := resolveAliasBase(alias)
+		switch {
+		case base.Kind() == SymbolKindTypeAlias:
+			alias = base.AsTypeAlias()
+		case base.Kind().IsType():
+			return base.AsType()
+		default:
+			return Type{}
+		}
+	}
+	return Type{}
 }
 
 // fieldTypePath extracts the path of a field's declared type, if any.
