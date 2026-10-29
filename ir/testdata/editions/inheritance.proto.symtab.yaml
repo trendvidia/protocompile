@@ -35,7 +35,8 @@ tables:
       index: 1
       visible: true
       options.message.fields:
-        "features": { message.fields: { "repeated_field_encoding": { i32: 1 } } }
+        "features":
+          message.fields: { "repeated_field_encoding": { i32: 1 } }
       features:
       - { extn: "pb.cpp", name: "legacy_closed_enum", value: "false" }
       - { extn: "pb.cpp", name: "string_type", value: "STRING" }
@@ -67,4 +68,5 @@ tables:
         message:
           fields: { "field_presence": { i32: 2 } }
           extns:
-            "pb.cpp": { message.fields: { "legacy_closed_enum": { bool: false } } }
+            "pb.cpp":
+              message.fields: { "legacy_closed_enum": { bool: false } }

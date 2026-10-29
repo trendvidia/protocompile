@@ -45,7 +45,11 @@ func (l *layout) layoutFlat(cursor cursor) (total int, broken bool) {
 	for tag, cursor := range cursor {
 		switch tag.kind {
 		case kindText, kindSpace, kindBreak:
-			if l.prevText != nil {
+			// Only tags that render when flat take part in merging here: a
+			// break that renders only when broken must not delete the space
+			// beside it from the flat width, or every softline separator is
+			// undercounted.
+			if l.prevText != nil && tag.renderIf(Flat) {
 				prev, next := shouldMerge(l.prevText, tag)
 				if !prev {
 					total -= l.prevText.width

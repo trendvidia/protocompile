@@ -157,7 +157,9 @@ tables:
       options.message.fields:
         "edition_defaults":
           repeated.values:
-          - message.fields: { "edition": { i32: 998 }, "value": { string: "0" } }
+          - message.fields:
+              "edition": { i32: 998 }
+              "value": { string: "0" }
         "feature_support":
           message.fields: { "edition_introduced": { i32: 1001 } }
       features:
@@ -213,9 +215,15 @@ tables:
       options.message.fields:
         "edition_defaults":
           repeated.values:
-          - message.fields: { "edition": { i32: 998 }, "value": { string: "A" } }
-          - message.fields: { "edition": { i32: 999 }, "value": { string: "B" } }
-          - message.fields: { "edition": { i32: 1000 }, "value": { string: "C" } }
+          - message.fields:
+              "edition": { i32: 998 }
+              "value": { string: "A" }
+          - message.fields:
+              "edition": { i32: 999 }
+              "value": { string: "B" }
+          - message.fields:
+              "edition": { i32: 1000 }
+              "value": { string: "C" }
         "feature_support":
           message.fields: { "edition_introduced": { i32: 1000 } }
       features:
