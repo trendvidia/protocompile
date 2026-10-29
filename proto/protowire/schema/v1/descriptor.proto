@@ -15,7 +15,7 @@
 // Protowire Schema Extensions — descriptor-level lowering targets.
 //
 // Vendored from `trendvidia/protowire` (`proto/schema/v1/descriptor.proto`)
-// at commit 2fcc2181a9d8b6f3cf420b67980864fdbc0d33d1 — the revision that
+// at commit cc2126a3bcdde38c1f727315b7fdd20bd337cf33 — a revision that
 // includes the finalized Literal carrier shape (protowire#99: EnumLiteral,
 // LiteralValue list elements) and the ratified descriptor_path grammar
 // (protowire#106). For protocompile's B4 lowering pass. The vendored copy
@@ -281,8 +281,8 @@ enum ParamType {
   //
   // The compiler checks it (section 5.1, section 8.1): the fragment must
   // parse under the section 5.4 grammar; every call must resolve to a
-  // visible `function` declaration or be one of the six builtins (size,
-  // starts_with, ends_with, contains, matches, now); a declared
+  // visible `function` declaration or be one of the seven builtins (size,
+  // starts_with, ends_with, contains, matches, now, is_nan); a declared
   // function's arity must match its declaration and a builtin's its
   // form. So, given `function matches(value: string, pattern: string)`,
   // `@validate(mathces(this, "^a"))` is a compile error at the call.
