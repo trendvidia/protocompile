@@ -257,9 +257,29 @@ func (p *printer) printAnnotationParams(parens token.Token, params ast.Commas[as
 			p.printToken(param.Name(), gap)
 			p.printToken(param.Colon(), gapNone)
 			p.printType(param.Type(), gapSpace)
-			if !param.Equals().IsZero() {
-				p.printToken(param.Equals(), gapSpace)
+			if param.Equals().IsZero() {
+				return
+			}
+			p.printToken(param.Equals(), gapSpace)
+			start := param.DefaultStart()
+			if start.IsZero() {
 				p.printExpr(param.Default(), gapSpace)
+				return
+			}
+			// A captured expression default prints as its tokens, like a
+			// use-site argument.
+			childGap := gapSpace
+			prevEnd := -1
+			for tok := range tokensThrough(start, param.DefaultEnd()) {
+				if prevEnd >= 0 {
+					childGap = gapPreserve
+					if tok.Span().Start > prevEnd {
+						childGap = gapSpace
+					}
+				}
+				p.printTokenTree(tok, childGap)
+				_, last := tok.StartEnd()
+				prevEnd = last.Span().End
 			}
 		},
 		params.Comma)
@@ -1062,4 +1082,18 @@ func tokenTreeHasComments(tok token.Token) bool {
 		}
 	}
 	return false
+}
+
+// tokensThrough yields the natural tokens from start to end inclusive,
+// at start's nesting depth.
+func tokensThrough(start, end token.Token) func(yield func(token.Token) bool) {
+	return func(yield func(token.Token) bool) {
+		c := token.NewCursorAt(start)
+		for !c.Done() {
+			tok := c.Next()
+			if !yield(tok) || tok.ID() == end.ID() {
+				return
+			}
+		}
+	}
 }

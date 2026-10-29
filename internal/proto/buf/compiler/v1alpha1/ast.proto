@@ -207,12 +207,18 @@ message Decl {
     message Param {
       string name = 1;
       Type type = 2;
+      // The default re-parsed under the value grammar; unset for an
+      // `expression`-typed default that is an engine-expression fragment.
       Expr default = 3;
+      // The raw captured default of an `expression`-typed parameter
+      // (RFC-001 §5.1); empty for every other parameter.
+      string default_capture = 4;
 
       Span span = 10;
       Span name_span = 11;
       Span colon_span = 12;
       Span equals_span = 13;
+      Span default_span = 14;
     }
 
     string name = 1;

@@ -57,12 +57,61 @@ func resolveAnnotationParamTypes(file *File, r *report.Report) {
 func validateAnnotationParamDefaults(file *File, r *report.Report) {
 	for ann := range seq.Values(file.Annotations()) {
 		for p := range seq.Values(ann.Params()) {
+			if p.IsExpression() {
+				validateExpressionDefault(r, ann, p)
+				continue
+			}
 			deflt := p.Default()
 			if deflt.IsZero() {
 				continue
 			}
 			validateAnnotationArg(r, ann, p, deflt)
 		}
+	}
+}
+
+// validateExpressionDefault checks an `expression`-typed parameter's
+// default exactly as a use-site argument is checked, with names resolved
+// from the annotation declaration's scope (protowire#437). `this` has
+// no carrier here; [checkDefaultedThis] checks it where the default
+// applies.
+func validateExpressionDefault(r *report.Report, target Annotation, param AnnotationParam) {
+	site := param.defaultSite()
+	if site.isZero() {
+		return
+	}
+	verifyCallArities(r, site)
+	validateExpressionLanguage(r, site, fmt.Sprintf("the default of %q in `%s`", param.Name(), target.FullName()), thisBinding{})
+}
+
+// checkDefaultedThis checks, at a use site that leaves an
+// `expression`-typed parameter to its default, that the default does not
+// use `this` as a boolean where the carrier makes it something else.
+// The declaration could not: `this` there has no type.
+func checkDefaultedThis(r *report.Report, u AnnotationUse, target Annotation, param AnnotationParam, this thisBinding) {
+	if !thisIsNotBool(this) {
+		return
+	}
+	span := param.defaultSite().span()
+	if span.IsZero() {
+		return
+	}
+	analysis, err := analyzeExpression(span.Text())
+	if err != nil {
+		return // Diagnosed at the declaration.
+	}
+	for _, need := range analysis.needs {
+		if need.val.kind != exprThis {
+			continue
+		}
+		at := span.File.Span(span.Start+need.val.start, span.Start+need.val.end)
+		r.Errorf("%s is `this`, %s here, not a boolean, in the default of %q for `%s`",
+			need.role, this.describe(), param.Name(), target.FullName(),
+		).Apply(
+			report.Snippet(u.AST()),
+			report.Snippetf(at, "default declared here"),
+			report.Helpf("pass %q explicitly, or use `@%s` only where `this` is a bool", param.Name(), target.Name()),
+		)
 	}
 }
 
@@ -194,7 +243,7 @@ const pxfBigFloatPrec = 256
 //     literal homogeneity and the message-literal explicit-typing
 //     rule.
 func validateAnnotationUseArgs(file *File, r *report.Report) {
-	for u, carrier := range allAnnotationUses(file) {
+	for u, site := range allAnnotationUses(file) {
 		target := u.Target()
 		if target.IsZero() {
 			continue // Already diagnosed in B2.
@@ -253,10 +302,13 @@ func validateAnnotationUseArgs(file *File, r *report.Report) {
 		}
 
 		for p := range seq.Values(params) {
-			if !p.Default().IsZero() {
+			if _, ok := bound[p.Name()]; ok {
 				continue
 			}
-			if _, ok := bound[p.Name()]; ok {
+			if p.HasDefault() {
+				if p.IsExpression() {
+					checkDefaultedThis(r, u, target, p, site.this)
+				}
 				continue
 			}
 			r.Errorf("missing required argument %q for `%s`",
@@ -270,7 +322,7 @@ func validateAnnotationUseArgs(file *File, r *report.Report) {
 
 		for _, b := range bindings {
 			if !b.Param.IsZero() {
-				validateAnnotationUseArg(r, u, target, b, carrier)
+				validateAnnotationUseArg(r, u, target, b, site)
 				validateReservedSensitiveClass(r, target, b)
 			}
 		}
@@ -322,9 +374,10 @@ func validateAnnotationUseArg(
 	u AnnotationUse,
 	target Annotation,
 	b AnnotationArgBinding,
-	carrier Type,
+	site annotationCarrier,
 ) {
 	param := b.Param
+	carrier := site.ty
 
 	// Expression-typed params keep the capture verbatim. The compiler's
 	// obligations are call extraction plus declared-function arity
@@ -332,8 +385,8 @@ func validateAnnotationUseArg(
 	// (§5.4, protowire#282) — syntax, name resolution against the
 	// builtin set, and builtin arity.
 	if param.IsExpression() {
-		verifyCallArities(r, u, b.Arg)
-		validateExpressionLanguage(r, u, target, param, b.Arg)
+		verifyCallArities(r, u.exprSite(b.Arg))
+		validateExpressionLanguage(r, u.exprSite(b.Arg), fmt.Sprintf("argument %q for `%s`", param.Name(), target.FullName()), site.this)
 		return
 	}
 
@@ -522,8 +575,8 @@ func validateUseEnumArg(r *report.Report, u AnnotationUse, target Annotation, pa
 // expression-classified argument against its resolved declaration's
 // parameter count. Non-resolving names were never extracted; they must
 // be RFC-001 §5.4 builtins, which [validateExpressionLanguage] checks.
-func verifyCallArities(r *report.Report, u AnnotationUse, arg ast.AnnotationUseArg) {
-	for _, call := range u.ExtractCalls(arg) {
+func verifyCallArities(r *report.Report, site exprSite) {
+	for _, call := range site.calls() {
 		declared := call.Target.Params().Len()
 		if call.Arity == declared {
 			continue
@@ -770,11 +823,27 @@ func describeArgShape(value ast.ExprAny) string {
 	}
 }
 
+// annotationCarrier is what an annotation use is attached to: ty, the
+// element type of the member (zero for anything that is not a member),
+// and what `this` binds to in a rule there.
+type annotationCarrier struct {
+	ty   Type
+	this thisBinding
+}
+
+// thisBinding is what `this` is in a rule: a value of ty (zero when
+// unknown), or a whole collection, named by collection ("a list",
+// "a map").
+type thisBinding struct {
+	ty         Type
+	collection string
+}
+
 // allAnnotationUses yields every materialised [AnnotationUse] in the
 // file by walking every carrier. The walk order matches
 // [resolveAnnotationUses].
-func allAnnotationUses(file *File) func(yield func(AnnotationUse, Type) bool) {
-	return func(yield func(AnnotationUse, Type) bool) {
+func allAnnotationUses(file *File) func(yield func(AnnotationUse, annotationCarrier) bool) {
+	return func(yield func(AnnotationUse, annotationCarrier) bool) {
 		// carrier is the element type of the MEMBER the annotation is
 		// attached to. A message, a service or a declaration is not a
 		// member and passes the zero Type, which is distinct from a member
@@ -788,7 +857,32 @@ func allAnnotationUses(file *File) func(yield func(AnnotationUse, Type) bool) {
 		// against there than on the enum itself.
 		emit := func(uses seq.Indexer[AnnotationUse], carrier Type) bool {
 			for u := range seq.Values(uses) {
-				if !yield(u, carrier) {
+				if !yield(u, annotationCarrier{ty: carrier, this: thisBinding{ty: carrier}}) {
+					return false
+				}
+			}
+			return true
+		}
+		// emitMember is emit for a field or extension. A rule its type
+		// alias chain contributes binds `this` to one element; the
+		// member's own rule on a repeated or map member binds it to the
+		// whole collection (RFC-001 §6.4).
+		emitMember := func(m Member) bool {
+			uses := m.Annotations()
+			chain := len(m.Raw().aliasChainUses)
+			whole := thisBinding{ty: m.Element()}
+			switch {
+			case m.IsMap():
+				whole = thisBinding{collection: "a map"}
+			case m.IsRepeated():
+				whole = thisBinding{collection: "a list"}
+			}
+			for i := range uses.Len() {
+				this := whole
+				if i < chain {
+					this = thisBinding{ty: m.Element()}
+				}
+				if !yield(uses.At(i), annotationCarrier{ty: m.Element(), this: this}) {
 					return false
 				}
 			}
@@ -813,7 +907,7 @@ func allAnnotationUses(file *File) func(yield func(AnnotationUse, Type) bool) {
 				return
 			}
 			for field := range seq.Values(ty.Members()) {
-				if !emit(field.Annotations(), field.Element()) {
+				if !emitMember(field) {
 					return
 				}
 			}
@@ -824,7 +918,7 @@ func allAnnotationUses(file *File) func(yield func(AnnotationUse, Type) bool) {
 			}
 		}
 		for ext := range seq.Values(file.AllExtensions()) {
-			if !emit(ext.Annotations(), ext.Element()) {
+			if !emitMember(ext) {
 				return
 			}
 		}
@@ -852,8 +946,7 @@ func allAnnotationUses(file *File) func(yield func(AnnotationUse, Type) bool) {
 // [validateAnnotationUseArg] instead, which handles the capture-
 // then-classify argument model.)
 func validateAnnotationArg(r *report.Report, target Annotation, param AnnotationParam, arg ast.ExprAny) {
-	// The `expression` pseudo-type accepts any default shape. Same
-	// for fully-unresolved params (a diagnostic was already emitted).
+	// `expression` defaults are [validateExpressionDefault]'s.
 	if param.IsExpression() {
 		return
 	}

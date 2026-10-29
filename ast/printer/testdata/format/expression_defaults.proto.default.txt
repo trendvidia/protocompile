@@ -1,0 +1,7 @@
+syntax = "proto3";
+package test;
+
+function known(m: int32);
+
+annotation mode_rule(rule: expression = known(this)&&this!=MODE_UNSPECIFIED, code: string = "mode");
+annotation lower(rule: expression = matches(this, "^[a-z]+$") && this.size() < 10);

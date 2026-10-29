@@ -20,6 +20,7 @@ import (
 	"github.com/trendvidia/protocompile/id"
 	"github.com/trendvidia/protocompile/internal/intern"
 	"github.com/trendvidia/protocompile/seq"
+	"github.com/trendvidia/protocompile/source"
 	"github.com/trendvidia/protocompile/token"
 )
 
@@ -216,6 +217,22 @@ func (p AnnotationParam) Default() ast.ExprAny {
 	return p.AST().Default()
 }
 
+// HasDefault reports whether the parameter declares a default value. An
+// `expression`-typed default that is an engine-expression fragment has
+// a zero [AnnotationParam.Default], so ask this instead.
+func (p AnnotationParam) HasDefault() bool {
+	return !p.IsZero() && p.AST().HasDefault()
+}
+
+// DefaultSpan returns the source of an `expression`-typed parameter's
+// captured default (RFC-001 §5.1), or zero.
+func (p AnnotationParam) DefaultSpan() source.Span {
+	if p.IsZero() {
+		return source.Span{}
+	}
+	return p.AST().DefaultSpan()
+}
+
 // TypeName returns the literal text of the parameter's declared
 // type, e.g. "string", "expression", or "myco.SomeMessage". Useful
 // for diagnostics — see [AnnotationParam.IsScalar],
@@ -249,9 +266,9 @@ func (p AnnotationParam) IsScalar() bool {
 }
 
 // IsExpression reports whether the parameter's declared type is the
-// special PSE pseudo-type `expression` (an opaque text payload
-// validated by the configured engine at run time, not by
-// protocompile).
+// special PSE pseudo-type `expression`: a rule in the RFC-001 §5.4
+// language, kept as source text and checked by the compiler for
+// syntax, names, builtin arity and a visibly non-boolean result.
 func (p AnnotationParam) IsExpression() bool {
 	return !p.IsZero() && p.Raw().isExpression
 }

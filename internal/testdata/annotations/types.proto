@@ -25,7 +25,7 @@ annotation each_kind(
   ratio: double = 0.25,
   flag: bool = true,
   data: bytes = "",
-  rule: expression = "this != null",
+  rule: expression = size(this) > 0,
   free: any = Visibility.PUBLIC,
   user_type: Email
 );

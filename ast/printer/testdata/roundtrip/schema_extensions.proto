@@ -12,3 +12,4 @@ function valid_address(msg: myco.commons.Address) [error_code = "common.address"
 annotation required;
 annotation description(text: string);
 annotation validate(rule: expression, code: string = "");
+annotation lowercase(rule: expression = matches(this, "^[a-z]+$") &&  this.size() < 10, code: string = "lower");

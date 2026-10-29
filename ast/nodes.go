@@ -317,14 +317,17 @@ func (n *Nodes) NewDeclAnnotation(args DeclAnnotationArgs) DeclAnnotation {
 func (n *Nodes) NewDeclAnnotationParam(args DeclAnnotationParamArgs) DeclAnnotationParam {
 	n.panicIfNotOurs(
 		args.Name.Context(), args.Colon.Context(), args.Type.Context(),
-		args.Equals.Context(), args.Default.Context())
+		args.Equals.Context(), args.Default.Context(),
+		args.DefaultStart.Context(), args.DefaultEnd.Context())
 
 	return id.Wrap(n.File(), id.ID[DeclAnnotationParam](n.decls.annotationParams.NewCompressed(rawDeclAnnotationParam{
-		name:   args.Name.ID(),
-		colon:  args.Colon.ID(),
-		ty:     args.Type.ID(),
-		equals: args.Equals.ID(),
-		deflt:  args.Default.ID(),
+		name:         args.Name.ID(),
+		colon:        args.Colon.ID(),
+		ty:           args.Type.ID(),
+		equals:       args.Equals.ID(),
+		deflt:        args.Default.ID(),
+		defaultStart: args.DefaultStart.ID(),
+		defaultEnd:   args.DefaultEnd.ID(),
 	})))
 }
 

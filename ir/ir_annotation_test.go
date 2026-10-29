@@ -809,7 +809,7 @@ package test;
 annotation validate(rule: expression);
 
 @validate(matches(this, "^[a-z]+$"))
-@validate(now())
+@validate(this < now())
 @validate(this.size() < 280)
 message M {}
 `
@@ -2749,4 +2749,155 @@ message M { E f = 1 @default(1e19); }
 				"double_value and is not bounded by int64; got: %s", d.Message())
 		}
 	}
+}
+
+// TestExpressionDefaultIsChecked is protowire#437: an `expression`-typed
+// default gets the checks a use-site argument gets, from the
+// declaration's scope, and none of these compile any more.
+func TestExpressionDefaultIsChecked(t *testing.T) {
+	t.Parallel()
+
+	const head = `syntax = "proto3";
+package test;
+
+function known(m: int32);
+
+enum Mode {
+  MODE_UNSPECIFIED = 0;
+  MODE_MATCH = 1;
+}
+
+`
+	cases := []struct {
+		decl  string
+		wants []string // nil: compiles clean.
+	}{
+		{`annotation a(rule: expression = MODE_NOPE);`,
+			[]string{"`MODE_NOPE` is not bound and is not an enum value", `the default of "rule" in ` + "`test.a`"}},
+		{`annotation a(rule: expression = "this == MODE_MATCH");`,
+			[]string{"the rule's result is a string, not a boolean", `the default of "rule"`}},
+		{`annotation a(rule: expression = 3);`, []string{"the rule's result is a number, not a boolean"}},
+		{`annotation a(rule: expression = mathces(this, "x"));`, []string{"unknown function `mathces`"}},
+		{`annotation a(rule: expression = known(this, 2));`, []string{"call to `test.known` has 2 argument(s)"}},
+		{`annotation a(rule: expression = this.size(1) > 0);`, []string{"`this.size(…)` takes 0 argument(s)"}},
+		{`annotation a(rule: expression = this <);`, []string{`the default of "rule" in ` + "`test.a`" + ` is not an expression`}},
+		{`annotation a(rule: expression = known(this) && this != MODE_UNSPECIFIED);`, nil},
+		{`annotation a(rule: expression = matches(this, "^[a-z]+$"), code: string = "x");`, nil},
+		// `this` has no type at the declaration; it is checked where the
+		// default applies (TestDefaultedThisIsCheckedAtTheUseSite).
+		{`annotation a(rule: expression = this);`, nil},
+	}
+	for _, tc := range cases {
+		_, rep := compileForAnnotationTest(t, head+tc.decl+"\n")
+		if tc.wants == nil {
+			for _, d := range rep.Diagnostics {
+				if isError(d) {
+					t.Errorf("%s: unexpected diagnostic: %s", tc.decl, d.Message())
+				}
+			}
+			continue
+		}
+		assert.True(t, hasErrorContaining(rep, tc.wants...),
+			"%s: want an error containing %q, got: %v", tc.decl, tc.wants, rep.Diagnostics)
+	}
+}
+
+// TestRuleThatIsNotBooleanIsRejected is protowire#437 at use sites: a
+// rule whose result, or an operand of `!`, `&&` or `||`, is visibly not
+// a boolean is a compile error. `this` is refused only where the carrier
+// says it is not a bool.
+func TestRuleThatIsNotBooleanIsRejected(t *testing.T) {
+	t.Parallel()
+
+	const head = `syntax = "proto3";
+package test;
+
+import "google/protobuf/wrappers.proto";
+
+annotation validate(rule: expression);
+function ok(s: string);
+
+enum Mode {
+  MODE_UNSPECIFIED = 0;
+  MODE_MATCH = 1;
+}
+
+`
+	cases := []struct {
+		body  string
+		wants []string // nil: compiles clean.
+	}{
+		{`message M { string s = 1 @validate("this != \"\""); }`,
+			[]string{"the rule's result is a string, not a boolean", `argument "rule" for ` + "`test.validate`"}},
+		{`message M { string s = 1 @validate(3); }`, []string{"the rule's result is a number, not a boolean"}},
+		{`message M { string s = 1 @validate([1, 2]); }`, []string{"the rule's result is a list, not a boolean"}},
+		{`message M { Mode m = 1 @validate(MODE_MATCH); }`, []string{"the rule's result is an enum value, not a boolean"}},
+		{`message M { string s = 1 @validate(size(this)); }`, []string{"the rule's result is a number, not a boolean"}},
+		{`message M { string s = 1 @validate(this.size()); }`, []string{"the rule's result is a number, not a boolean"}},
+		{`message M { int64 t = 1 @validate(now()); }`, []string{"the rule's result is a timestamp, not a boolean"}},
+		{`message M { string s = 1 @validate((("x"))); }`, []string{"the rule's result is a string, not a boolean"}},
+		{`message M { string s = 1 @validate(this); }`, []string{"the rule's result is `this`, a `string` here, not a boolean"}},
+		{`message M { Mode m = 1 @validate(this); }`, []string{"the rule's result is `this`, a `test.Mode` here, not a boolean"}},
+		{`message M { int32 n = 1 @validate(this && n > 0); }`, nil}, // Unresolved `n` is the only error; see below.
+		{`message M { int32 n = 1 @validate(this > 0 && 1); }`, []string{"an operand of `&&` is a number, not a boolean"}},
+		{`message M { int32 n = 1 @validate(this > 0 || this); }`, []string{"an operand of `||` is `this`, a `int32` here"}},
+		{`message M { string s = 1 @validate(!this.size()); }`, []string{"the operand of `!` is a number, not a boolean"}},
+		{`message M { bool b = 1 @validate(this); }`, nil},
+		{`message M { bool b = 1 @validate(!this && true); }`, nil},
+		{`message M { google.protobuf.BoolValue b = 1 @validate(this); }`, nil},
+		{`message M { string s = 1 @validate(ok(this)); }`, nil},
+		{`message M { string s = 1 @validate(this.starts_with("a") || this.size() == 0); }`, nil},
+		{`message M { string s = 1 @validate(this in ["a", "b"]); }`, nil},
+		{`@validate(this) message M {}`, nil}, // No carrier: `this` is unknown.
+		// A field's own rule on a collection binds `this` to the whole
+		// collection (RFC-001 §6.4); a rule from its type alias binds it
+		// to one element.
+		{`message M { repeated bool flags = 1 @validate(this); }`, []string{"the rule's result is `this`, a list here, not a boolean"}},
+		{`message M { map<string, bool> m = 1 @validate(this); }`, []string{"the rule's result is `this`, a map here, not a boolean"}},
+		{`message M { repeated string tags = 1 @validate(this.unique()); }`, nil},
+		{`type Flag = bool @validate(this); message M { repeated Flag flags = 1 @validate(this.unique()); }`, nil},
+		{`type Name = string @validate(this); message M { repeated Name names = 1; }`, []string{"the rule's result is `this`, a `string` here, not a boolean"}},
+	}
+	for _, tc := range cases {
+		_, rep := compileForAnnotationTest(t, head+tc.body+"\n")
+		if tc.wants == nil {
+			for _, d := range rep.Diagnostics {
+				if isError(d) && !strings.Contains(d.Message(), "`n` is not bound") {
+					t.Errorf("%s: unexpected diagnostic: %s", tc.body, d.Message())
+				}
+			}
+			continue
+		}
+		assert.True(t, hasErrorContaining(rep, tc.wants...),
+			"%s: want an error containing %q, got: %v", tc.body, tc.wants, rep.Diagnostics)
+	}
+}
+
+// TestDefaultedThisIsCheckedAtTheUseSite: a default of `this` is a rule
+// on a bool and nothing else. The declaration can't tell; each use that
+// leaves the parameter to its default can.
+func TestDefaultedThisIsCheckedAtTheUseSite(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+annotation flag(rule: expression = this);
+
+message M {
+  bool on = 1 @flag;
+  string name = 2 @flag;
+  string other = 3 @flag(this != "");
+}
+`
+	_, rep := compileForAnnotationTest(t, src)
+	var errs []string
+	for _, d := range rep.Diagnostics {
+		if isError(d) {
+			errs = append(errs, d.Message())
+		}
+	}
+	assert.Equal(t, []string{
+		"the rule's result is `this`, a `string` here, not a boolean, in the default of \"rule\" for `test.flag`",
+	}, errs)
 }

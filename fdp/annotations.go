@@ -123,27 +123,10 @@ func buildArg(u ir.AnnotationUse, b ir.AnnotationArgBinding, carrier ir.Type) *p
 	// trimmed, quotes never stripped) together with the function-call
 	// sites and enum value references extracted per §8.1.
 	if b.Param.IsExpression() {
-		expr := &pwsv1.Expression{
-			Source:   strings.TrimSpace(b.Arg.ValueSpan().Text()),
-			Location: locationOf(b.Arg.ValueStart()),
-		}
-		for _, call := range u.ExtractCalls(b.Arg) {
-			expr.Calls = append(expr.Calls, &pwsv1.FunctionRef{
-				Fqn:   string(call.Target.FullName()),
-				Arity: int32(call.Arity),
-			})
-		}
-		for _, ref := range u.ExtractEnumValues(b.Arg) {
-			expr.EnumValues = append(expr.EnumValues, &pwsv1.EnumValueRef{
-				Spelling: ref.Spelling,
-				Value: &pwsv1.EnumLiteral{
-					EnumType:  string(ref.Value.Parent().FullName()),
-					ValueName: ref.Value.Name(),
-					Number:    ref.Value.Number(),
-				},
-			})
-		}
-		out.Value = &pwsv1.AnnotationArg_Expression{Expression: expr}
+		out.Value = &pwsv1.AnnotationArg_Expression{Expression: expression(
+			b.Arg.ValueSpan().Text(), locationOf(b.Arg.ValueStart()),
+			u.ExtractCalls(b.Arg), u.ExtractEnumValues(b.Arg),
+		)}
 		return out
 	}
 
@@ -165,6 +148,32 @@ func buildArg(u ir.AnnotationUse, b ir.AnnotationArgBinding, carrier ir.Type) *p
 	}
 	value.Name = out.Name
 	return value
+}
+
+// expression lowers an expression capture with the function-call sites
+// and enum value references extracted from it (RFC-001 §8.1).
+func expression(source string, loc *pwsv1.SourceLocation, calls []ir.AnnotationFunctionCall, enums []ir.AnnotationEnumValue) *pwsv1.Expression {
+	expr := &pwsv1.Expression{
+		Source:   strings.TrimSpace(source),
+		Location: loc,
+	}
+	for _, call := range calls {
+		expr.Calls = append(expr.Calls, &pwsv1.FunctionRef{
+			Fqn:   string(call.Target.FullName()),
+			Arity: int32(call.Arity),
+		})
+	}
+	for _, ref := range enums {
+		expr.EnumValues = append(expr.EnumValues, &pwsv1.EnumValueRef{
+			Spelling: ref.Spelling,
+			Value: &pwsv1.EnumLiteral{
+				EnumType:  string(ref.Value.Parent().FullName()),
+				ValueName: ref.Value.Name(),
+				Number:    ref.Value.Number(),
+			},
+		})
+	}
+	return expr
 }
 
 // buildArgValue lowers a classified argument value expression into a
@@ -602,25 +611,24 @@ func buildAnnotationParamDecl(p ir.AnnotationParam) *pwsv1.AnnotationParam {
 			out.TypeFqn = string(ut.FullName())
 		}
 	}
-	if deflt := p.Default(); !deflt.IsZero() {
-		out.DefaultValue = buildDefaultArg(deflt, p)
+	if p.HasDefault() {
+		out.DefaultValue = buildDefaultArg(p.Default(), p)
 	}
 	return out
 }
 
 // buildDefaultArg lowers a parameter's default-value expression.
-// Defaults are declaration-site expressions (not use-site captures);
-// enum-value references resolve relative to the annotation
+// Enum-value references resolve relative to the annotation
 // declaration's own scope and lower into the resolved [pwsv1.EnumLiteral]
-// form, same as use-site arguments.
+// form, same as use-site arguments. An `expression`-typed default is a
+// capture, lowered like a use-site argument with its calls and enum
+// values resolved from that scope (protowire#437).
 func buildDefaultArg(deflt ast.ExprAny, param ir.AnnotationParam) *pwsv1.AnnotationArg {
 	if param.IsExpression() {
+		span := param.DefaultSpan()
 		return &pwsv1.AnnotationArg{
 			Value: &pwsv1.AnnotationArg_Expression{
-				Expression: &pwsv1.Expression{
-					Source:   strings.TrimSpace(deflt.Span().Text()),
-					Location: spanLocation(deflt.Span()),
-				},
+				Expression: expression(span.Text(), spanLocation(span), param.DefaultCalls(), param.DefaultEnumValues()),
 			},
 		}
 	}

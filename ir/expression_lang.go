@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/trendvidia/protocompile/ast"
+	"github.com/trendvidia/protocompile/ast/predeclared"
 	"github.com/trendvidia/protocompile/report"
 	"github.com/trendvidia/protocompile/source"
 )
@@ -28,32 +28,35 @@ import (
 // `@validate` rule is written in (protowire#282). The compiler's
 // obligations there: reject a capture that is not an expression, a call
 // to a name that is neither a visible `function` declaration nor a §5.4
-// builtin, and a builtin called with the wrong arity. Declared-function
-// arity is [verifyCallArities]'s job; operand kinds are checked by the
+// builtin, a builtin called with the wrong arity, and a rule that is
+// visibly not a boolean (protowire#437). Declared-function arity is
+// [verifyCallArities]'s job; every other operand kind is checked by the
 // engine at evaluation, not here.
 //
 // The grammar is documented on [parseExpression].
 
 // exprBuiltin describes one §5.4 builtin: how many arguments it takes
-// beyond its receiver, and whether it has a receiver at all.
+// beyond its receiver, whether it has a receiver at all, and what it
+// returns.
 type exprBuiltin struct {
 	args     int
 	receiver bool
+	result   exprKind
 }
 
 // exprBuiltins is the complete §5.4 builtin set. A receiver builtin is
 // callable in method form (`this.size()`) and in function form with the
 // receiver first (`size(this)`); `now()` has no receiver.
 var exprBuiltins = map[string]exprBuiltin{
-	"size":        {args: 0, receiver: true},
-	"starts_with": {args: 1, receiver: true},
-	"ends_with":   {args: 1, receiver: true},
-	"contains":    {args: 1, receiver: true},
-	"matches":     {args: 1, receiver: true},
-	"now":         {args: 0, receiver: false},
-	"is_nan":      {args: 0, receiver: true},
-	"defined":     {args: 0, receiver: true},
-	"unique":      {args: 0, receiver: true},
+	"size":        {args: 0, receiver: true, result: exprNumber},
+	"starts_with": {args: 1, receiver: true, result: exprBool},
+	"ends_with":   {args: 1, receiver: true, result: exprBool},
+	"contains":    {args: 1, receiver: true, result: exprBool},
+	"matches":     {args: 1, receiver: true, result: exprBool},
+	"now":         {args: 0, receiver: false, result: exprTimestamp},
+	"is_nan":      {args: 0, receiver: true, result: exprBool},
+	"defined":     {args: 0, receiver: true, result: exprBool},
+	"unique":      {args: 0, receiver: true, result: exprBool},
 }
 
 // exprBuiltinList renders the builtin set for diagnostics, in a fixed
@@ -62,12 +65,16 @@ const exprBuiltinList = "size, starts_with, ends_with, contains, matches, now, i
 
 // validateExpressionLanguage parses an expression-classified argument's
 // capture under the §5.4 grammar and diagnoses what the compiler owns:
-// syntax, name resolution against declared functions and builtins, and
-// builtin arity. Declared-function call sites are the ones
-// [AnnotationUse.ExtractCalls] resolved; every other call must be a
-// builtin.
-func validateExpressionLanguage(r *report.Report, u AnnotationUse, target Annotation, param AnnotationParam, arg ast.AnnotationUseArg) {
-	span := arg.ValueSpan()
+// syntax, name resolution against declared functions and builtins,
+// builtin arity, and a rule that is visibly not a boolean. Declared-
+// function call sites are the ones [exprSite.calls] resolved; every
+// other call must be a builtin.
+//
+// subject names the capture in diagnostics. this is what `this` binds
+// to, zero where it is not known (a default, a message-level rule), in
+// which case `this` alone is never refused.
+func validateExpressionLanguage(r *report.Report, site exprSite, subject string, this thisBinding) {
+	span := site.span()
 	if span.IsZero() {
 		return
 	}
@@ -76,11 +83,9 @@ func validateExpressionLanguage(r *report.Report, u AnnotationUse, target Annota
 		return span.File.Span(span.Start+start, span.Start+end)
 	}
 
-	calls, enums, perr := parseExpression(text)
+	analysis, perr := analyzeExpression(text)
 	if perr != nil {
-		r.Errorf("argument %q for `%s` is not an expression: %s",
-			param.Name(), target.FullName(), perr.msg,
-		).Apply(
+		r.Errorf("%s is not an expression: %s", subject, perr.msg).Apply(
 			report.Snippet(sub(perr.start, perr.end)),
 			report.Notef("RFC-001 §5.4: comparisons, `in`, `&&` `||` `!`, literals, `this`, "+
 				"enum value names, builtin methods on `this`, and declared-function calls"),
@@ -89,26 +94,25 @@ func validateExpressionLanguage(r *report.Report, u AnnotationUse, target Annota
 	}
 
 	declared := make(map[int]bool)
-	for _, call := range u.ExtractCalls(arg) {
+	for _, call := range site.calls() {
 		declared[call.Span.Start] = true
 	}
-	for _, call := range calls {
-		if !call.method && declared[span.Start+call.start] {
+	isDeclared := func(call exprCall) bool { return !call.method && declared[span.Start+call.start] }
+	for _, call := range analysis.calls {
+		if isDeclared(call) {
 			continue // A declared function: arity is verifyCallArities's.
 		}
 		builtin, ok := exprBuiltins[call.name]
 		switch {
 		case !ok && call.method:
-			r.Errorf("unknown method `%s` on `this` in argument %q for `%s`",
-				call.name, param.Name(), target.FullName(),
-			).Apply(
+			r.Errorf("unknown method `%s` on `this` in %s", call.name, subject).Apply(
 				report.Snippet(sub(call.nameStart, call.nameEnd)),
 				report.Helpf("only builtins are called on `this` (%s); a declared function is called as `%s(this, …)`",
 					exprBuiltinList, call.name),
 			)
 		case !ok:
-			r.Errorf("unknown function `%s` in argument %q for `%s`: neither a visible `function` declaration nor a builtin",
-				call.name, param.Name(), target.FullName(),
+			r.Errorf("unknown function `%s` in %s: neither a visible `function` declaration nor a builtin",
+				call.name, subject,
 			).Apply(
 				report.Snippet(sub(call.nameStart, call.nameEnd)),
 				report.Helpf("builtins: %s", exprBuiltinList),
@@ -118,18 +122,81 @@ func validateExpressionLanguage(r *report.Report, u AnnotationUse, target Annota
 		}
 	}
 
-	for _, ref := range enums {
+	resolved := true
+	for _, ref := range analysis.enums {
 		at := sub(ref.start, ref.end)
-		if !resolveEnumValueName(u.Context(), nil, u.scopeName(), FullName(ref.name), at).IsZero() {
+		if !resolveEnumValueName(site.file, nil, site.scope, FullName(ref.name), at).IsZero() {
 			continue
 		}
-		r.Errorf("`%s` is not bound and is not an enum value, in argument %q for `%s`",
-			ref.name, param.Name(), target.FullName(),
-		).Apply(
+		resolved = false
+		r.Errorf("`%s` is not bound and is not an enum value, in %s", ref.name, subject).Apply(
 			report.Snippet(at),
 			report.Helpf("only `this` is bound; an enum value is named `VALUE`, `pkg.VALUE` or `Enum.VALUE`, "+
 				"and a call is written `%s(…)`", ref.name),
 		)
+	}
+	if !resolved {
+		return // An unresolved name is not also a type error.
+	}
+
+	for _, need := range analysis.needs {
+		kind := need.val.kind
+		switch kind {
+		case exprCallResult:
+			call := analysis.calls[need.val.call]
+			if isDeclared(call) {
+				continue // A declared function is a predicate (§6.5).
+			}
+			builtin, ok := exprBuiltins[call.name]
+			if !ok || builtin.result == exprBool {
+				continue
+			}
+			kind = builtin.result
+		case exprThis:
+			if !thisIsNotBool(this) {
+				continue
+			}
+		}
+		reportNotBoolean(r, need, kind, subject, this, sub(need.val.start, need.val.end))
+	}
+}
+
+// thisIsNotBool reports whether `this` is visibly not a boolean: a
+// collection, an enum, or a scalar other than bool. A message may be a
+// wrapper that binds as its value (§6.2), and an unknown binding is
+// unknown, so neither is refused.
+func thisIsNotBool(this thisBinding) bool {
+	switch {
+	case this.collection != "":
+		return true
+	case this.ty.IsZero():
+		return false
+	case this.ty.IsEnum():
+		return true
+	case this.ty.IsPredeclared():
+		return this.ty.Predeclared() != predeclared.Bool
+	}
+	return false
+}
+
+// describe names what `this` is for a diagnostic.
+func (b thisBinding) describe() string {
+	if b.collection != "" {
+		return b.collection
+	}
+	return fmt.Sprintf("a `%s`", b.ty.FullName())
+}
+
+// reportNotBoolean diagnoses a subexpression in a boolean position that
+// is visibly something else (RFC-001 §5.4, protowire#437).
+func reportNotBoolean(r *report.Report, need exprNeed, kind exprKind, subject string, this thisBinding, at source.Span) {
+	what := kind.describe()
+	if kind == exprThis {
+		what = "`this`, " + this.describe() + " here"
+	}
+	d := r.Errorf("%s is %s, not a boolean, in %s", need.role, what, subject).Apply(report.Snippet(at))
+	if kind == exprString && need.role == ruleResult {
+		d.Apply(report.Helpf("a quoted rule is a string literal; write the rule without the quotes"))
 	}
 }
 
@@ -183,6 +250,59 @@ type exprCall struct {
 	args               int
 	method             bool // `this.m(…)` rather than `m(…)`.
 }
+
+// exprKind is what a term visibly evaluates to, as far as its syntax
+// shows. exprUnknown is a term whose kind depends on a binding: a
+// declared function's result, or `this`.
+type exprKind uint8
+
+const (
+	exprUnknown exprKind = iota
+	exprBool
+	exprNumber
+	exprString
+	exprList
+	exprEnumValue
+	exprTimestamp
+	exprThis // `this` alone: boolean exactly when the carrier is.
+	exprCallResult
+)
+
+// describe names a kind for a diagnostic.
+func (k exprKind) describe() string {
+	switch k {
+	case exprNumber:
+		return "a number"
+	case exprString:
+		return "a string"
+	case exprList:
+		return "a list"
+	case exprEnumValue:
+		return "an enum value"
+	case exprTimestamp:
+		return "a timestamp"
+	}
+	return "a value"
+}
+
+// exprVal is one parsed subexpression: its kind, its byte range, and,
+// for a call, which of the parser's calls it is.
+type exprVal struct {
+	kind       exprKind
+	start, end int
+	call       int
+}
+
+// exprNeed is a subexpression in a position that must be a boolean: the
+// whole rule, or an operand of `!`, `&&` or `||`. role names the
+// position for a diagnostic.
+type exprNeed struct {
+	val  exprVal
+	role string
+}
+
+// ruleResult is the role of the whole expression: a rule is a boolean.
+const ruleResult = "the rule's result"
 
 // exprEnumRef is one enum value reference the parser found (RFC-001
 // §5.4 `enumref`): an identifier run not followed by `(`.
@@ -314,8 +434,19 @@ type exprParser struct {
 	err   *exprError
 	calls []exprCall
 	enums []exprEnumRef
+	needs []exprNeed
 	lex   exprLexer
 	tok   exprToken
+	prev  exprToken // The token before tok, for subexpression ends.
+}
+
+// exprAnalysis is everything [analyzeExpression] reads off a capture.
+type exprAnalysis struct {
+	calls []exprCall
+	enums []exprEnumRef
+	// needs are the subexpressions that must be booleans and whose kind
+	// is not visibly boolean, in source order.
+	needs []exprNeed
 }
 
 // parseExpression parses a capture under the §5.4 grammar and returns
@@ -348,9 +479,16 @@ type exprParser struct {
 //
 //nolint:dupword // EBNF: `term ( … term )` and `term "in" term` are the grammar.
 func parseExpression(src string) ([]exprCall, []exprEnumRef, *exprError) {
+	a, err := analyzeExpression(src)
+	return a.calls, a.enums, err
+}
+
+// analyzeExpression is [parseExpression] that also records every
+// position that must be a boolean but is not visibly one.
+func analyzeExpression(src string) (exprAnalysis, *exprError) {
 	p := &exprParser{lex: exprLexer{src: src}}
 	p.advance()
-	p.parseOr()
+	p.need(p.parseOr(), ruleResult)
 	if p.err == nil && p.tok.kind != exprTokEOF {
 		if p.isCmpOp() || p.isKeyword("in") {
 			p.failf(p.tok, "comparison operators do not chain: `a < b < c` is not an expression")
@@ -359,9 +497,24 @@ func parseExpression(src string) ([]exprCall, []exprEnumRef, *exprError) {
 		}
 	}
 	if p.err != nil {
-		return nil, nil, p.err
+		return exprAnalysis{}, p.err
 	}
-	return p.calls, p.enums, nil
+	return exprAnalysis{calls: p.calls, enums: p.enums, needs: p.needs}, nil
+}
+
+// need records v, in a position that must be a boolean, unless it
+// visibly is one.
+func (p *exprParser) need(v exprVal, role string) {
+	if p.err != nil || v.kind == exprBool || v.kind == exprUnknown {
+		return
+	}
+	p.needs = append(p.needs, exprNeed{val: v, role: role})
+}
+
+// boolean is the result of an operator that yields a boolean, spanning
+// start to the last token consumed.
+func (p *exprParser) boolean(start int) exprVal {
+	return exprVal{kind: exprBool, start: start, end: p.prev.end}
 }
 
 func (p *exprParser) advance() {
@@ -374,6 +527,7 @@ func (p *exprParser) advance() {
 		p.tok = exprToken{kind: exprTokEOF, start: err.start, end: err.end}
 		return
 	}
+	p.prev = p.tok
 	p.tok = tok
 }
 
@@ -409,110 +563,143 @@ func (p *exprParser) isCmpOp() bool {
 	return false
 }
 
-func (p *exprParser) parseOr() {
-	p.parseAnd()
-	for p.err == nil && p.isPunct("||") {
-		p.advance()
-		p.parseAnd()
-	}
+func (p *exprParser) parseOr() exprVal {
+	return p.parseLogical("||", p.parseAnd)
 }
 
-func (p *exprParser) parseAnd() {
-	p.parseUnary()
-	for p.err == nil && p.isPunct("&&") {
-		p.advance()
-		p.parseUnary()
-	}
+func (p *exprParser) parseAnd() exprVal {
+	return p.parseLogical("&&", p.parseUnary)
 }
 
-func (p *exprParser) parseUnary() {
+// parseLogical parses `operand (op operand)*`. With an operator, every
+// operand must be a boolean and so is the result.
+func (p *exprParser) parseLogical(op string, operand func() exprVal) exprVal {
+	first := operand()
+	if p.err != nil || !p.isPunct(op) {
+		return first
+	}
+	role := "an operand of `" + op + "`"
+	p.need(first, role)
+	for p.err == nil && p.isPunct(op) {
+		p.advance()
+		p.need(operand(), role)
+	}
+	return p.boolean(first.start)
+}
+
+func (p *exprParser) parseUnary() exprVal {
 	if p.err != nil {
-		return
+		return exprVal{}
 	}
 	if p.isPunct("!") {
+		start := p.tok.start
 		p.advance()
-		p.parseUnary()
-		return
+		p.need(p.parseUnary(), "the operand of `!`")
+		return p.boolean(start)
 	}
-	p.parseCmp()
+	return p.parseCmp()
 }
 
-func (p *exprParser) parseCmp() {
-	p.parseTerm()
+func (p *exprParser) parseCmp() exprVal {
+	left := p.parseTerm()
 	if p.err != nil {
-		return
+		return exprVal{}
 	}
 	switch {
 	case p.isCmpOp(), p.isKeyword("in"):
 		p.advance()
 		p.parseTerm()
+		return p.boolean(left.start)
 	}
+	return left
 }
 
-func (p *exprParser) parseTerm() {
+func (p *exprParser) parseTerm() exprVal {
 	if p.err != nil {
-		return
+		return exprVal{}
 	}
 	tok := p.tok
+	term := func(kind exprKind) exprVal {
+		return exprVal{kind: kind, start: tok.start, end: p.prev.end}
+	}
 	switch {
-	case tok.kind == exprTokNumber || tok.kind == exprTokString:
+	case tok.kind == exprTokNumber:
 		p.advance()
+		return term(exprNumber)
+	case tok.kind == exprTokString:
+		p.advance()
+		return term(exprString)
 	case tok.kind == exprTokPunct && tok.text == "(":
 		p.advance()
-		p.parseOr()
+		inner := p.parseOr()
 		if p.err == nil && !p.isPunct(")") {
 			p.failf(p.tok, "expected `)` to close the parenthesis opened at offset %d, got %s", tok.start, p.describe(p.tok))
-			return
+			return exprVal{}
 		}
 		p.advance()
+		inner.start, inner.end = tok.start, p.prev.end
+		return inner
 	case tok.kind == exprTokPunct && tok.text == "[":
 		p.parseList()
+		return term(exprList)
 	case tok.kind == exprTokIdent && (tok.text == "true" || tok.text == "false"):
 		p.advance()
+		return term(exprBool)
 	case tok.kind == exprTokIdent && tok.text == "this":
 		p.advance()
-		p.parsePostfix()
+		if v, ok := p.parsePostfix(); ok {
+			v.start = tok.start
+			return v
+		}
+		return term(exprThis)
 	case tok.kind == exprTokIdent && tok.text == "in":
 		p.failf(tok, "expected an expression, got `in`")
 	case tok.kind == exprTokIdent:
-		p.parseCall()
+		return p.parseCall()
 	default:
 		p.failf(tok, "expected an expression, got %s", p.describe(tok))
 	}
+	return exprVal{}
 }
 
-// parsePostfix parses the `.m(args)` chain after `this`. A `.` that is
-// not followed by a call is field selection, which the language does
-// not have.
-func (p *exprParser) parsePostfix() {
+// parsePostfix parses the `.m(args)` chain after `this` and returns the
+// last call, reporting false when there is none. A `.` that is not
+// followed by a call is field selection, which the language does not
+// have.
+func (p *exprParser) parsePostfix() (exprVal, bool) {
+	var last exprVal
+	found := false
 	for p.err == nil && p.isPunct(".") {
 		p.advance()
 		name := p.tok
 		if name.kind != exprTokIdent {
 			p.failf(name, "expected a method name after `.`, got %s", p.describe(name))
-			return
+			return exprVal{}, false
 		}
 		p.advance()
 		if !p.isPunct("(") {
 			p.failf(name, "field selection is not part of the expression language (`this.%s`); "+
 				"a rule over a message's fields is a declared function called with `this`", name.text)
-			return
+			return exprVal{}, false
 		}
 		args, end := p.parseArgs()
 		if p.err != nil {
-			return
+			return exprVal{}, false
 		}
 		p.calls = append(p.calls, exprCall{
 			name: name.text, nameStart: name.start, nameEnd: name.end,
 			start: name.start, end: end, args: args, method: true,
 		})
+		last = exprVal{kind: exprCallResult, end: end, call: len(p.calls) - 1}
+		found = true
 	}
+	return last, found
 }
 
 // parseCall parses `IDENT ("." IDENT)* "(" args ")"` starting at the
 // current identifier, or the same run without the parenthesis, which is
 // an enum value reference.
-func (p *exprParser) parseCall() {
+func (p *exprParser) parseCall() exprVal {
 	first := p.tok
 	last := first
 	parts := []string{first.text}
@@ -521,30 +708,31 @@ func (p *exprParser) parseCall() {
 		p.advance()
 		if p.tok.kind != exprTokIdent {
 			p.failf(p.tok, "expected an identifier after `.`, got %s", p.describe(p.tok))
-			return
+			return exprVal{}
 		}
 		last = p.tok
 		parts = append(parts, last.text)
 		p.advance()
 	}
 	if p.err != nil {
-		return
+		return exprVal{}
 	}
 	name := p.lex.src[first.start:last.end]
 	if !p.isPunct("(") {
 		// The spelling is canonical (`Mode.X`, whatever the spacing), so an
 		// engine re-parsing the source finds it in Expression.enum_values.
 		p.enums = append(p.enums, exprEnumRef{name: strings.Join(parts, "."), start: first.start, end: last.end})
-		return
+		return exprVal{kind: exprEnumValue, start: first.start, end: last.end}
 	}
 	args, end := p.parseArgs()
 	if p.err != nil {
-		return
+		return exprVal{}
 	}
 	p.calls = append(p.calls, exprCall{
 		name: name, nameStart: first.start, nameEnd: last.end,
 		start: first.start, end: end, args: args,
 	})
+	return exprVal{kind: exprCallResult, start: first.start, end: end, call: len(p.calls) - 1}
 }
 
 // parseArgs parses `"(" args ")"` at the current `(` and returns the
