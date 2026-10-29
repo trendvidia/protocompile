@@ -166,8 +166,8 @@ chmod +x .git/hooks/pre-push
 
 ## PR title format
 
-PR titles must follow this regex (enforced by the `Lint PR Title`
-workflow):
+PR titles follow this convention. No CI check enforces it any more: the
+`Lint PR Title` workflow was removed.
 
 ```
 ^[A-Z][\w-]*[^s](?<!ing) .*[^.?!,\-;:]$
