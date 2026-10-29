@@ -19,7 +19,6 @@ import (
 	"slices"
 	"strconv"
 
-	descriptorv1 "buf.build/gen/go/bufbuild/protodescriptor/protocolbuffers/go/buf/descriptor/v1"
 	pwsv1 "github.com/trendvidia/protos/protowire/schema/v1"
 	"google.golang.org/genproto/googleapis/api/annotations"
 	"google.golang.org/protobuf/proto"
@@ -109,9 +108,9 @@ func (g *generator) file(file *ir.File, fdp *descriptorpb.FileDescriptorProto) {
 	// for both syntax and editions.
 	g.debug.comments(file.AST().Syntax(), tags.File_Syntax)
 
-	g.debug.extensions(func(extn *descriptorv1.SourceCodeInfoExtension) {
-		extn.IsSyntaxUnspecified = file.AST().Syntax().IsZero()
-	})
+	if file.AST().Syntax().IsZero() {
+		g.debug.syntaxIsUnspecified()
+	}
 
 	// Canonicalize import order so that it does not change whenever we refactor
 	// internal structures.
@@ -154,9 +153,7 @@ func (g *generator) file(file *ir.File, fdp *descriptorpb.FileDescriptorProto) {
 		}
 
 		if !imp.Used {
-			g.debug.extensions(func(extn *descriptorv1.SourceCodeInfoExtension) {
-				extn.UnusedDependency = append(extn.UnusedDependency, int32(i))
-			})
+			g.debug.unusedImport(int32(i))
 		}
 	}
 

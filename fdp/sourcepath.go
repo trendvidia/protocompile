@@ -17,12 +17,10 @@ package fdp
 import (
 	"slices"
 
-	descriptorv1 "buf.build/gen/go/bufbuild/protodescriptor/protocolbuffers/go/buf/descriptor/v1"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 
 	"github.com/trendvidia/protocompile/ast"
-	"github.com/trendvidia/protocompile/internal/ext/iterx"
+	"github.com/trendvidia/protocompile/internal/bufext"
 	"github.com/trendvidia/protocompile/ir"
 	"github.com/trendvidia/protocompile/seq"
 	"github.com/trendvidia/protocompile/source"
@@ -35,11 +33,15 @@ type debug struct {
 
 	path  []int32
 	proto *descriptorpb.SourceCodeInfo
-	extns *descriptorv1.SourceCodeInfoExtension
+
+	// The repeated field of buf's SourceCodeInfoExtension; see [bufext.Set].
+	unusedDependency []int32
 
 	commentTracker *commentTracker
 
-	suppressed bool
+	// The other field of buf's SourceCodeInfoExtension.
+	syntaxUnspecified bool
+	suppressed        bool
 }
 
 // init initializes this debug for the given file.
@@ -51,10 +53,6 @@ func (d *debug) init(file *ir.File) {
 	d.file = file
 
 	d.proto = new(descriptorpb.SourceCodeInfo)
-	d.extns = new(descriptorv1.SourceCodeInfoExtension)
-	proto.SetExtension(
-		d.proto,
-		descriptorv1.E_BufSourceCodeInfoExtension, d.extns)
 
 	d.commentTracker = new(commentTracker)
 	d.commentTracker.attributeComments(file.AST().Stream().Cursor())
@@ -173,10 +171,19 @@ func firstLeadingAnnotation(def ast.DeclDef, span source.Span) token.Token {
 	return first
 }
 
-// extensions calls do with the Buf-specific SourceCodeInfo extensions.
-func (d *debug) extensions(do func(*descriptorv1.SourceCodeInfoExtension)) {
+// syntaxIsUnspecified records that the file has no syntax declaration, for
+// buf's SourceCodeInfoExtension.
+func (d *debug) syntaxIsUnspecified() {
 	if d != nil && !d.suppressed {
-		do(d.extns)
+		d.syntaxUnspecified = true
+	}
+}
+
+// unusedImport records the index of an import nothing in the file uses,
+// for buf's SourceCodeInfoExtension.
+func (d *debug) unusedImport(i int32) {
+	if d != nil && !d.suppressed {
+		d.unusedDependency = append(d.unusedDependency, i)
 	}
 }
 
@@ -187,9 +194,7 @@ func (d *debug) done(out **descriptorpb.SourceCodeInfo) {
 		return
 	}
 
-	if iterx.Empty2(d.extns.ProtoReflect().Range) {
-		proto.ClearExtension(d.proto, descriptorv1.E_BufSourceCodeInfoExtension)
-	}
+	bufext.Set(d.proto, d.syntaxUnspecified, d.unusedDependency)
 
 	slices.SortStableFunc(d.proto.Location, func(a, b *descriptorpb.SourceCodeInfo_Location) int {
 		return slices.Compare(a.Span, b.Span)

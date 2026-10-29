@@ -28,6 +28,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
 	"gopkg.in/yaml.v3"
 
@@ -35,6 +37,7 @@ import (
 	"github.com/trendvidia/protocompile/fdp"
 	"github.com/trendvidia/protocompile/incremental"
 	"github.com/trendvidia/protocompile/incremental/queries"
+	"github.com/trendvidia/protocompile/internal/bufext"
 	"github.com/trendvidia/protocompile/internal/ext/cmpx"
 	"github.com/trendvidia/protocompile/internal/ext/iterx"
 	"github.com/trendvidia/protocompile/internal/ext/slicesx"
@@ -251,7 +254,7 @@ func TestIR(t *testing.T) {
 			require.NoError(t, err)
 
 			fds = new(descriptorpb.FileDescriptorSet)
-			require.NoError(t, proto.Unmarshal(bytes, fds))
+			require.NoError(t, proto.UnmarshalOptions{Resolver: bufExtResolver{}}.Unmarshal(bytes, fds))
 			assert.False(t, iterx.Empty2(fds.ProtoReflect().Range), "empty descriptor")
 
 			if test.SourceCodeInfo {
@@ -560,4 +563,24 @@ func (ow *optionWalker) value(v ir.Value) *compilerpb.Value {
 	}
 
 	return element(v.Elements().At(0))
+}
+
+// bufExtResolver resolves buf's SourceCodeInfo extension, which fdp writes
+// without registering it (#266), so the goldens show its fields; every
+// other extension resolves through the global registry.
+type bufExtResolver struct{}
+
+func (bufExtResolver) FindExtensionByName(name protoreflect.FullName) (protoreflect.ExtensionType, error) {
+	if xt := bufext.SourceCodeInfoExtension(); xt.TypeDescriptor().FullName() == name {
+		return xt, nil
+	}
+	return protoregistry.GlobalTypes.FindExtensionByName(name)
+}
+
+func (bufExtResolver) FindExtensionByNumber(message protoreflect.FullName, field protoreflect.FieldNumber) (protoreflect.ExtensionType, error) {
+	if xt := bufext.SourceCodeInfoExtension(); xt.TypeDescriptor().ContainingMessage().FullName() == message &&
+		xt.TypeDescriptor().Number() == field {
+		return xt, nil
+	}
+	return protoregistry.GlobalTypes.FindExtensionByNumber(message, field)
 }
