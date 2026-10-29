@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package test;
+
+message Foo {
+  oneof choice {
+    string a = 1;
+  }; // after a dropped semicolon
+
+  message Bar {
+    int32 x = 1;
+  } /* block before */ ; // and after
+}; // after a top-level dropped semicolon
+
+option (o) = {
+  foo: "goo" /* before an elided comma */, // trailing foo
+  bar: 1 /* last, before the comma */,
+};

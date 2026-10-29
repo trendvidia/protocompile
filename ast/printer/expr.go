@@ -17,6 +17,7 @@ package printer
 import (
 	"github.com/trendvidia/protocompile/ast"
 	"github.com/trendvidia/protocompile/dom"
+	"github.com/trendvidia/protocompile/seq"
 	"github.com/trendvidia/protocompile/token"
 	"github.com/trendvidia/protocompile/token/keyword"
 )
@@ -224,6 +225,12 @@ func (p *printer) printArray(expr ast.ExprArray, gap gapStyle) {
 	}
 
 	hasComments := triviaHasComments(slots)
+	// Also check for comments attached to any token in the scope
+	// (trailing on open bracket, leading on close bracket, or on any
+	// interior token). These force multi-line expansion.
+	if !hasComments {
+		hasComments = p.scopeHasAttachedComments(brackets)
+	}
 
 	if elements.Len() == 0 && !hasComments {
 		p.printToken(openTok, gap)
@@ -233,7 +240,8 @@ func (p *printer) printArray(expr ast.ExprArray, gap gapStyle) {
 		return
 	}
 
-	wantBroken := hasComments || p.literalShouldBreak(openTok, closeTok, elements.Len())
+	wantBroken := hasComments ||
+		p.literalShouldBreak(openTok, closeTok, elements.Len(), seq.Values(elements))
 
 	if !wantBroken {
 		// Flat path: emit the elements inside a group with softbreak
@@ -267,8 +275,19 @@ func (p *printer) printArray(expr ast.ExprArray, gap gapStyle) {
 
 	defer p.ctx.with(trailingBlockOnNewLine(true), pairLeadingBlock(true))()
 
-	p.printToken(openTok, gap)
+	// Keep the first trailing comment inline with `[`. The bracket is
+	// printed outside the withIndent below, so any comment that breaks
+	// onto its own line here would land at the bracket's indent rather
+	// than the element's, and the next pass, which reparses it as
+	// leading trivia on the first element, would move it, causing it to
+	// be non-idempotent. The rest are held back for the indent.
+	openTrailing := p.printTokenSplitTrailing(openTok, gap)
+	inlineTrailing, indentedTrailing := splitAfterFirstComment(openTrailing)
+	openRestore := p.ctx.with(trailingBlockOnNewLine(false))
+	p.emitTrailing(inlineTrailing)
+	openRestore()
 	p.withIndent(func(indented *printer) {
+		indented.emitTrailing(indentedTrailing)
 		for i := range elements.Len() {
 			// Comma is the boundary token of the previous element in
 			// the trivia walker, so emit it (and its trailing) first;
@@ -298,9 +317,7 @@ func (p *printer) printArray(expr ast.ExprArray, gap gapStyle) {
 			restore()
 		}
 		indented.emitTriviaSlot(slots, elements.Len())
-		if len(closeComments) > 0 {
-			indented.emitCloseComments(closeComments, slots.blankBeforeClose)
-		}
+		indented.emitCloseTrivia(closeComments, slots.blankBeforeClose)
 	})
 
 	// Always emit `]` on its own line in broken layout, even when
@@ -373,7 +390,8 @@ func (p *printer) printDict(expr ast.ExprDict, gap gapStyle) {
 		return
 	}
 
-	wantBroken := hasComments || p.literalShouldBreak(openTok, closeTok, elements.Len())
+	wantBroken := hasComments ||
+		p.literalShouldBreak(openTok, closeTok, elements.Len(), seq.Map(elements, ast.ExprField.Value))
 
 	if !wantBroken {
 		// Flat path: emit fields inside a group with softbreak padding
@@ -465,12 +483,12 @@ func (p *printer) printDict(expr ast.ExprDict, gap gapStyle) {
 				fieldRestore = indented.ctx.with(lineToBlock(true))
 			}
 			indented.printExprField(field, fieldGap)
-			// Trailing on the comma should stay inline (the legacy
-			// formatter only puts trailing-on-VALUE block comments
-			// on their own line, not trailing-on-comma).
-			commaMods := []modifier{trailingBlockOnNewLine(false)}
+			// The elided comma's trailing comment reparses as
+			// trailing on the value, so emit it under the value's
+			// policy.
+			var commaMods []modifier
 			if rewriteFieldTrailing {
-				commaMods = append(commaMods, lineToBlock(true))
+				commaMods = append(commaMods, lineToBlock(true), trailingBlockOnNewLine(false))
 			}
 			restore := indented.ctx.with(commaMods...)
 			indented.emitCommaTrivia(elements.Comma(i))
@@ -478,8 +496,13 @@ func (p *printer) printDict(expr ast.ExprDict, gap gapStyle) {
 			fieldRestore()
 		}
 		indented.emitTriviaSlot(trivia, elements.Len())
-		if len(closeComments) > 0 {
+		switch {
+		case len(closeComments) > 0:
 			indented.emitCloseComments(closeComments, trivia.blankBeforeClose)
+		case indented.pendingHasComments():
+			// No blank preserved. With commas elided a reparse cannot
+			// reslot a blank detached comment to the right element.
+			indented.emitTrivia(gapNewline)
 		}
 	})
 
@@ -523,20 +546,19 @@ func (p *printer) printExprField(expr ast.ExprField, gap gapStyle) {
 		first = false
 	}
 	if !expr.Colon().IsZero() {
-		// gapInline ensures comments between the key and colon get a
-		// space before them but the colon follows immediately after the
-		// last comment with no gap. This prevents an idempotency issue
-		// where trivia between ] and : gets assigned differently on
-		// reparse (leading vs trailing) depending on line breaks.
-		//
-		// Exception: when the colon's leading trivia ends in an inline
-		// block comment (e.g. extension key `[ ... ] /* Three */ :`),
-		// gapInline would emit `*/:` glued. Switch to gapSpace so the
-		// `:` follows a separating space.
+		// A comment rendering as `*/` before the colon needs a
+		// separating space, whether attached to the colon or the key.
 		colonGap := gapInline
-		if att, ok := p.trivia.tokenTrivia(expr.Colon().ID()); ok {
-			if pendingEndsWithInlineBlockComment(att.leading) {
+		if p.options.Format {
+			if att, ok := p.trivia.tokenTrivia(expr.Colon().ID()); ok &&
+				p.endsWithInlineBlockComment(att.leading) {
 				colonGap = gapSpace
+			}
+			if keyTok := exprLastToken(expr.Key()); !keyTok.IsZero() {
+				if att, ok := p.trivia.tokenTrivia(keyTok.ID()); ok &&
+					p.endsWithInlineBlockComment(att.trailing) {
+					colonGap = gapSpace
+				}
 			}
 		}
 		p.printToken(expr.Colon(), colonGap)
