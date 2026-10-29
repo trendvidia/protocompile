@@ -150,8 +150,9 @@ func TextIf(cond Cond, text string) Tag {
 //
 // 2. They contain a broken group.
 //
-//  3. The width of the group when flat is greater than maxWidth (a value of
-//     zero implies no limit).
+//  3. Laid out flat, the group would end past column maxWidth (a value of
+//     zero implies no limit). This lets a group keep a tighter limit than
+//     the one in [Options].
 //
 //  4. If the group was laid out flat, the current line would exceed the maximum
 //     configured column length in [Options].

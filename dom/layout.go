@@ -120,10 +120,10 @@ func (l *layout) layoutBroken(cursor cursor) {
 			//
 			// 1. The would cause overflow of the global max width.
 			//
-			// 2. The group itself is too wide.
+			// 2. The group would end past its own column limit.
 			tag.broken = tag.broken ||
 				tag.column+tag.width > l.MaxWidth ||
-				tag.width > tag.limit
+				tag.column+tag.width > tag.limit
 
 			if !tag.broken {
 				// No need to recurse; we are leaving this group unbroken.

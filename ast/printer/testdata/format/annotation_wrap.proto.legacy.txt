@@ -1,0 +1,77 @@
+syntax = "proto3";
+
+package test;
+
+// Layout of long annotation uses and v1.2 parameter lists (#281): flat
+// while it fits in 100 columns, otherwise broken after `(`, one item per
+// line, indented, with `)` on its own line. Both presets.
+
+annotation validate(
+  rule: expression,
+  code: string = "",
+  message: string = "",
+  severity: string = "error"
+);
+annotation short(x: int32);
+annotation http(
+  method: string,
+  path: string,
+  operation_id: string = "",
+  summary: string = "",
+  tags: string = ""
+);
+annotation default(value: string);
+
+function in_range_with_a_rather_long_name(
+  value: double,
+  low_bound: double,
+  high_bound: double,
+  inclusive: bool
+);
+function tiny(x: int32);
+
+message Listing {
+  // Hand-wrapped in the source, aligned under `(`: rewrapped.
+  string region = 2
+    @default("ZZ")
+    @validate(
+      this in ["US", "CA", "GB"],
+      code = "listing.region.invalid",
+      message = "region not supported"
+    );
+
+  // Fits: stays on the field's line.
+  int32 count = 3 @short(1);
+
+  // Too long on the field's line, fits on its own.
+  string sku = 4
+    @validate(this.size() > 0, code = "listing.sku.empty", message = "sku is required");
+
+  // Hand-broken but short: joined.
+  string note = 5 @validate(this != "");
+
+  message Deep {
+    message Deeper {
+      string name = 1
+        @validate(
+          this.size() < 64,
+          code = "deep.name.length",
+          message = "name is too long for this"
+        );
+    }
+  }
+}
+
+service Orders {
+  @http(
+    "GET",
+    "/legacy/orders/{order_id}",
+    operation_id = "getOrderLegacy",
+    summary = "Fetch an order by its pre-migration route",
+    tags = "orders"
+  )
+  rpc Get(Listing) returns (Listing);
+
+  @http("GET", "/orders/{order_id}")
+  rpc Fetch(Listing) returns (Listing);
+}

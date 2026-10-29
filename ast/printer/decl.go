@@ -21,6 +21,7 @@ import (
 	"github.com/trendvidia/protocompile/seq"
 	"github.com/trendvidia/protocompile/source"
 	"github.com/trendvidia/protocompile/token"
+	"github.com/trendvidia/protocompile/token/keyword"
 )
 
 // firstOptionKeyHasLeadingComment reports whether the first option's
@@ -136,12 +137,62 @@ func (p *printer) printTrailingAnnotations(anns []ast.DeclAnnotationUse) {
 		}
 		return
 	}
-	p.withGroup(func(p *printer) {
+	p.withGroupWidth(p.annotationWidth(), func(p *printer) {
 		p.withIndent(func(indented *printer) {
 			for _, ann := range anns {
 				indented.printDeclAnnotationUse(ann, gapSoftline)
 			}
 		})
+	})
+}
+
+// printWrappedList prints the n items of a bracketed, comma-separated list.
+// In format mode the list is flat, `(a, b)`, while it fits within
+// [printer.annotationWidth]; otherwise it breaks after the open bracket,
+// one item per line, indented, with the close bracket on its own line
+// (#281). item prints item i, its first token taking the given gap. comma
+// returns the comma after item i, which may be zero.
+func (p *printer) printWrappedList(
+	openTok, closeTok token.Token,
+	n int,
+	item func(p *printer, i int, gap gapStyle),
+	comma func(i int) token.Token,
+) {
+	p.printToken(openTok, gapNone)
+	if !p.options.Format {
+		for i := range n {
+			gap := gapNone
+			if i > 0 {
+				gap = gapSpace
+			}
+			item(p, i, gap)
+			p.printToken(comma(i), gapNone)
+		}
+		p.printToken(closeTok, gapNone)
+		return
+	}
+	if n == 0 {
+		p.printToken(closeTok, gapNone)
+		return
+	}
+	p.withGroupWidth(p.annotationWidth(), func(p *printer) {
+		p.withIndent(func(indented *printer) {
+			indented.push(tagSoftbreak)
+			for i := range n {
+				gap := gapNone
+				if i > 0 {
+					gap = gapSoftline
+				}
+				item(indented, i, gap)
+				// A trailing comma after the last item is dropped, as
+				// formatting drops it in compact options.
+				if i < n-1 {
+					indented.printToken(comma(i), gapNone)
+				}
+			}
+		})
+		p.push(tagSoftbreak)
+		p.printToken(closeTok, gapNone)
 	})
 }
 
@@ -183,21 +234,14 @@ func (p *printer) printFunctionParams(parens token.Token, params ast.Commas[ast.
 		return
 	}
 	openTok, closeTok := parens.StartEnd()
-	p.printToken(openTok, gapNone)
-	for i := range params.Len() {
-		if i > 0 {
-			p.printToken(params.Comma(i-1), gapNone)
-		}
-		gap := gapNone
-		if i > 0 {
-			gap = gapSpace
-		}
-		param := params.At(i)
-		p.printToken(param.Name(), gap)
-		p.printToken(param.Colon(), gapNone)
-		p.printType(param.Type(), gapSpace)
-	}
-	p.printToken(closeTok, gapNone)
+	p.printWrappedList(openTok, closeTok, params.Len(),
+		func(p *printer, i int, gap gapStyle) {
+			param := params.At(i)
+			p.printToken(param.Name(), gap)
+			p.printToken(param.Colon(), gapNone)
+			p.printType(param.Type(), gapSpace)
+		},
+		params.Comma)
 }
 
 // printAnnotationParams renders the optional `( name: type [= default], ... )`
@@ -207,33 +251,81 @@ func (p *printer) printAnnotationParams(parens token.Token, params ast.Commas[as
 		return
 	}
 	openTok, closeTok := parens.StartEnd()
-	p.printToken(openTok, gapNone)
-	for i := range params.Len() {
-		if i > 0 {
-			p.printToken(params.Comma(i-1), gapNone)
-		}
-		gap := gapNone
-		if i > 0 {
-			gap = gapSpace
-		}
-		param := params.At(i)
-		p.printToken(param.Name(), gap)
-		p.printToken(param.Colon(), gapNone)
-		p.printType(param.Type(), gapSpace)
-		if !param.Equals().IsZero() {
-			p.printToken(param.Equals(), gapSpace)
-			p.printExpr(param.Default(), gapSpace)
-		}
-	}
-	p.printToken(closeTok, gapNone)
+	p.printWrappedList(openTok, closeTok, params.Len(),
+		func(p *printer, i int, gap gapStyle) {
+			param := params.At(i)
+			p.printToken(param.Name(), gap)
+			p.printToken(param.Colon(), gapNone)
+			p.printType(param.Type(), gapSpace)
+			if !param.Equals().IsZero() {
+				p.printToken(param.Equals(), gapSpace)
+				p.printExpr(param.Default(), gapSpace)
+			}
+		},
+		params.Comma)
 }
 
 func (p *printer) printDeclAnnotationUse(decl ast.DeclAnnotationUse, gap gapStyle) {
 	p.printToken(decl.At(), gap)
 	p.printPath(decl.Name(), gapNone)
-	// Parens is optional on annotation use sites (the bare `@Name`
-	// form). printTokenTree is a no-op when the token is zero.
-	p.printTokenTree(decl.Parens(), gapNone)
+	p.printAnnotationArgs(decl.Parens())
+}
+
+// printAnnotationArgs prints an annotation use's argument list, which is
+// optional (the bare `@Name` form). The arguments are raw token ranges
+// split at the top-level commas; see [printer.printTokenTree] for how
+// each is printed, and [printer.printWrappedList] for the layout.
+func (p *printer) printAnnotationArgs(parens token.Token) {
+	if parens.IsZero() {
+		return
+	}
+	if !p.options.Format || tokenTreeHasComments(parens) {
+		p.printTokenTree(parens, gapNone)
+		return
+	}
+
+	var args [][]token.Token
+	var commas []token.Token
+	var arg []token.Token
+	children := parens.Children()
+	for child := children.Next(); !child.IsZero(); child = children.Next() {
+		if child.Keyword() == keyword.Comma {
+			args = append(args, arg)
+			commas = append(commas, child)
+			arg = nil
+			continue
+		}
+		arg = append(arg, child)
+	}
+	if len(arg) > 0 {
+		args = append(args, arg)
+	}
+
+	openTok, closeTok := parens.StartEnd()
+	p.printWrappedList(openTok, closeTok, len(args),
+		func(p *printer, i int, gap gapStyle) {
+			restore := p.ctx.with(lineToBlock(true))
+			defer restore()
+			prevEnd := -1
+			for _, tok := range args[i] {
+				tokGap := gap
+				if prevEnd >= 0 {
+					tokGap = gapPreserve
+					if tok.Span().Start > prevEnd {
+						tokGap = gapSpace
+					}
+				}
+				p.printTokenTree(tok, tokGap)
+				_, last := tok.StartEnd()
+				prevEnd = last.Span().End
+			}
+		},
+		func(i int) token.Token {
+			if i < len(commas) {
+				return commas[i]
+			}
+			return token.Zero
+		})
 }
 
 // printTokenTree prints tok and, when it is fused, every token inside
