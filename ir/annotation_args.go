@@ -352,13 +352,63 @@ type AnnotationFunctionCall struct {
 // Resolution is quiet; arity verification against the declaration is
 // the B3 validation pass's job.
 func (u AnnotationUse) ExtractCalls(arg ast.AnnotationUseArg) []AnnotationFunctionCall {
-	start, end := arg.ValueStart(), arg.ValueEnd()
-	if u.IsZero() || start.IsZero() {
+	return u.exprSite(arg).calls()
+}
+
+// DefaultCalls is [AnnotationUse.ExtractCalls] for an `expression`-typed
+// parameter's default, whose names resolve from the annotation
+// declaration's scope.
+func (p AnnotationParam) DefaultCalls() []AnnotationFunctionCall {
+	return p.defaultSite().calls()
+}
+
+// exprSite is where an expression capture sits: the file and lexical
+// scope its names resolve from, and its captured tokens. A use-site
+// argument resolves from the use's scope (RFC-001 §5.1); an
+// `expression`-typed default from its annotation declaration's
+// (protowire#437).
+type exprSite struct {
+	file       *File
+	scope      FullName
+	start, end token.Token
+}
+
+func (u AnnotationUse) exprSite(arg ast.AnnotationUseArg) exprSite {
+	if u.IsZero() {
+		return exprSite{}
+	}
+	return exprSite{file: u.Context(), scope: u.scopeName(), start: arg.ValueStart(), end: arg.ValueEnd()}
+}
+
+func (p AnnotationParam) defaultSite() exprSite {
+	if p.IsZero() || !p.IsExpression() {
+		return exprSite{}
+	}
+	ast := p.AST()
+	return exprSite{
+		file:  p.Context(),
+		scope: p.Annotation().FullName().Parent(),
+		start: ast.DefaultStart(),
+		end:   ast.DefaultEnd(),
+	}
+}
+
+func (s exprSite) isZero() bool { return s.file == nil || s.start.IsZero() }
+
+// span is the captured source, or zero.
+func (s exprSite) span() source.Span {
+	if s.isZero() {
+		return source.Span{}
+	}
+	return source.Join(s.start, s.end)
+}
+
+func (s exprSite) calls() []AnnotationFunctionCall {
+	if s.isZero() {
 		return nil
 	}
-
 	var calls []AnnotationFunctionCall
-	scanFunctionCalls(u, tokenRange(start, end), &calls)
+	scanFunctionCalls(s, tokenRange(s.start, s.end), &calls)
 	return calls
 }
 
@@ -377,8 +427,19 @@ type AnnotationEnumValue struct {
 // expression-language check diagnoses them. A capture that does not
 // parse has none.
 func (u AnnotationUse) ExtractEnumValues(arg ast.AnnotationUseArg) []AnnotationEnumValue {
-	span := arg.ValueSpan()
-	if u.IsZero() || span.IsZero() {
+	return u.exprSite(arg).enumValues()
+}
+
+// DefaultEnumValues is [AnnotationUse.ExtractEnumValues] for an
+// `expression`-typed parameter's default, whose names resolve from the
+// annotation declaration's scope.
+func (p AnnotationParam) DefaultEnumValues() []AnnotationEnumValue {
+	return p.defaultSite().enumValues()
+}
+
+func (s exprSite) enumValues() []AnnotationEnumValue {
+	span := s.span()
+	if span.IsZero() {
 		return nil
 	}
 	_, enums, err := parseExpression(span.Text())
@@ -393,7 +454,7 @@ func (u AnnotationUse) ExtractEnumValues(arg ast.AnnotationUseArg) []AnnotationE
 		}
 		seen[ref.name] = true
 		at := span.File.Span(span.Start+ref.start, span.Start+ref.end)
-		if member := resolveEnumValueName(u.Context(), nil, u.scopeName(), FullName(ref.name), at); !member.IsZero() {
+		if member := resolveEnumValueName(s.file, nil, s.scope, FullName(ref.name), at); !member.IsZero() {
 			out = append(out, AnnotationEnumValue{Spelling: ref.name, Value: member})
 		}
 	}
@@ -420,7 +481,7 @@ func tokenRange(start, end token.Token) func(yield func(token.Token) bool) {
 
 // scanFunctionCalls appends every resolved call site in the token
 // sequence to calls, recursing into fused token trees.
-func scanFunctionCalls(u AnnotationUse, tokens func(yield func(token.Token) bool), calls *[]AnnotationFunctionCall) {
+func scanFunctionCalls(s exprSite, tokens func(yield func(token.Token) bool), calls *[]AnnotationFunctionCall) {
 	// The current maximal qualified-identifier run: ident tokens
 	// separated by single dots. Any other token breaks the run.
 	var run []token.Token
@@ -433,9 +494,9 @@ func scanFunctionCalls(u AnnotationUse, tokens func(yield func(token.Token) bool
 		}
 		name := joinIdentRun(run)
 		sym := symbolRef{
-			File:   u.Context(),
+			File:   s.file,
 			Report: nil, // Quiet: non-resolving names are checked against the §5.4 builtins elsewhere.
-			scope:  u.scopeName(),
+			scope:  s.scope,
 			name:   FullName(name),
 			span:   source.Join(run[0], next),
 			accept: func(k SymbolKind) bool { return k == SymbolKindFunction },
@@ -467,7 +528,7 @@ func scanFunctionCalls(u AnnotationUse, tokens func(yield func(token.Token) bool
 		// Recurse into fused token trees — nested calls inside a
 		// call's argument list, brackets, or braces.
 		if !tok.IsLeaf() {
-			scanFunctionCalls(u, func(yield func(token.Token) bool) {
+			scanFunctionCalls(s, func(yield func(token.Token) bool) {
 				c := tok.Children()
 				for !c.Done() {
 					if !yield(c.Next()) {

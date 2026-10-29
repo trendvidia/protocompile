@@ -177,6 +177,14 @@ func (d DeclAnnotation) Span() source.Span {
 // When the default value is absent, [DeclAnnotationParam.Equals] and
 // [DeclAnnotationParam.Default] both return zero.
 //
+// A default on an `expression`-typed parameter is captured the way a
+// use-site argument is (RFC-001 §5.1): every token to the next
+// top-level comma, recorded as [DeclAnnotationParam.DefaultStart]
+// through [DeclAnnotationParam.DefaultEnd]. Default then holds the
+// capture re-parsed under the value grammar, and is zero for an
+// engine-expression fragment such as `size(this) > 0`; use
+// [DeclAnnotationParam.HasDefault] to ask whether there is a default.
+//
 // # Grammar
 //
 //	DeclAnnotationParam := Ident `:` Type (`=` Expr)?
@@ -188,6 +196,10 @@ type rawDeclAnnotationParam struct {
 	name   token.ID
 	colon  token.ID
 	equals token.ID
+
+	// The captured default of an `expression`-typed parameter; zero
+	// otherwise.
+	defaultStart, defaultEnd token.ID
 }
 
 // DeclAnnotationParamArgs is arguments for [Nodes.NewDeclAnnotationParam].
@@ -200,6 +212,11 @@ type DeclAnnotationParamArgs struct {
 	Type    TypeAny
 	Equals  token.Token
 	Default ExprAny
+
+	// DefaultStart and DefaultEnd bound the captured default of an
+	// `expression`-typed parameter, inclusive. Leave them zero for every
+	// other parameter.
+	DefaultStart, DefaultEnd token.Token
 }
 
 // Name returns the parameter's name token.
@@ -262,6 +279,42 @@ func (p DeclAnnotationParam) Default() ExprAny {
 	return id.WrapDyn(p.Context(), p.Raw().deflt)
 }
 
+// HasDefault reports whether the parameter declares a default value.
+func (p DeclAnnotationParam) HasDefault() bool {
+	return !p.Equals().IsZero() && (!p.Default().IsZero() || !p.DefaultStart().IsZero())
+}
+
+// DefaultStart returns the first token of an `expression`-typed
+// parameter's captured default, or zero.
+func (p DeclAnnotationParam) DefaultStart() token.Token {
+	if p.IsZero() {
+		return token.Zero
+	}
+
+	return id.Wrap(p.Context().Stream(), p.Raw().defaultStart)
+}
+
+// DefaultEnd returns the last token of an `expression`-typed
+// parameter's captured default, or zero.
+func (p DeclAnnotationParam) DefaultEnd() token.Token {
+	if p.IsZero() {
+		return token.Zero
+	}
+
+	return id.Wrap(p.Context().Stream(), p.Raw().defaultEnd)
+}
+
+// DefaultSpan returns the source span of an `expression`-typed
+// parameter's captured default, or zero.
+func (p DeclAnnotationParam) DefaultSpan() source.Span {
+	start, end := p.DefaultStart(), p.DefaultEnd()
+	if start.IsZero() {
+		return source.Span{}
+	}
+
+	return source.Join(start, end)
+}
+
 // SetDefault sets the parameter's default value expression.
 //
 // If passed zero, this clears the default.
@@ -275,5 +328,5 @@ func (p DeclAnnotationParam) Span() source.Span {
 		return source.Span{}
 	}
 
-	return source.Join(p.Name(), p.Colon(), p.Type(), p.Equals(), p.Default())
+	return source.Join(p.Name(), p.Colon(), p.Type(), p.Equals(), p.Default(), p.DefaultSpan())
 }

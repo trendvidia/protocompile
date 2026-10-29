@@ -401,13 +401,15 @@ func (c *protoEncoder) decl(decl ast.DeclAny) *compilerpb.Decl {
 		var params []*compilerpb.Decl_Annotation_Param
 		for p := range seq.Values(decl.Params()) {
 			params = append(params, &compilerpb.Decl_Annotation_Param{
-				Name:       p.Name().Text(),
-				Type:       c.type_(p.Type()),
-				Default:    c.expr(p.Default()),
-				Span:       c.span(p),
-				NameSpan:   c.span(p.Name()),
-				ColonSpan:  c.span(p.Colon()),
-				EqualsSpan: c.span(p.Equals()),
+				Name:           p.Name().Text(),
+				Type:           c.type_(p.Type()),
+				Default:        c.expr(p.Default()),
+				DefaultCapture: p.DefaultSpan().Text(),
+				Span:           c.span(p),
+				NameSpan:       c.span(p.Name()),
+				ColonSpan:      c.span(p.Colon()),
+				EqualsSpan:     c.span(p.Equals()),
+				DefaultSpan:    c.span(p.DefaultSpan()),
 			})
 		}
 		return &compilerpb.Decl{Decl: &compilerpb.Decl_Annotation_{Annotation: &compilerpb.Decl_Annotation{

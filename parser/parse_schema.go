@@ -662,8 +662,47 @@ func parseAnnotationParam(p *parser, c *token.Cursor, in taxa.Noun) ast.DeclAnno
 
 	if next := c.Peek(); next.Keyword() == keyword.Assign {
 		args.Equals = c.Next()
-		args.Default = parseExpr(p, c, in.In())
+		if isExpressionType(args.Type) {
+			parseExpressionDefault(p, c, in, &args)
+		} else {
+			args.Default = parseExpr(p, c, in.In())
+		}
 	}
 
 	return p.NewDeclAnnotationParam(args)
+}
+
+// isExpressionType reports whether a parameter's declared type is the
+// `expression` pseudo-type.
+func isExpressionType(ty ast.TypeAny) bool {
+	return ty.Kind() == ast.TypeKindPath && ty.AsPath().Path.Canonicalized() == "expression"
+}
+
+// parseExpressionDefault captures an `expression`-typed parameter's
+// default the way [parseAnnotationUseArg] captures a use-site argument
+// (RFC-001 §5.1): everything to the next top-level `,`, so a default
+// can be any §5.4 fragment, calls included. The capture is checked
+// against the expression language at link time.
+func parseExpressionDefault(p *parser, c *token.Cursor, in taxa.Noun, args *ast.DeclAnnotationParamArgs) {
+	var tokens []token.Token
+	for !c.Done() && c.Peek().Keyword() != keyword.Comma {
+		tokens = append(tokens, c.Next())
+	}
+	if len(tokens) == 0 {
+		err := errtoken.Unexpected{
+			What:  c.Peek(),
+			Where: in.In(),
+			Want:  taxa.Expr.AsSet(),
+		}
+		if c.Done() {
+			_, span := c.SeekToEnd()
+			err.What = span
+			err.Got = taxa.EOF
+		}
+		p.Error(err)
+		return
+	}
+	args.DefaultStart = tokens[0]
+	args.DefaultEnd = tokens[len(tokens)-1]
+	args.Default, _ = classifyAnnotationArgValue(p, tokens)
 }

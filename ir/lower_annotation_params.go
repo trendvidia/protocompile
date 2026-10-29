@@ -57,12 +57,61 @@ func resolveAnnotationParamTypes(file *File, r *report.Report) {
 func validateAnnotationParamDefaults(file *File, r *report.Report) {
 	for ann := range seq.Values(file.Annotations()) {
 		for p := range seq.Values(ann.Params()) {
+			if p.IsExpression() {
+				validateExpressionDefault(r, ann, p)
+				continue
+			}
 			deflt := p.Default()
 			if deflt.IsZero() {
 				continue
 			}
 			validateAnnotationArg(r, ann, p, deflt)
 		}
+	}
+}
+
+// validateExpressionDefault checks an `expression`-typed parameter's
+// default exactly as a use-site argument is checked, with names resolved
+// from the annotation declaration's scope (protowire#437). `this` has
+// no carrier here; [checkDefaultedThis] checks it where the default
+// applies.
+func validateExpressionDefault(r *report.Report, target Annotation, param AnnotationParam) {
+	site := param.defaultSite()
+	if site.isZero() {
+		return
+	}
+	verifyCallArities(r, site)
+	validateExpressionLanguage(r, site, fmt.Sprintf("the default of %q in `%s`", param.Name(), target.FullName()), Type{})
+}
+
+// checkDefaultedThis checks, at a use site that leaves an
+// `expression`-typed parameter to its default, that the default does not
+// use `this` as a boolean where the carrier makes it something else.
+// The declaration could not: `this` there has no type.
+func checkDefaultedThis(r *report.Report, u AnnotationUse, target Annotation, param AnnotationParam, carrier Type) {
+	if !thisIsNotBool(carrier) {
+		return
+	}
+	span := param.defaultSite().span()
+	if span.IsZero() {
+		return
+	}
+	analysis, err := analyzeExpression(span.Text())
+	if err != nil {
+		return // Diagnosed at the declaration.
+	}
+	for _, need := range analysis.needs {
+		if need.val.kind != exprThis {
+			continue
+		}
+		at := span.File.Span(span.Start+need.val.start, span.Start+need.val.end)
+		r.Errorf("%s is `this`, a `%s` here, not a boolean, in the default of %q for `%s`",
+			need.role, carrier.FullName(), param.Name(), target.FullName(),
+		).Apply(
+			report.Snippet(u.AST()),
+			report.Snippetf(at, "default declared here"),
+			report.Helpf("pass %q explicitly, or use `@%s` only where `this` is a bool", param.Name(), target.Name()),
+		)
 	}
 }
 
@@ -253,10 +302,13 @@ func validateAnnotationUseArgs(file *File, r *report.Report) {
 		}
 
 		for p := range seq.Values(params) {
-			if !p.Default().IsZero() {
+			if _, ok := bound[p.Name()]; ok {
 				continue
 			}
-			if _, ok := bound[p.Name()]; ok {
+			if p.HasDefault() {
+				if p.IsExpression() {
+					checkDefaultedThis(r, u, target, p, carrier)
+				}
 				continue
 			}
 			r.Errorf("missing required argument %q for `%s`",
@@ -332,8 +384,9 @@ func validateAnnotationUseArg(
 	// (§5.4, protowire#282) — syntax, name resolution against the
 	// builtin set, and builtin arity.
 	if param.IsExpression() {
-		verifyCallArities(r, u, b.Arg)
-		validateExpressionLanguage(r, u, target, param, b.Arg)
+		site := u.exprSite(b.Arg)
+		verifyCallArities(r, site)
+		validateExpressionLanguage(r, site, fmt.Sprintf("argument %q for `%s`", param.Name(), target.FullName()), carrier)
 		return
 	}
 
@@ -522,8 +575,8 @@ func validateUseEnumArg(r *report.Report, u AnnotationUse, target Annotation, pa
 // expression-classified argument against its resolved declaration's
 // parameter count. Non-resolving names were never extracted; they must
 // be RFC-001 §5.4 builtins, which [validateExpressionLanguage] checks.
-func verifyCallArities(r *report.Report, u AnnotationUse, arg ast.AnnotationUseArg) {
-	for _, call := range u.ExtractCalls(arg) {
+func verifyCallArities(r *report.Report, site exprSite) {
+	for _, call := range site.calls() {
 		declared := call.Target.Params().Len()
 		if call.Arity == declared {
 			continue
@@ -852,8 +905,7 @@ func allAnnotationUses(file *File) func(yield func(AnnotationUse, Type) bool) {
 // [validateAnnotationUseArg] instead, which handles the capture-
 // then-classify argument model.)
 func validateAnnotationArg(r *report.Report, target Annotation, param AnnotationParam, arg ast.ExprAny) {
-	// The `expression` pseudo-type accepts any default shape. Same
-	// for fully-unresolved params (a diagnostic was already emitted).
+	// `expression` defaults are [validateExpressionDefault]'s.
 	if param.IsExpression() {
 		return
 	}

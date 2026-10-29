@@ -132,7 +132,7 @@ package test;
 
 annotation rule_only(rule: expression);
 
-@rule_only("this != 0")
+@rule_only(this != 0)
 message M {}
 `
 
@@ -146,9 +146,7 @@ message M {}
 	require.Len(t, args, 1)
 	expr := args[0].GetExpression()
 	require.NotNil(t, expr)
-	// The verbatim source includes the surrounding quotes since the
-	// expression captures the argument span as written.
-	assert.Contains(t, expr.Source, "this != 0")
+	assert.Equal(t, "this != 0", expr.Source)
 }
 
 // TestAnnotationEmissionPath verifies enum-value reference args
@@ -2632,4 +2630,51 @@ func fieldArg(t helperT, f *descriptorpb.FileDescriptorProto) *pwsv1.AnnotationA
 	require.Len(t, list.GetEntries(), 1)
 	require.Len(t, list.GetEntries()[0].GetArgs(), 1)
 	return list.GetEntries()[0].GetArgs()[0]
+}
+
+// TestAnnotationEmissionExpressionDefault is protowire#437: an
+// `expression`-typed default is captured like a use-site argument, so it
+// can call a declared function, and lowers with that call and its enum
+// value names resolved from the declaration's scope.
+func TestAnnotationEmissionExpressionDefault(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package test;
+
+function known(m: int32);
+
+enum Mode {
+  MODE_UNSPECIFIED = 0;
+  MODE_MATCH = 1;
+}
+
+annotation mode_rule(
+  rule: expression = known(this) && this != Mode.MODE_UNSPECIFIED,
+  code: string = "mode"
+);
+
+message M {
+  Mode mode = 1 @mode_rule;
+}
+`
+
+	f := compileForFDPTest(t, src)
+	decls, _ := proto.GetExtension(f.Options, pwsv1.E_AnnotationDecls).(*pwsv1.FileAnnotationDecls)
+	require.NotNil(t, decls, "carries no annotation decls extension")
+	require.Len(t, decls.Declarations, 1)
+	params := decls.Declarations[0].Params
+	require.Len(t, params, 2)
+
+	expr := params[0].DefaultValue.GetExpression()
+	require.NotNil(t, expr, "the default lowers as an expression")
+	assert.Equal(t, "known(this) && this != Mode.MODE_UNSPECIFIED", expr.Source)
+	require.Len(t, expr.Calls, 1)
+	assert.Equal(t, "test.known", expr.Calls[0].Fqn)
+	assert.Equal(t, int32(1), expr.Calls[0].Arity)
+	require.Len(t, expr.EnumValues, 1)
+	assert.Equal(t, "Mode.MODE_UNSPECIFIED", expr.EnumValues[0].Spelling)
+	assert.Equal(t, "test.Mode", expr.EnumValues[0].Value.EnumType)
+	assert.Equal(t, "MODE_UNSPECIFIED", expr.EnumValues[0].Value.ValueName)
+	assert.Equal(t, "mode", params[1].DefaultValue.GetStringValue(), "the next parameter still parses")
 }
