@@ -863,25 +863,20 @@ func allAnnotationUses(file *File) func(yield func(AnnotationUse, annotationCarr
 			}
 			return true
 		}
-		// emitMember is emit for a field or extension. A rule its type
-		// alias chain contributes binds `this` to one element; the
-		// member's own rule on a repeated or map member binds it to the
-		// whole collection (RFC-001 §6.4).
+		// emitMember is emit for a field or extension, for its own uses
+		// only: the uses its type alias chain contributes are emitted once,
+		// at each alias, below (#287). The member's own rule on a repeated
+		// or map member binds `this` to the whole collection (RFC-001 §6.4).
 		emitMember := func(m Member) bool {
 			uses := m.Annotations()
-			chain := len(m.Raw().aliasChainUses)
-			whole := thisBinding{ty: m.Element()}
+			this := thisBinding{ty: m.Element()}
 			switch {
 			case m.IsMap():
-				whole = thisBinding{collection: "a map"}
+				this = thisBinding{collection: "a map"}
 			case m.IsRepeated():
-				whole = thisBinding{collection: "a list"}
+				this = thisBinding{collection: "a list"}
 			}
-			for i := range uses.Len() {
-				this := whole
-				if i < chain {
-					this = thisBinding{ty: m.Element()}
-				}
+			for i := len(m.Raw().aliasChainUses); i < uses.Len(); i++ {
 				if !yield(uses.At(i), annotationCarrier{ty: m.Element(), this: this}) {
 					return false
 				}
@@ -934,6 +929,14 @@ func allAnnotationUses(file *File) func(yield func(AnnotationUse, annotationCarr
 		}
 		for ann := range seq.Values(file.Annotations()) {
 			if !emit(ann.Annotations(), Type{}) {
+				return
+			}
+		}
+		// A type alias's rule is checked here, once, whether or not a
+		// field uses the alias, with `this` bound to one value of the
+		// type the alias finally names (#287).
+		for alias := range seq.Values(file.TypeAliases()) {
+			if !emit(alias.Annotations(), aliasBaseType(alias)) {
 				return
 			}
 		}
