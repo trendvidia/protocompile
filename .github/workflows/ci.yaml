@@ -32,13 +32,12 @@ permissions:
   contents: read
 jobs:
   test:
-    runs-on: [self-hosted, macOS, ARM64]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Assert go-plus toolchain
-        run: |
-          go version
-          go version | grep -qE '\(plus[ )]' || { echo "::error::runner go is not the go-plus fork"; exit 1; }
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
       - run: make test
   specdrift:
     # The vendored protowire schema copies must match canonical. This ran
@@ -46,19 +45,18 @@ jobs:
     # and skipped into exit 0 whenever a sibling checkout was absent — so a
     # green board said nothing about it. The script fetches canonical rather
     # than assuming a checkout, and never skips.
-    runs-on: [self-hosted, macOS, ARM64]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - run: make checkspecdrift
 
   lint:
-    runs-on: [self-hosted, macOS, ARM64]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Assert go-plus toolchain
-        run: |
-          go version
-          go version | grep -qE '\(plus[ )]' || { echo "::error::runner go is not the go-plus fork"; exit 1; }
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
       - run: make generate
       - run: make checkgenerate
       # Often, lint & gofmt guidelines depend on the Go version. To prevent
