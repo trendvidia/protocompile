@@ -31,14 +31,50 @@ on:
 permissions:
   contents: read
 jobs:
-  test:
+  # The race pass is split by package: fdp, ir and benchmark each take
+  # 10-14 minutes under -race, and on one runner they shared its cores.
+  # `rest` is every other package, so a new package is never left out; a
+  # named shard that disappears fails its `go test`.
+  test-race:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [fdp, ir, benchmark, rest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Select packages
+        run: |
+          if [ "${{ matrix.shard }}" = rest ]; then
+            pkgs=$(go list ./... | grep -vxE 'github.com/trendvidia/protocompile/(fdp|ir|benchmark)' | tr '\n' ' ')
+          else
+            pkgs=./${{ matrix.shard }}
+          fi
+          echo "TEST_PKGS=$pkgs" >> "$GITHUB_ENV"
+      - run: make test-race TEST_PKGS="$TEST_PKGS"
+  test-legacy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - run: make test
+      - run: make test-legacy
+  # `test` is the check the branch ruleset requires; it passes only when
+  # every leg above passed, so splitting the suite left the gate's name
+  # alone.
+  test:
+    needs: [test-race, test-legacy]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every test leg passed
+        run: |
+          echo 'race: ${{ needs.test-race.result }}, legacy: ${{ needs.test-legacy.result }}'
+          [ '${{ needs.test-race.result }}' = success ] && [ '${{ needs.test-legacy.result }}' = success ]
   specdrift:
     # The vendored protowire schema copies must match canonical. This ran
     # nowhere until #198: the Makefile target existed, gated ci-local-full,

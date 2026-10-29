@@ -75,13 +75,23 @@ clean: ## Delete intermediate build artifacts
 	@# -X only removes untracked files, -d recurses into directories, -f actually removes files/dirs
 	git clean -Xdf
 
+# TEST_PKGS narrows test-race to a package list; CI splits it across
+# parallel jobs (ci.yaml). The default is every package.
+TEST_PKGS ?= ./...
+
 .PHONY: test
-test: $(PROTOC) ## Run unit tests
+test: test-race test-legacy ## Run unit tests
+
+.PHONY: test-race
+test-race: $(PROTOC) ## Run unit tests under -race, with coverage (TEST_PKGS narrows it)
 	@# -timeout 20m: TestCompileGoogleapisMemory compiles all of googleapis
 	@# under -race and runs right at the edge of go test's default 10m
 	@# per-package timeout on CI runners (a passing run has been observed
 	@# at 585s). The ceiling costs nothing when tests are fast.
-	$(GO) test $(if $(filter 386,$(GOARCH)),,-race) -timeout 20m -cover ./...
+	$(GO) test $(if $(filter 386,$(GOARCH)),,-race) -timeout 20m -cover $(TEST_PKGS)
+
+.PHONY: test-legacy
+test-legacy: $(PROTOC) ## Run unit tests with the protolegacy build tag
 	$(GO) test -tags protolegacy -timeout 20m ./...
 
 .PHONY: benchmarks

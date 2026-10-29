@@ -144,11 +144,13 @@ The ruleset also enforces:
 - pull-request flow with code-owner review + thread resolution
 - allowed merge methods: squash, rebase
 
-**If the self-hosted runner is down**, `test` and `lint` never report and
-no pull request can merge. The ruleset carries a bypass actor for exactly
-this case; use it deliberately and say so in the PR, rather than
-weakening the rule. Restarting the runner is the better fix when it is
-available.
+`ci.yaml` runs on GitHub-hosted `ubuntu-latest` runners with stock Go from
+`go.mod` (#290). It used the self-hosted macOS runner's go-plus toolchain
+from #97 until protocompile stopped needing go-plus. The race pass is
+split into parallel jobs by package, and a final job named `test` passes
+only when all of them did, so the ruleset's required check keeps its name.
+The ruleset's bypass actor remains for a GitHub Actions outage; use it
+deliberately and say so in the PR, rather than weakening the rule.
 
 `make ci-local` is still worth running before you push — it is the same
 gate, minutes sooner, and it keeps a red cloud run from being the first
