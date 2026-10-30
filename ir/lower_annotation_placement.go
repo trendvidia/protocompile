@@ -15,6 +15,9 @@
 package ir
 
 import (
+	"strings"
+
+	"github.com/trendvidia/protocompile/internal"
 	"github.com/trendvidia/protocompile/report"
 	"github.com/trendvidia/protocompile/seq"
 )
@@ -23,6 +26,56 @@ const (
 	canonicalRequiredFQN FullName = "protowire.schema.v1.required"
 	canonicalDefaultFQN  FullName = "protowire.schema.v1.default"
 )
+
+// annotationSite is a set of the kinds of declaration an annotation can be
+// written on.
+type annotationSite uint16
+
+const (
+	siteField annotationSite = 1 << iota
+	siteMessage
+	siteOneof
+	siteEnum
+	siteEnumValue
+	siteService
+	siteMethod
+	siteType
+	siteFunction
+	siteAnnotation
+
+	siteAny = siteAnnotation<<1 - 1
+)
+
+// siteNames spell each site in a diagnostic, in the order a note lists them.
+var siteNames = []struct {
+	site annotationSite
+	name string
+}{
+	{siteField, "a field"},
+	{siteMessage, "a message"},
+	{siteOneof, "a oneof"},
+	{siteEnum, "an enum"},
+	{siteEnumValue, "an enum value"},
+	{siteService, "a service"},
+	{siteMethod, "a method"},
+	{siteType, "a type"},
+	{siteFunction, "a function"},
+	{siteAnnotation, "an annotation"},
+}
+
+// annotationPlacements is the RFC-001 §5.2 placement table. An annotation
+// that is not listed, including every user annotation, is unrestricted.
+var annotationPlacements = map[FullName]annotationSite{
+	"protowire.schema.v1.validate":    siteField | siteMessage | siteType,
+	canonicalRequiredFQN:              siteField | siteOneof | siteType,
+	canonicalDefaultFQN:               siteField | siteType,
+	"protowire.schema.v1.description": siteAny,
+	"protowire.schema.v1.example":     siteField | siteMessage | siteType,
+	"protowire.schema.v1.error_code":  siteField | siteMessage | siteType,
+	"protowire.schema.v1.deprecated":  siteAny,
+	canonicalSensitiveFQN:             siteField | siteMessage | siteType,
+	internal.CanonicalHTTPFQN:         siteMethod,
+}
 
 // literalMessages are the message types a PXF literal can denote, besides
 // the pxf arbitrary-precision types (draft -01, "Default Placement").
@@ -40,9 +93,10 @@ var literalMessages = map[FullName]bool{
 	"google.protobuf.UInt64Value": true,
 }
 
-// validateAnnotationPlacement enforces the places RFC-001 §5.2 says the
-// canonical `@required` and `@default` are not valid. Each of these
-// otherwise compiles and lowers, and no engine can act on it.
+// validateAnnotationPlacement enforces the RFC-001 §5.2 placement table and
+// the rules on `@required` and `@default` that depend on more than the kind
+// of declaration. Each of these otherwise compiles and lowers, and no engine
+// can act on it.
 //
 // It runs after [propagateTypeAliasAnnotations], so a rule that arrives
 // through a type alias is checked on the field it expanded onto. Checks key
@@ -52,11 +106,11 @@ func validateAnnotationPlacement(file *File, r *report.Report) {
 		if ty.IsMapEntry() {
 			continue // See allAnnotationUses.
 		}
-		kind := "a message"
+		site := siteMessage
 		if ty.IsEnum() {
-			kind = "an enum"
+			site = siteEnum
 		}
-		rejectDefault(r, ty.Annotations(), kind)
+		checkSite(r, ty.Annotations(), site)
 		for m := range seq.Values(ty.Members()) {
 			validateMemberPlacement(r, m)
 		}
@@ -68,36 +122,61 @@ func validateAnnotationPlacement(file *File, r *report.Report) {
 		validateMemberPlacement(r, ext)
 	}
 	for svc := range seq.Values(file.Services()) {
-		rejectDefault(r, svc.Annotations(), "a service")
+		checkSite(r, svc.Annotations(), siteService)
 		for m := range seq.Values(svc.Methods()) {
-			rejectDefault(r, m.Annotations(), "a method")
+			checkSite(r, m.Annotations(), siteMethod)
 		}
+	}
+	for alias := range seq.Values(file.TypeAliases()) {
+		checkSite(r, alias.Annotations(), siteType)
+	}
+	for fn := range seq.Values(file.Functions()) {
+		checkSite(r, fn.Annotations(), siteFunction)
+	}
+	for ann := range seq.Values(file.Annotations()) {
+		checkSite(r, ann.Annotations(), siteAnnotation)
 	}
 }
 
-// rejectDefault reports every canonical `@default` in uses, which sit on a
-// declaration of the given kind rather than on a field.
-func rejectDefault(r *report.Report, uses seq.Indexer[AnnotationUse], kind string) {
+// checkSite reports every use in uses whose annotation the table does not
+// allow on a declaration of the given kind.
+func checkSite(r *report.Report, uses seq.Indexer[AnnotationUse], site annotationSite) {
 	for u := range seq.Values(uses) {
-		if u.Target().FullName() == canonicalDefaultFQN {
-			r.Errorf("`@default` is not valid on %s", kind).Apply(
-				report.Snippet(u.AST()),
-				report.Notef("`@default` populates an absent field, so it attaches only to a field"),
-			)
+		fqn := u.Target().FullName()
+		allowed, ok := annotationPlacements[fqn]
+		if !ok || allowed&site != 0 {
+			continue
 		}
+		var valid []string
+		var here string
+		for _, s := range siteNames {
+			if allowed&s.site != 0 {
+				valid = append(valid, s.name)
+			}
+			if site == s.site {
+				here = s.name
+			}
+		}
+		r.Errorf("`@%s` is not valid on %s", u.Target().Name(), here).Apply(
+			report.Snippet(u.AST()),
+			report.Notef("`@%s` is valid on: %s", u.Target().Name(), strings.Join(valid, ", ")),
+		)
 	}
 }
 
 // validateMemberPlacement checks one field or enum value.
 func validateMemberPlacement(r *report.Report, m Member) {
 	if m.IsEnumValue() {
-		rejectDefault(r, m.Annotations(), "an enum value")
+		checkSite(r, m.Annotations(), siteEnumValue)
 		return
 	}
+	checkSite(r, m.Annotations(), siteField)
 
+	var required, deflt AnnotationUse
 	for u := range seq.Values(m.Annotations()) {
 		switch u.Target().FullName() {
 		case canonicalRequiredFQN:
+			required = u
 			if !m.Oneof().IsZero() {
 				r.Errorf("`@required` is not valid on a oneof member").Apply(
 					report.Snippet(u.AST()),
@@ -108,6 +187,7 @@ func validateMemberPlacement(r *report.Report, m Member) {
 				)
 			}
 		case canonicalDefaultFQN:
+			deflt = u
 			if what := noLiteralForm(m); what != "" {
 				r.Errorf("`@default` is not valid on %s", what).Apply(
 					report.Snippet(u.AST()),
@@ -116,6 +196,15 @@ func validateMemberPlacement(r *report.Report, m Member) {
 				)
 			}
 		}
+	}
+	if !required.IsZero() && !deflt.IsZero() {
+		r.Errorf("`@default` and `@required` on one field").Apply(
+			report.Snippet(deflt.AST()),
+			report.Snippetf(required.AST(), "required here"),
+			report.Snippetf(m.AST().Name(), "on this field"),
+			report.Notef("the default says the field is never absent, "+
+				"and `@required` says that absence is an error"),
+		)
 	}
 }
 
@@ -140,7 +229,7 @@ func noLiteralForm(m Member) string {
 // validateOneofPlacement enforces the §5.2 rules on `@default` across the
 // members of one oneof.
 func validateOneofPlacement(r *report.Report, o Oneof) {
-	rejectDefault(r, o.Annotations(), "a oneof")
+	checkSite(r, o.Annotations(), siteOneof)
 
 	var required, first AnnotationUse
 	for u := range seq.Values(o.Annotations()) {
