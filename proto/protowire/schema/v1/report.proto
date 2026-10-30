@@ -40,11 +40,10 @@ package protowire.schema.v1;
 import "google/protobuf/any.proto";
 import "protowire/schema/v1/descriptor.proto"; // SourceLocation
 
-option csharp_namespace = "Protowire.Protos.Schema.V1";
+option csharp_namespace = "Protowire.Schema.V1";
 option go_package = "github.com/trendvidia/protos/protowire/schema/v1;schemav1";
 option java_multiple_files = true;
-option java_outer_classname = "ReportProto";
-option java_package = "org.protowire.protos.schema.v1";
+option java_package = "org.protowire.proto.schema.v1";
 
 // Report is the complete result of validating one message instance.
 // All 10 ports emit this shape (RFC-001 goal 5).
