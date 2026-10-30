@@ -25,6 +25,12 @@ import (
 const (
 	canonicalRequiredFQN FullName = "protowire.schema.v1.required"
 	canonicalDefaultFQN  FullName = "protowire.schema.v1.default"
+
+	pxfRequiredFQN FullName = "pxf.required"
+	pxfDefaultFQN  FullName = "pxf.default"
+
+	requiredDefaultNote = "the default says the field is never absent, " +
+		"and required says that absence is an error"
 )
 
 // annotationSite is a set of the kinds of declaration an annotation can be
@@ -202,10 +208,64 @@ func validateMemberPlacement(r *report.Report, m Member) {
 			report.Snippet(deflt.AST()),
 			report.Snippetf(required.AST(), "required here"),
 			report.Snippetf(m.AST().Name(), "on this field"),
-			report.Notef("the default says the field is never absent, "+
-				"and `@required` says that absence is an error"),
+			report.Notef(requiredDefaultNote),
 		)
 	}
+}
+
+// validateBracketRequiredDefault rejects a field that is both required and
+// defaulted when a bracket option is one of the two. It runs after
+// [resolveOptions], which [validateAnnotationPlacement] runs before, and that
+// pass has already reported the pair written purely as annotations.
+func validateBracketRequiredDefault(file *File, r *report.Report) {
+	for ty := range seq.Values(file.AllTypes()) {
+		if ty.IsMapEntry() || ty.IsEnum() {
+			continue
+		}
+		for m := range seq.Values(ty.Members()) {
+			checkBracketRequiredDefault(r, m)
+		}
+	}
+	for ext := range seq.Values(file.AllExtensions()) {
+		checkBracketRequiredDefault(r, ext)
+	}
+}
+
+func checkBracketRequiredDefault(r *report.Report, m Member) {
+	var required, deflt Value
+	for v := range m.Options().Fields() {
+		switch v.Field().FullName() {
+		case pxfRequiredFQN:
+			if set, _ := v.AsBool(); set {
+				required = v
+			}
+		case pxfDefaultFQN:
+			deflt = v
+		}
+	}
+	if required.IsZero() && deflt.IsZero() {
+		return
+	}
+
+	var requiredUse, defaultUse AnnotationUse
+	for u := range seq.Values(m.Annotations()) {
+		switch u.Target().FullName() {
+		case canonicalRequiredFQN:
+			requiredUse = u
+		case canonicalDefaultFQN:
+			defaultUse = u
+		}
+	}
+	if (required.IsZero() && requiredUse.IsZero()) || (deflt.IsZero() && defaultUse.IsZero()) {
+		return
+	}
+
+	r.Errorf("`required` and `default` on one field").Apply(
+		report.Snippet(m.AST().Name()),
+		report.Notef(requiredDefaultNote),
+		report.Notef("this holds for `(pxf.required)` and `(pxf.default)` as well as "+
+			"`@required` and `@default`, in any combination"),
+	)
 }
 
 // noLiteralForm names why a single literal cannot denote m, or returns ""
