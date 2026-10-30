@@ -59,6 +59,8 @@ const (
 	Method
 	Annotation
 	AnnotationUse
+	Function
+	TypeAlias
 	CompactOptions
 	MethodIns
 	MethodOuts
@@ -147,6 +149,8 @@ var _table_Noun_String = [...]string{
 	Method:             "service method",
 	Annotation:         "annotation",
 	AnnotationUse:      "annotation use",
+	Function:           "function",
+	TypeAlias:          "type alias",
 	CompactOptions:     "compact options",
 	MethodIns:          "method parameter list",
 	MethodOuts:         "method return type",
@@ -218,6 +222,8 @@ var _table_Noun_GoString = [...]string{
 	Method:             "taxa.Method",
 	Annotation:         "taxa.Annotation",
 	AnnotationUse:      "taxa.AnnotationUse",
+	Function:           "taxa.Function",
+	TypeAlias:          "taxa.TypeAlias",
 	CompactOptions:     "taxa.CompactOptions",
 	MethodIns:          "taxa.MethodIns",
 	MethodOuts:         "taxa.MethodOuts",
