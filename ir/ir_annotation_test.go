@@ -2901,3 +2901,171 @@ message M {
 		"the rule's result is `this`, a `string` here, not a boolean, in the default of \"rule\" for `test.flag`",
 	}, errs)
 }
+
+// annotationPlacementLib declares the canonical annotations under their real
+// package, so uses resolve to the FQNs the placement checks key on.
+const annotationPlacementLib = `syntax = "proto3";
+package protowire.schema.v1;
+annotation validate(rule: expression);
+annotation required;
+annotation default(value: any);
+annotation description(text: string);
+annotation example(value: any);
+annotation error_code(code: string);
+annotation deprecated(reason: string = "");
+annotation sensitive(class: string = "");
+annotation http(method: string, path: string);
+`
+
+func compilePlacement(t *testing.T, body string) *report.Report {
+	t.Helper()
+	_, rep := compileTwoForAnnotationTest(t, `syntax = "proto3";
+package test;
+import "lib.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+`+body, annotationPlacementLib)
+	return rep
+}
+
+// TestAnnotationPlacementRejected pins each RFC-001 §5.2 "not valid"
+// placement of the canonical @required and @default (protowire#450).
+func TestAnnotationPlacementRejected(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct{ name, body, want string }{
+		{"required-member", `message M { oneof c { string a = 1 @required; string b = 2; } }`,
+			"`@required` is not valid on a oneof member"},
+		{"required-member-via-alias", `type R = string @required;
+message M { oneof c { R a = 1; string b = 2; } }`,
+			"`@required` is not valid on a oneof member"},
+		{"default-two-members", `message M { oneof c { string a = 1 @default("x"); string b = 2 @default("y"); } }`,
+			"`@default` on more than one member of a oneof"},
+		{"default-under-required-oneof", `message M { @required
+oneof c { string a = 1 @default("x"); string b = 2; } }`,
+			"`@default` on a member of a `@required` oneof"},
+		{"default-repeated", `message M { repeated string f = 1 @default("x"); }`,
+			"`@default` is not valid on a repeated field"},
+		{"default-map", `message M { map<string, string> f = 1 @default("x"); }`,
+			"`@default` is not valid on a map field"},
+		{"default-repeated-via-alias", `type D = string @default("x");
+message M { repeated D f = 1; }`,
+			"`@default` is not valid on a repeated field"},
+		{"required-and-default", `message M { string f = 1 @required @default("x"); }`,
+			"`@default` and `@required` on one field"},
+		{"required-and-default-via-alias", `type D = string @default("x");
+message M { D f = 1 @required; }`,
+			"`@default` and `@required` on one field"},
+		{"required-and-default-optional", `message M { optional string f = 1 @default("x") @required; }`,
+			"`@default` and `@required` on one field"},
+		{"sensitive-oneof", `message M { @sensitive
+oneof c { string a = 1; } }`, "`@sensitive` is not valid on a oneof"},
+		{"validate-oneof", `message M { @validate(this != "")
+oneof c { string a = 1; } }`, "`@validate` is not valid on a oneof"},
+		{"validate-service", `message M {}
+@validate(this != "")
+service S { rpc R(M) returns (M); }`, "`@validate` is not valid on a service"},
+		{"required-message", `@required
+message M {}`, "`@required` is not valid on a message"},
+		{"required-enum", `@required
+enum E { E_A = 0; }`, "`@required` is not valid on an enum"},
+		{"http-message", `@http("GET", "/x")
+message M {}`, "`@http` is not valid on a message"},
+		{"http-field", `message M { string f = 1 @http("GET", "/x"); }`,
+			"`@http` is not valid on a field"},
+		{"example-enum-value", `enum E { E_A = 0 @example("x"); }`,
+			"`@example` is not valid on an enum value"},
+		{"error-code-function", `function f(a: string) @error_code("c");`,
+			"`@error_code` is not valid on a function"},
+		{"sensitive-annotation", `@sensitive
+annotation z;`, "`@sensitive` is not valid on an annotation"},
+		{"default-message-field", `message N {}
+message M { N f = 1 @default("x"); }`,
+			"`@default` is not valid on a field of message type `test.N`"},
+		{"default-message", `@default("x")
+message M {}`, "`@default` is not valid on a message"},
+		{"default-enum", `@default("x")
+enum E { E_A = 0; }`, "`@default` is not valid on an enum"},
+		{"default-enum-value", `enum E { E_A = 0 @default("x"); }`,
+			"`@default` is not valid on an enum value"},
+		{"default-oneof", `message M { @default("x")
+oneof c { string a = 1; } }`, "`@default` is not valid on a oneof"},
+		{"default-service", `message M {}
+@default("x")
+service S { rpc R(M) returns (M); }`, "`@default` is not valid on a service"},
+		{"default-method", `message M {}
+service S { @default("x")
+rpc R(M) returns (M); }`, "`@default` is not valid on a method"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			rep := compilePlacement(t, tc.body)
+			assert.True(t, hasErrorContaining(rep, tc.want),
+				"expected %q, got: %v", tc.want, rep.Diagnostics)
+		})
+	}
+}
+
+// TestAnnotationPlacementAccepted pins what the rejections above must not
+// catch: a proto3 optional is not a oneof member to an author, and the
+// literal message types take a default.
+func TestAnnotationPlacementAccepted(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct{ name, body string }{
+		{"required-optional", `message M { optional string f = 1 @required; }`},
+		{"default-optional", `message M { optional string f = 1 @default("x"); }`},
+		{"required-oneof", `message M { @required
+oneof c { string a = 1; string b = 2; } }`},
+		{"default-one-member", `message M { oneof c { string a = 1 @default("x"); string b = 2; } }`},
+		{"default-enum-field", `enum E { E_A = 0; }
+message M { E f = 1 @default(E_A); }`},
+		{"default-timestamp", `message M { google.protobuf.Timestamp f = 1 @default("2026-01-01T00:00:00Z"); }`},
+		{"default-wrapper", `message M { google.protobuf.StringValue f = 1 @default("x"); }`},
+		{"default-alias", `type D = string @default("x");
+message M { D f = 1; }`},
+		{"required-alias", `type R = string @required;
+message M { R f = 1; }`},
+		{"required-and-default-apart", `message M { string a = 1 @required; string b = 2 @default("x"); }`},
+		{"sensitive-sites", `type T = string @sensitive;
+@sensitive
+message M { string f = 1 @sensitive; }`},
+		{"validate-sites", `type T = string @validate(this != "");
+@validate(this != "")
+message M { oneof c { string f = 1 @validate(this != ""); } }`},
+		{"documentation-everywhere", `@description("d") @deprecated
+annotation z;
+function f(a: string) @description("d") @deprecated;
+type T = string @description("d") @deprecated;
+@description("d") @deprecated
+message M {
+  @description("d") @deprecated
+  oneof c { string a = 1 @description("d") @deprecated; }
+}
+@description("d") @deprecated
+enum E { E_A = 0 @description("d") @deprecated; }
+@description("d") @deprecated
+service S {
+  @description("d") @deprecated @http("GET", "/x")
+  rpc R(M) returns (M);
+}`},
+		{"user-annotation-unrestricted", `annotation note;
+@note
+message M { @note
+oneof c { string a = 1 @note; } }
+@note
+enum E { E_A = 0 @note; }`},
+		{"default-repeated-noncanonical", `annotation default(value: any);
+message M { repeated string f = 1 @test.default("x"); }`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			rep := compilePlacement(t, tc.body)
+			for _, d := range rep.Diagnostics {
+				if isError(d) {
+					t.Errorf("unexpected diagnostic: %s", d.Message())
+				}
+			}
+		})
+	}
+}
