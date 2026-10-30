@@ -30,11 +30,10 @@
 syntax = "proto3";
 package pxf;
 
-option csharp_namespace = "Protowire.Protos.Pxf";
+option csharp_namespace = "Protowire.Pxf";
 option go_package = "github.com/trendvidia/protos/pxf;pxf";
 option java_multiple_files = true;
-option java_outer_classname = "BignumProto";
-option java_package = "org.protowire.protos.pxf";
+option java_package = "org.protowire.proto.pxf";
 
 // Arbitrary-precision signed integer.
 // Wire: unsigned big-endian absolute value + sign flag.

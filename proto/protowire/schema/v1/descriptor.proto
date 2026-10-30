@@ -40,11 +40,10 @@ import "google/protobuf/any.proto";
 import "google/protobuf/descriptor.proto";
 import "pxf/bignum.proto";
 
-option csharp_namespace = "Protowire.Protos.Schema.V1";
+option csharp_namespace = "Protowire.Schema.V1";
 option go_package = "github.com/trendvidia/protos/protowire/schema/v1;schemav1";
 option java_multiple_files = true;
-option java_outer_classname = "DescriptorProto";
-option java_package = "org.protowire.protos.schema.v1";
+option java_package = "org.protowire.proto.schema.v1";
 
 // ── Annotation carrier ────────────────────────────────────────────────────
 
