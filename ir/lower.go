@@ -204,6 +204,7 @@ func lower(file *File, r *report.Report, importer Importer) {
 	resolveAnnotationParamTypes(file, r)
 	validateAnnotationParamDefaults(file, r)
 	validateAnnotationUseArgs(file, r)
+	validateAnnotationPlacement(file, r)
 
 	// The canonical `@http` annotation's routing skeleton lowers to a
 	// standard google.api.http rule (§5.2), so a skeleton that cannot
