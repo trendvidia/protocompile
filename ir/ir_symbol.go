@@ -263,16 +263,19 @@ func (k SymbolKind) noun() taxa.Noun {
 }
 
 var symbolNouns = [...]taxa.Noun{
-	SymbolKindPackage:   taxa.Package,
-	SymbolKindScalar:    taxa.ScalarType,
-	SymbolKindMessage:   taxa.MessageType,
-	SymbolKindEnum:      taxa.EnumType,
-	SymbolKindField:     taxa.Field,
-	SymbolKindEnumValue: taxa.EnumValue,
-	SymbolKindExtension: taxa.Extension,
-	SymbolKindOneof:     taxa.Oneof,
-	SymbolKindService:   taxa.Service,
-	SymbolKindMethod:    taxa.Method,
+	SymbolKindPackage:    taxa.Package,
+	SymbolKindScalar:     taxa.ScalarType,
+	SymbolKindMessage:    taxa.MessageType,
+	SymbolKindEnum:       taxa.EnumType,
+	SymbolKindField:      taxa.Field,
+	SymbolKindEnumValue:  taxa.EnumValue,
+	SymbolKindExtension:  taxa.Extension,
+	SymbolKindOneof:      taxa.Oneof,
+	SymbolKindService:    taxa.Service,
+	SymbolKindMethod:     taxa.Method,
+	SymbolKindAnnotation: taxa.Annotation,
+	SymbolKindFunction:   taxa.Function,
+	SymbolKindTypeAlias:  taxa.TypeAlias,
 }
 
 // IsType returns whether this is a type's symbol kind.

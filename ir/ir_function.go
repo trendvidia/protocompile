@@ -54,6 +54,7 @@ type rawFunctionParam struct {
 	parent   id.ID[Function]
 	name     intern.ID
 	typeName intern.ID
+	typeFQN  intern.ID // FQN of the resolved type; 0 when unresolved.
 }
 
 // AST returns the declaration for this function, if known.
@@ -123,9 +124,9 @@ type FunctionOption struct {
 // Options returns the bracket-form options attached to this function
 // declaration, in declaration order.
 //
-// Like parameter types, option values are recorded without
-// classification: the descriptor surface carries them
-// AnnotationArg-shaped and consumers interpret them at use time.
+// Option values are recorded without classification: the descriptor
+// surface carries them AnnotationArg-shaped and consumers interpret
+// them at use time.
 func (f Function) Options() seq.Indexer[FunctionOption] {
 	entries := f.AST().Options().Entries()
 	return seq.NewFunc(entries.Len(), func(i int) FunctionOption {
@@ -174,14 +175,26 @@ func (p FunctionParam) InternedName() intern.ID {
 }
 
 // TypeName returns the textual type the parameter was declared with
-// (e.g. "string", "any", or a user-defined type FQN). Stored as the
-// raw path text without further classification — engine-language
-// type checks happen at runtime.
+// (e.g. "string", "any", or "Email"), as written in the source.
 func (p FunctionParam) TypeName() string {
 	if p.IsZero() || p.Raw().typeName == 0 {
 		return ""
 	}
 	return p.Context().session.intern.Value(p.Raw().typeName)
+}
+
+// TypeFQN returns the fully-qualified name of the parameter's type,
+// which for a type alias is the alias itself, not its base. Falls
+// back to [FunctionParam.TypeName] when the type did not resolve, or
+// is `any`, which names no symbol.
+func (p FunctionParam) TypeFQN() string {
+	if p.IsZero() {
+		return ""
+	}
+	if p.Raw().typeFQN != 0 {
+		return p.Context().session.intern.Value(p.Raw().typeFQN)
+	}
+	return p.TypeName()
 }
 
 // Function returns the function declaration that this parameter

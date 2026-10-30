@@ -60,6 +60,8 @@
   - {name: Method, string: "service method"}
   - {name: Annotation, string: "annotation"}
   - {name: AnnotationUse, string: "annotation use"}
+  - {name: Function, string: "function"}
+  - {name: TypeAlias, string: "type alias"}
 
   - {name: CompactOptions, string: "compact options"}
   - {name: MethodIns, string: "method parameter list"}
