@@ -77,6 +77,62 @@ func resolveNames(file *File, r *report.Report) {
 	}
 
 	resolveTypeAliasBases(file, r)
+	resolveFunctionParamTypes(file, r)
+}
+
+// resolveFunctionParamTypes resolves each `function` parameter's type
+// against the file's symbol table and records the resolved FQN.
+//
+// The recorded FQN feeds the FDP carrier: FunctionParam.type is
+// normatively fully qualified (protowire descriptor.proto contract),
+// and a parameter's type-ref must resolve to a primitive, enum,
+// message or type alias. An alias is recorded under its own name,
+// not its base: unlike a field, which lowers to the underlying type,
+// a parameter keeps the type it was declared with. `any` names no
+// symbol, so it stays as written.
+func resolveFunctionParamTypes(file *File, r *report.Report) {
+	for fn := range seq.Values(file.Functions()) {
+		for p := range seq.Values(fn.Params()) {
+			declType := p.AST().Type()
+			if declType.IsZero() {
+				continue
+			}
+			if declType.Kind() != ast.TypeKindPath {
+				r.Errorf("function parameter type must be a name").Apply(
+					report.Snippetf(declType, "this type shape is not allowed for function parameters"),
+					report.Helpf("`repeated` and `map` are not permitted as function "+
+						"parameter types; pass a message that holds them, or `any`"),
+				)
+				continue
+			}
+
+			path := declType.AsPath().Path
+			if first, isSingle := isSingleIdent(path); isSingle && first == "any" {
+				continue
+			}
+
+			sym := symbolRef{
+				File:   file,
+				Report: r,
+
+				span:  path,
+				scope: fn.FullName().Parent(),
+				name:  FullName(path.Canonicalized()),
+
+				skipIfNot: isTypeOrAlias,
+				accept:    isTypeOrAlias,
+				want:      taxa.Type,
+
+				allowScalars:  true,
+				suggestImport: true,
+			}.resolve()
+
+			if sym.IsZero() || !isTypeOrAlias(sym.Kind()) {
+				continue
+			}
+			p.Raw().typeFQN = file.session.intern.Intern(string(sym.FullName()))
+		}
+	}
 }
 
 // resolveTypeAliasBases resolves each `type` alias's base-type

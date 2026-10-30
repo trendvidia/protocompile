@@ -707,7 +707,7 @@ func emitFileFunctions(file *ir.File, target *descriptorpb.FileOptions) bool {
 // buildFunctionDecl lowers one [ir.Function] into the
 // [pwsv1.FunctionDecl] descriptor form. Per the PSE design, the
 // engine performs run-time type-checking against the function's
-// signature; the descriptor surface just records names and textual
+// signature; the descriptor surface just records names and resolved
 // type references.
 func buildFunctionDecl(fn ir.Function) *pwsv1.FunctionDecl {
 	out := &pwsv1.FunctionDecl{
@@ -717,7 +717,7 @@ func buildFunctionDecl(fn ir.Function) *pwsv1.FunctionDecl {
 	for p := range seq.Values(fn.Params()) {
 		out.Params = append(out.Params, &pwsv1.FunctionParam{
 			Name: p.Name(),
-			Type: p.TypeName(),
+			Type: p.TypeFQN(),
 		})
 	}
 	// Bracket-form options lower AnnotationArg-shaped, keyed by the

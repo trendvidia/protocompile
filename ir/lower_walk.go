@@ -446,10 +446,11 @@ func (w *walker) newFunction(decl ast.DeclFunction, parent any) Function {
 			parent: fn.ID(),
 			name:   w.session.intern.Intern(pname),
 		}
-		// Record the textual type for descriptor surfacing. PSE v1
-		// engine-language type checks happen at runtime, so we don't
-		// classify the type further here (unlike annotation params,
-		// which the IR consumes for argument type-checks).
+		// Record the textual type; [resolveFunctionParamTypes] resolves
+		// it once the symbol tables exist. PSE v1 engine-language type
+		// checks happen at runtime, so we don't classify the type further
+		// (unlike annotation params, which the IR consumes for argument
+		// type-checks).
 		if ty := p.Type(); !ty.IsZero() && ty.Kind() == ast.TypeKindPath {
 			text := ty.AsPath().Path.Canonicalized()
 			raw.typeName = w.session.intern.Intern(text)

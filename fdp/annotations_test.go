@@ -538,7 +538,7 @@ annotation tag(
 
 // TestAnnotationEmissionFileFunctions verifies the FileFunctions
 // extension on FileOptions captures every `function` declaration
-// in the file, preserving parameter names and textual types.
+// in the file, preserving parameter names and resolved types.
 func TestAnnotationEmissionFileFunctions(t *testing.T) {
 	t.Parallel()
 
@@ -564,6 +564,44 @@ function matches(value: string, pattern: string);
 	assert.Equal(t, "string", fns.Declarations[1].Params[0].Type)
 	assert.Equal(t, "pattern", fns.Declarations[1].Params[1].Name)
 	assert.Equal(t, "string", fns.Declarations[1].Params[1].Type)
+}
+
+// TestAnnotationEmissionFunctionParamFQN pins FunctionParam.type to
+// the FQN its descriptor.proto comment promises (issue #294): a param
+// of alias type must match the TypeDecl.name of that alias in the same
+// file, and a message or enum its full name, however it was spelled.
+func TestAnnotationEmissionFunctionParamFQN(t *testing.T) {
+	t.Parallel()
+
+	const src = `syntax = "proto3";
+package t;
+
+message Small {}
+enum Color { COLOR_UNSPECIFIED = 0; }
+type Smaller = Small;
+
+function f_alias(v: Smaller);
+function f_message(v: Small);
+function f_enum(v: Color);
+function f_scalar(v: int32);
+function f_any(v: any);
+`
+
+	f := compileForFDPTest(t, src)
+	require.NotNil(t, f.Options)
+	fns, _ := proto.GetExtension(f.Options, pwsv1.E_Functions).(*pwsv1.FileFunctions)
+	require.NotNil(t, fns, "carries no functions extension")
+	decls, _ := proto.GetExtension(f.Options, pwsv1.E_TypeDecls).(*pwsv1.FileTypeDecls)
+	require.NotNil(t, decls, "carries no type decls extension")
+	require.Len(t, decls.Declarations, 1)
+
+	got := make([]string, 0, len(fns.Declarations))
+	for _, fn := range fns.Declarations {
+		require.Len(t, fn.Params, 1)
+		got = append(got, fn.Params[0].Type)
+	}
+	assert.Equal(t, []string{"t.Smaller", "t.Small", "t.Color", "int32", "any"}, got)
+	assert.Equal(t, decls.Declarations[0].Name, fns.Declarations[0].Params[0].Type)
 }
 
 // TestAnnotationEmissionFunctionOptions verifies that bracket-form
