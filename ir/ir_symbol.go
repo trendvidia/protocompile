@@ -329,14 +329,17 @@ func (k SymbolKind) OptionTarget() OptionTarget {
 }
 
 var optionTargets = [...]OptionTarget{
-	SymbolKindMessage:   OptionTargetMessage,
-	SymbolKindEnum:      OptionTargetEnum,
-	SymbolKindField:     OptionTargetField,
-	SymbolKindEnumValue: OptionTargetEnumValue,
-	SymbolKindExtension: OptionTargetField,
-	SymbolKindOneof:     OptionTargetOneof,
-	SymbolKindService:   OptionTargetService,
-	SymbolKindMethod:    OptionTargetMethod,
+	SymbolKindMessage:    OptionTargetMessage,
+	SymbolKindEnum:       OptionTargetEnum,
+	SymbolKindField:      OptionTargetField,
+	SymbolKindEnumValue:  OptionTargetEnumValue,
+	SymbolKindExtension:  OptionTargetField,
+	SymbolKindOneof:      OptionTargetOneof,
+	SymbolKindService:    OptionTargetService,
+	SymbolKindMethod:     OptionTargetMethod,
+	SymbolKindAnnotation: OptionTargetInvalid,
+	SymbolKindFunction:   OptionTargetInvalid,
+	SymbolKindTypeAlias:  OptionTargetInvalid,
 }
 
 // symtab is a symbol table: a mapping of the fully qualified names of symbols

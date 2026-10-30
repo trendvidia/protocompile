@@ -1,0 +1,41 @@
+symtab: true
+exclude: "unused import"
+files:
+- path: "a.proto"
+  text: |
+    syntax = "proto3";
+    package dup;
+
+    annotation same_annotation;
+    function same_function();
+    type SameAlias = string;
+
+    annotation mixed;
+
+    annotation local;
+    function local();
+
+- path: "b.proto"
+  text: |
+    syntax = "proto3";
+    package dup;
+
+    annotation same_annotation;
+    function same_function();
+    type SameAlias = string;
+
+    function mixed();
+
+- path: "c.proto"
+  text: |
+    syntax = "proto3";
+    package dup;
+
+    type mixed = string;
+
+- path: "d.proto"
+  text: |
+    syntax = "proto3";
+    package dup;
+
+    message mixed {}
