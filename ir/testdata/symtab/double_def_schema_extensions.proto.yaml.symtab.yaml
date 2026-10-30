@@ -3,19 +3,27 @@ tables:
     symbols:
     - { fqn: "dup", kind: KIND_PACKAGE, file: "a.proto" }
     - fqn: "dup.same_annotation"
-      kind: 11
+      kind: KIND_ANNOTATION
       file: "a.proto"
       index: 1
       visible: true
-    - { fqn: "dup.mixed", kind: 11, file: "a.proto", index: 2, visible: true }
-    - { fqn: "dup.local", kind: 11, file: "a.proto", index: 3, visible: true }
+    - fqn: "dup.mixed"
+      kind: KIND_ANNOTATION
+      file: "a.proto"
+      index: 2
+      visible: true
+    - fqn: "dup.local"
+      kind: KIND_ANNOTATION
+      file: "a.proto"
+      index: 3
+      visible: true
     - fqn: "dup.same_function"
-      kind: 12
+      kind: KIND_FUNCTION
       file: "a.proto"
       index: 1
       visible: true
     - fqn: "dup.SameAlias"
-      kind: 13
+      kind: KIND_TYPE_ALIAS
       file: "a.proto"
       index: 1
       visible: true
@@ -23,25 +31,33 @@ tables:
     symbols:
     - { fqn: "dup", kind: KIND_PACKAGE, file: "b.proto" }
     - fqn: "dup.same_annotation"
-      kind: 11
+      kind: KIND_ANNOTATION
       file: "b.proto"
       index: 1
       visible: true
     - fqn: "dup.same_function"
-      kind: 12
+      kind: KIND_FUNCTION
       file: "b.proto"
       index: 1
       visible: true
-    - { fqn: "dup.mixed", kind: 12, file: "b.proto", index: 2, visible: true }
+    - fqn: "dup.mixed"
+      kind: KIND_FUNCTION
+      file: "b.proto"
+      index: 2
+      visible: true
     - fqn: "dup.SameAlias"
-      kind: 13
+      kind: KIND_TYPE_ALIAS
       file: "b.proto"
       index: 1
       visible: true
   "c.proto":
     symbols:
     - { fqn: "dup", kind: KIND_PACKAGE, file: "c.proto" }
-    - { fqn: "dup.mixed", kind: 13, file: "c.proto", index: 1, visible: true }
+    - fqn: "dup.mixed"
+      kind: KIND_TYPE_ALIAS
+      file: "c.proto"
+      index: 1
+      visible: true
   "d.proto":
     symbols:
     - { fqn: "dup", kind: KIND_PACKAGE, file: "d.proto" }
