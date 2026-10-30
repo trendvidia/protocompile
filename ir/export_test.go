@@ -24,6 +24,14 @@ type (
 	Symtab  = symtab
 )
 
+// SymbolKindCount is the number of [SymbolKind] values.
+const SymbolKindCount = len(_table_SymbolKind_String)
+
+// Noun returns the name of k's noun.
+func (k SymbolKind) Noun() string {
+	return k.noun().String()
+}
+
 func NewFile(s *Session, path string) *File {
 	return &File{
 		session: s,

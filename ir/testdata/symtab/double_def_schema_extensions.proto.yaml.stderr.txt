@@ -1,0 +1,75 @@
+error: `local` declared multiple times
+  --> a.proto:10:12
+   |
+10 | annotation local;
+   |            ^^^^^ first here, as an annotation
+11 | function local();
+   |          ----- ...also declared here, now as a function
+
+error: `same_annotation` declared multiple times
+  --> a.proto:4:12
+   |
+ 4 | annotation same_annotation;
+   |            ^^^^^^^^^^^^^^^ first here, as an annotation
+   |
+  ::: b.proto:4:12
+   |
+ 4 | annotation same_annotation;
+   |            --------------- ...also declared here
+   |
+   = help: symbol names must be unique across all files; for example, "b.proto"
+           declares `dup.same_annotation` but it is not directly imported
+
+error: `same_function` declared multiple times
+  --> a.proto:5:10
+   |
+ 5 | function same_function();
+   |          ^^^^^^^^^^^^^ first here, as a function
+   |
+  ::: b.proto:5:10
+   |
+ 5 | function same_function();
+   |          ------------- ...also declared here
+   |
+   = help: symbol names must be unique across all files; for example, "b.proto"
+           declares `dup.same_function` but it is not directly imported
+
+error: `SameAlias` declared multiple times
+  --> a.proto:6:6
+   |
+ 6 | type SameAlias = string;
+   |      ^^^^^^^^^ first here, as a type alias
+   |
+  ::: b.proto:6:6
+   |
+ 6 | type SameAlias = string;
+   |      --------- ...also declared here
+   |
+   = help: symbol names must be unique across all files; for example, "b.proto"
+           declares `dup.SameAlias` but it is not directly imported
+
+error: `mixed` declared multiple times
+  --> a.proto:8:12
+   |
+ 8 | annotation mixed;
+   |            ^^^^^ first here, as an annotation
+   |
+  ::: b.proto:8:10
+   |
+ 8 | function mixed();
+   |          ----- ...also declared here, now as a function
+   |
+  ::: c.proto:4:6
+   |
+ 4 | type mixed = string;
+   |      ----- ...and then here as a type alias
+   |
+  ::: d.proto:4:9
+   |
+ 4 | message mixed {}
+   |         ----- ...and then here as a message type
+   |
+   = help: symbol names must be unique across all files; for example, "b.proto"
+           declares `dup.mixed` but it is not directly imported
+
+encountered 5 errors

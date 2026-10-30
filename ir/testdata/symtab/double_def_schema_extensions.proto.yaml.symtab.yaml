@@ -1,0 +1,52 @@
+tables:
+  "a.proto":
+    symbols:
+    - { fqn: "dup", kind: KIND_PACKAGE, file: "a.proto" }
+    - fqn: "dup.same_annotation"
+      kind: 11
+      file: "a.proto"
+      index: 1
+      visible: true
+    - { fqn: "dup.mixed", kind: 11, file: "a.proto", index: 2, visible: true }
+    - { fqn: "dup.local", kind: 11, file: "a.proto", index: 3, visible: true }
+    - fqn: "dup.same_function"
+      kind: 12
+      file: "a.proto"
+      index: 1
+      visible: true
+    - fqn: "dup.SameAlias"
+      kind: 13
+      file: "a.proto"
+      index: 1
+      visible: true
+  "b.proto":
+    symbols:
+    - { fqn: "dup", kind: KIND_PACKAGE, file: "b.proto" }
+    - fqn: "dup.same_annotation"
+      kind: 11
+      file: "b.proto"
+      index: 1
+      visible: true
+    - fqn: "dup.same_function"
+      kind: 12
+      file: "b.proto"
+      index: 1
+      visible: true
+    - { fqn: "dup.mixed", kind: 12, file: "b.proto", index: 2, visible: true }
+    - fqn: "dup.SameAlias"
+      kind: 13
+      file: "b.proto"
+      index: 1
+      visible: true
+  "c.proto":
+    symbols:
+    - { fqn: "dup", kind: KIND_PACKAGE, file: "c.proto" }
+    - { fqn: "dup.mixed", kind: 13, file: "c.proto", index: 1, visible: true }
+  "d.proto":
+    symbols:
+    - { fqn: "dup", kind: KIND_PACKAGE, file: "d.proto" }
+    - fqn: "dup.mixed"
+      kind: KIND_MESSAGE
+      file: "d.proto"
+      index: 1
+      visible: true

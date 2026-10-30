@@ -365,10 +365,10 @@ func (e errDuplicates) Diagnose(d *report.Diagnostic) {
 
 	// TODO: In the diagnostic construction code below, we can wind up
 	// saying nonsense like "a enum". Currently, we chose the article
-	// based on whether the noun starts with an e, but this is really
-	// icky.
+	// based on whether the noun starts with an a or an e, but this is
+	// really icky.
 	article := func(n taxa.Noun) string {
-		if n.String()[0] == 'e' {
+		if c := n.String()[0]; c == 'a' || c == 'e' {
 			return "an"
 		}
 		return "a"
@@ -403,7 +403,7 @@ func (e errDuplicates) Diagnose(d *report.Diagnostic) {
 
 		if noun != next {
 			d.Apply(report.Snippetf(span,
-				"...and then here as a %s %s", article(next), next))
+				"...and then here as %s %s", article(next), next))
 			noun = next
 		} else {
 			d.Apply(report.Snippetf(span, "...and here"))
