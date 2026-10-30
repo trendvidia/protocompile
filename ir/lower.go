@@ -232,6 +232,9 @@ func lower(file *File, r *report.Report, importer Importer) {
 	// so it waits for them.
 	checkAuthoredHTTPRules(file, r)
 
+	// The bracket spellings of `required` and `default` are options too.
+	validateBracketRequiredDefault(file, r)
+
 	// Build feature info for validating features after they are constructed.
 	// Then validate all feature settings throughout the file.
 	buildAllFeatureInfo(file, r)

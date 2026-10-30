@@ -3069,3 +3069,76 @@ message M { repeated string f = 1 @test.default("x"); }`},
 		})
 	}
 }
+
+// pxfOptionsLib declares the bracket options under their real names.
+const pxfOptionsLib = `syntax = "proto3";
+package pxf;
+import "google/protobuf/descriptor.proto";
+extend google.protobuf.FieldOptions {
+  bool required = 1314;
+  string default = 1315;
+}
+`
+
+func compileBracketPair(t *testing.T, body string) *report.Report {
+	t.Helper()
+	_, rep := compileThreeForAnnotationTest(t, `syntax = "proto3";
+package test;
+import "lib.proto";
+import "pxf.proto";
+`+body)
+	return rep
+}
+
+func compileThreeForAnnotationTest(t *testing.T, mainSrc string) (*ir.File, *report.Report) {
+	t.Helper()
+	opener := source.NewMap(map[string]*source.File{
+		"main.proto": source.NewFile("main.proto", mainSrc),
+		"lib.proto":  source.NewFile("lib.proto", annotationPlacementLib),
+		"pxf.proto":  source.NewFile("pxf.proto", pxfOptionsLib),
+	})
+	results, rep, err := incremental.Run(t.Context(), incremental.New(), queries.IR{
+		Opener:  &source.Openers{opener, source.WKTs()},
+		Session: new(ir.Session),
+		Path:    "main.proto",
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, results)
+	return results[0].Value, rep
+}
+
+// TestBracketRequiredDefault pins protowire#453: required and default are
+// exclusive in every spelling, while `(pxf.required) = false` requires nothing.
+func TestBracketRequiredDefault(t *testing.T) {
+	t.Parallel()
+
+	const want = "`required` and `default` on one field"
+	for _, tc := range []struct {
+		name, body string
+		rejected   bool
+	}{
+		{"both-brackets", `message M { string f = 1 [(pxf.required) = true, (pxf.default) = "x"]; }`, true},
+		{"bracket-required-annotation-default", `message M { string f = 1 [(pxf.required) = true] @default("x"); }`, true},
+		{"bracket-default-annotation-required", `message M { string f = 1 [(pxf.default) = "x"] @required; }`, true},
+		{"bracket-required-alias-default", `type D = string @default("x");
+message M { D f = 1 [(pxf.required) = true]; }`, true},
+		{"required-false", `message M { string f = 1 [(pxf.required) = false, (pxf.default) = "x"]; }`, false},
+		{"required-alone", `message M { string f = 1 [(pxf.required) = true]; }`, false},
+		{"default-alone", `message M { string f = 1 [(pxf.default) = "x"]; }`, false},
+		{"separate-fields", `message M { string a = 1 [(pxf.required) = true]; string b = 2 [(pxf.default) = "x"]; }`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			rep := compileBracketPair(t, tc.body)
+			if tc.rejected {
+				assert.True(t, hasErrorContaining(rep, want), "got: %v", rep.Diagnostics)
+				return
+			}
+			for _, d := range rep.Diagnostics {
+				if isError(d) {
+					t.Errorf("unexpected diagnostic: %s", d.Message())
+				}
+			}
+		})
+	}
+}
