@@ -112,6 +112,11 @@ type imported struct {
 	decl          ast.DeclImport
 	weak, option  bool
 	visible, used bool
+
+	// Whether this file is also reachable through public imports only, even
+	// though its segment of [imports].files says otherwise. A file's segment
+	// comes from the first path to it, or from its own import declaration.
+	reexported bool
 }
 
 // AddDirect appends a direct import to this imports table.
@@ -133,6 +138,7 @@ func (i *imports) AddDirect(imp Import) {
 // Must only be called once, after all direct imports are added.
 func (i *imports) Recurse(dedup intern.Map[ast.DeclImport]) {
 	seenPublicImport := make(map[intern.ID]struct{})
+	reexported := make(map[intern.ID]struct{})
 	for k, file := range seq.All(i.Directs()) {
 		for imp := range seq.Values(file.TransitiveImports()) {
 			if !mapsx.AddZero(dedup, imp.InternedPath()) {
@@ -143,6 +149,13 @@ func (i *imports) Recurse(dedup intern.Map[ast.DeclImport]) {
 					// For public transitive imports that we have already seen, we need to override
 					// the visibility after all imports have been added and indexed by path.
 					seenPublicImport[imp.InternedPath()] = struct{}{}
+
+					// The first path to imp may have been a private one, which
+					// decided its segment. This path still makes it public to
+					// our importers.
+					if file.Public {
+						reexported[imp.InternedPath()] = struct{}{}
+					}
 				}
 				continue
 			}
@@ -168,6 +181,9 @@ func (i *imports) Recurse(dedup intern.Map[ast.DeclImport]) {
 		i.byPath[imp.file.InternedPath()] = uint32(n)
 		if _, ok := seenPublicImport[imp.file.InternedPath()]; ok {
 			i.files[n].visible = true
+		}
+		if _, ok := reexported[imp.file.InternedPath()]; ok {
+			i.files[n].reexported = true
 		}
 	}
 
@@ -256,7 +272,8 @@ func (i *imports) Transitive() seq.Indexer[Import] {
 			return Import{
 				File: imported.file,
 				Public: n < i.publicEnd ||
-					(n >= i.importEnd && n < i.transPublicEnd),
+					(n >= i.importEnd && n < i.transPublicEnd) ||
+					imported.reexported,
 				Direct:  n < i.importEnd,
 				Visible: imported.visible,
 				Decl:    imported.decl,
