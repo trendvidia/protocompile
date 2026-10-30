@@ -15,10 +15,13 @@
 package ir_test
 
 import (
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
+	compilerpb "github.com/trendvidia/protocompile/internal/gen/buf/compiler/v1alpha1"
 	"github.com/trendvidia/protocompile/ir"
 )
 
@@ -34,5 +37,22 @@ func TestSymbolKindTables(t *testing.T) {
 		if k != ir.SymbolKindInvalid {
 			assert.NotEmpty(t, k.Noun(), "%v", k)
 		}
+	}
+}
+
+// TestSymbolKindNames checks that the symtab goldens name every [ir.SymbolKind].
+// They are written by casting a kind to [compilerpb.Symbol_Kind], so a kind the
+// enum lacks shows up as a bare number (issue #299).
+func TestSymbolKindNames(t *testing.T) {
+	t.Parallel()
+
+	wordStart := regexp.MustCompile(`\B[A-Z]`)
+	for k := range ir.SymbolKind(ir.SymbolKindCount) {
+		want := "KIND_UNSPECIFIED"
+		if k != ir.SymbolKindInvalid {
+			name := strings.TrimPrefix(k.String(), "SymbolKind")
+			want = "KIND_" + strings.ToUpper(wordStart.ReplaceAllString(name, "_$0"))
+		}
+		assert.Equal(t, want, compilerpb.Symbol_Kind(k).String(), "%v", k)
 	}
 }

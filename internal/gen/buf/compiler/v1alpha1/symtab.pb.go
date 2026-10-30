@@ -48,20 +48,30 @@ const (
 	Symbol_KIND_ENUM_VALUE  Symbol_Kind = 6
 	Symbol_KIND_EXTENSION   Symbol_Kind = 7
 	Symbol_KIND_ONEOF       Symbol_Kind = 8
+	Symbol_KIND_SERVICE     Symbol_Kind = 9
+	Symbol_KIND_METHOD      Symbol_Kind = 10
+	Symbol_KIND_ANNOTATION  Symbol_Kind = 11
+	Symbol_KIND_FUNCTION    Symbol_Kind = 12
+	Symbol_KIND_TYPE_ALIAS  Symbol_Kind = 13
 )
 
 // Enum value maps for Symbol_Kind.
 var (
 	Symbol_Kind_name = map[int32]string{
-		0: "KIND_UNSPECIFIED",
-		1: "KIND_PACKAGE",
-		2: "KIND_SCALAR",
-		3: "KIND_MESSAGE",
-		4: "KIND_ENUM",
-		5: "KIND_FIELD",
-		6: "KIND_ENUM_VALUE",
-		7: "KIND_EXTENSION",
-		8: "KIND_ONEOF",
+		0:  "KIND_UNSPECIFIED",
+		1:  "KIND_PACKAGE",
+		2:  "KIND_SCALAR",
+		3:  "KIND_MESSAGE",
+		4:  "KIND_ENUM",
+		5:  "KIND_FIELD",
+		6:  "KIND_ENUM_VALUE",
+		7:  "KIND_EXTENSION",
+		8:  "KIND_ONEOF",
+		9:  "KIND_SERVICE",
+		10: "KIND_METHOD",
+		11: "KIND_ANNOTATION",
+		12: "KIND_FUNCTION",
+		13: "KIND_TYPE_ALIAS",
 	}
 	Symbol_Kind_value = map[string]int32{
 		"KIND_UNSPECIFIED": 0,
@@ -73,6 +83,11 @@ var (
 		"KIND_ENUM_VALUE":  6,
 		"KIND_EXTENSION":   7,
 		"KIND_ONEOF":       8,
+		"KIND_SERVICE":     9,
+		"KIND_METHOD":      10,
+		"KIND_ANNOTATION":  11,
+		"KIND_FUNCTION":    12,
+		"KIND_TYPE_ALIAS":  13,
 	}
 )
 
@@ -897,7 +912,7 @@ const file_buf_compiler_v1alpha1_symtab_proto_rawDesc = "" +
 	"\x04extn\x18\x01 \x01(\tR\x04extn\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
 	"\x05value\x18\x03 \x01(\tR\x05value\x12\x1a\n" +
-	"\bexplicit\x18\x04 \x01(\bR\bexplicit\"\xd7\x03\n" +
+	"\bexplicit\x18\x04 \x01(\bR\bexplicit\"\xb7\x04\n" +
 	"\x06Symbol\x12\x10\n" +
 	"\x03fqn\x18\x01 \x01(\tR\x03fqn\x126\n" +
 	"\x04kind\x18\x02 \x01(\x0e2\".buf.compiler.v1alpha1.Symbol.KindR\x04kind\x12\x12\n" +
@@ -907,7 +922,7 @@ const file_buf_compiler_v1alpha1_symtab_proto_rawDesc = "" +
 	"\voption_only\x18\b \x01(\bR\n" +
 	"optionOnly\x126\n" +
 	"\aoptions\x18\x06 \x01(\v2\x1c.buf.compiler.v1alpha1.ValueR\aoptions\x12:\n" +
-	"\bfeatures\x18\a \x03(\v2\x1e.buf.compiler.v1alpha1.FeatureR\bfeatures\"\xa9\x01\n" +
+	"\bfeatures\x18\a \x03(\v2\x1e.buf.compiler.v1alpha1.FeatureR\bfeatures\"\x89\x02\n" +
 	"\x04Kind\x12\x14\n" +
 	"\x10KIND_UNSPECIFIED\x10\x00\x12\x10\n" +
 	"\fKIND_PACKAGE\x10\x01\x12\x0f\n" +
@@ -919,7 +934,13 @@ const file_buf_compiler_v1alpha1_symtab_proto_rawDesc = "" +
 	"\x0fKIND_ENUM_VALUE\x10\x06\x12\x12\n" +
 	"\x0eKIND_EXTENSION\x10\a\x12\x0e\n" +
 	"\n" +
-	"KIND_ONEOF\x10\b\"\xea\x06\n" +
+	"KIND_ONEOF\x10\b\x12\x10\n" +
+	"\fKIND_SERVICE\x10\t\x12\x0f\n" +
+	"\vKIND_METHOD\x10\n" +
+	"\x12\x13\n" +
+	"\x0fKIND_ANNOTATION\x10\v\x12\x11\n" +
+	"\rKIND_FUNCTION\x10\f\x12\x13\n" +
+	"\x0fKIND_TYPE_ALIAS\x10\r\"\xea\x06\n" +
 	"\x05Value\x12\x12\n" +
 	"\x03i32\x18\x01 \x01(\x05H\x00R\x03i32\x12\x12\n" +
 	"\x03u32\x18\x02 \x01(\rH\x00R\x03u32\x12\x12\n" +

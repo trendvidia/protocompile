@@ -19,12 +19,12 @@ tables:
       visible: true
       options.message.fields: { "deprecated": { bool: true } }
     - fqn: "test.TestService"
-      kind: 9
+      kind: KIND_SERVICE
       file: "test.proto"
       index: 1
       visible: true
     - fqn: "test.TestService.GetFoo"
-      kind: 10
+      kind: KIND_METHOD
       file: "test.proto"
       index: 1
       visible: true

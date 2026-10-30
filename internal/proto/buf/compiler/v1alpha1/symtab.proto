@@ -66,6 +66,11 @@ message Symbol {
         KIND_ENUM_VALUE = 6;
         KIND_EXTENSION = 7;
         KIND_ONEOF = 8;
+        KIND_SERVICE = 9;
+        KIND_METHOD = 10;
+        KIND_ANNOTATION = 11;
+        KIND_FUNCTION = 12;
+        KIND_TYPE_ALIAS = 13;
     }
     Kind kind = 2;
 

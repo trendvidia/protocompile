@@ -149,17 +149,17 @@ tables:
       index: 2
       visible: true
     - fqn: "buf.test.MyService"
-      kind: 9
+      kind: KIND_SERVICE
       file: "testdata/editions/naming_style_2024_ok.proto"
       index: 1
       visible: true
     - fqn: "buf.test.MyService.GetMessage"
-      kind: 10
+      kind: KIND_METHOD
       file: "testdata/editions/naming_style_2024_ok.proto"
       index: 1
       visible: true
     - fqn: "buf.test.MyService.ListMessages"
-      kind: 10
+      kind: KIND_METHOD
       file: "testdata/editions/naming_style_2024_ok.proto"
       index: 2
       visible: true

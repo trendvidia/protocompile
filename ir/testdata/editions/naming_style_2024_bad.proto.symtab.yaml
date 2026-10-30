@@ -121,12 +121,12 @@ tables:
       index: 1
       visible: true
     - fqn: "Buf.Test.My_Service"
-      kind: 9
+      kind: KIND_SERVICE
       file: "testdata/editions/naming_style_2024_bad.proto"
       index: 1
       visible: true
     - fqn: "Buf.Test.My_Service.test_method"
-      kind: 10
+      kind: KIND_METHOD
       file: "testdata/editions/naming_style_2024_bad.proto"
       index: 1
       visible: true
