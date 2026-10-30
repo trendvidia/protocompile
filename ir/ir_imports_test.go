@@ -16,15 +16,21 @@ package ir_test
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/trendvidia/protocompile/ast"
+	"github.com/trendvidia/protocompile/incremental"
+	"github.com/trendvidia/protocompile/incremental/queries"
 	"github.com/trendvidia/protocompile/internal/ext/mapsx"
 	"github.com/trendvidia/protocompile/internal/intern"
 	"github.com/trendvidia/protocompile/ir"
+	"github.com/trendvidia/protocompile/report"
 	"github.com/trendvidia/protocompile/seq"
+	"github.com/trendvidia/protocompile/source"
 )
 
 func TestImportResolution(t *testing.T) {
@@ -104,6 +110,114 @@ func TestImportResolution(t *testing.T) {
 
 // buildFile implements the most basic rudiments of building a File with a
 // given import set, without involving an AST.
+// TestImportPublicPaths checks that a name is visible when any path to it is
+// public from a direct import, however else that file is reached (issue #300).
+// protoc 36.2 gives the same answer for each case.
+func TestImportPublicPaths(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		a       []string // The import lines of a.proto.
+		visible bool
+	}{
+		{
+			name:    "private path first",
+			a:       []string{`import public "priv.proto";`, `import public "mid.proto";`},
+			visible: true,
+		},
+		{
+			name:    "private path last",
+			a:       []string{`import public "mid.proto";`, `import public "priv.proto";`},
+			visible: true,
+		},
+		{
+			name:    "private import of the file first",
+			a:       []string{`import "leaf.proto";`, `import public "mid.proto";`},
+			visible: true,
+		},
+		{
+			name:    "private import of the file last",
+			a:       []string{`import public "mid.proto";`, `import "leaf.proto";`},
+			visible: true,
+		},
+		{
+			name:    "weak import of the file",
+			a:       []string{`import weak "leaf.proto";`, `import public "mid.proto";`},
+			visible: true,
+		},
+		{
+			name:    "private import of the public path's head",
+			a:       []string{`import "priv.proto";`, `import public "mid.proto";`},
+			visible: true,
+		},
+		{
+			name:    "one more public hop",
+			a:       []string{`import public "fwd.proto";`},
+			visible: true,
+		},
+		{
+			name: "only a private path",
+			a:    []string{`import public "priv.proto";`},
+		},
+		{
+			name: "only a private import of the file",
+			a:    []string{`import "leaf.proto";`},
+		},
+		{
+			name: "public path behind a private import",
+			a:    []string{`import "mid.proto";`},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			header := "syntax = \"proto3\";\npackage p;\n"
+			sources := map[string]string{
+				"leaf.proto": "syntax = \"proto3\";\npackage p.sub2;\nmessage S {}\n",
+				"mid.proto":  "syntax = \"proto3\";\npackage p.sub;\nimport public \"leaf.proto\";\n",
+				"priv.proto": header + "import \"mid.proto\";\n",
+				"fwd.proto": header + "import public \"priv.proto\";\n" +
+					"import public \"mid.proto\";\n",
+				"a.proto": header + strings.Join(tt.a, "\n") + "\n",
+				"c.proto": header + "import \"a.proto\";\nmessage C { sub2.S s = 1; }\n",
+			}
+			files := make(map[string]*source.File, len(sources))
+			for path, text := range sources {
+				files[path] = source.NewFile(path, text)
+			}
+
+			results, r, err := incremental.Run(t.Context(), incremental.New(), queries.Link{
+				Opener:    &source.Openers{source.NewMap(files), source.WKTs()},
+				Session:   new(ir.Session),
+				Workspace: source.NewWorkspace("c.proto"),
+			})
+			require.NoError(t, err)
+			require.Len(t, results, 1)
+
+			var errors []string
+			for _, d := range r.Diagnostics {
+				if d.Level() <= report.Error {
+					errors = append(errors, d.Message())
+				}
+			}
+
+			if !tt.visible {
+				assert.Equal(t, []string{"cannot find `sub2.S` in this scope"}, errors)
+				return
+			}
+
+			assert.Empty(t, errors)
+			require.Len(t, results[0].Value, 1)
+			c := results[0].Value[0].FindSymbol("p.C").AsType()
+			field := c.Members().At(0)
+			assert.Equal(t, ir.FullName("p.sub2.S"), field.Element().FullName())
+		})
+	}
+}
+
 func buildFile(
 	session *ir.Session,
 	path string,
