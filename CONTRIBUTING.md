@@ -79,17 +79,18 @@ the sibling checkout happens to be on" was the ambiguity that let a
 schema change be verified against its own branch.
 
 The two expensive legs stay off pull requests, each in its own workflow
-whose trigger says so:
+whose trigger says so. Only `benchmarks` fires automatically:
 
 - `benchmarks` (`.github/workflows/benchmarks.yaml`) — release events,
   tag pushes, and manual dispatch. Benchmark numbers are only actionable
   against a release baseline.
-- `windows` (`.github/workflows/windows.yaml`) — release events, tag
-  pushes, and manual dispatch, on the self-hosted `protocompile-omen`
-  runner (labels `self-hosted, Windows, X64`). It ran on GitHub-hosted
-  `windows-latest` until 2026-09-03, and the cost of those runners is why
-  the trigger is this narrow; now that it is self-hosted the trigger could
-  be widened, which is #197's remaining question rather than settled here.
+- `windows` (`.github/workflows/windows.yaml`) — manual dispatch only, on
+  the latest Go, on the self-hosted `protocompile-omen` runner (labels
+  `self-hosted, Windows, X64`). Nothing starts it automatically: dispatch
+  it once per release, on the release commit, and read its verdict before
+  tagging. It used to run on tag pushes and release events as well, against
+  two Go versions, which came to six runs per release on a runner shared
+  with eight other repositories.
 
   This workflow was `disabled_manually` from 2026-07-17 to 2026-09-03,
   while this section still described it as gating releases. Five releases
