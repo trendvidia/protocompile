@@ -36,5 +36,9 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: 1.27.x
+          # The build cache already persists on this self-hosted machine.
+          # Saving it to the Actions cache uploaded about 10 GB per run and
+          # took over an hour.
+          cache: false
       - shell: bash
         run: make protoc && go test ./...
