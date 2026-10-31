@@ -26,3 +26,5 @@ require (
 )
 
 retract v0.5.0 // Contains deadlock error
+
+require github.com/trendvidia/release-deps-proof v0.0.0-20260101000000-abcdefabcdef
