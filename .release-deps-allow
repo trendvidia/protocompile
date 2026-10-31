@@ -1,0 +1,1 @@
+internal/tools google.golang.org/protobuf  # bufbuild/buf v1.75.0 requires this pseudo-version; dev tool module, consumers never see it
