@@ -11,7 +11,7 @@ name: ci
 # The expensive legs stay off pull requests, each in its own workflow that
 # says so rather than being hidden behind a path filter here:
 #   - benchmarks.yaml — release, tag push, manual dispatch
-#   - windows.yaml    — release, tag push, manual dispatch
+#   - windows.yaml    — manual dispatch, once per release before tagging
 #
 # Removed (deliberately):
 #   - `pull_request.paths` — it listed only manifests and build config, so

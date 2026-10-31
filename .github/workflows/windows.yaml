@@ -1,24 +1,21 @@
 name: windows
-# Runs on a self-hosted Windows runner (protocompile-omen), so the
-# GitHub-hosted cost that once justified the narrow trigger no longer
-# applies. The triggers are unchanged for now — release events, tag pushes,
-# and manual dispatch — because broadening them is a separate decision;
-# see #197.
+# Runs on a self-hosted Windows runner (protocompile-omen), by manual
+# dispatch only, once per release before tagging, on the latest Go. Nothing
+# starts it automatically: dispatching it is a release step (see
+# CONTRIBUTING.md). Release and tag triggers plus a two-version matrix used
+# to run the suite six times per release on a runner shared with eight other
+# repositories, and no Windows failure has been specific to the older Go.
 #
 # This workflow was disabled_manually from 2026-07-17 to 2026-09-03 after
 # three red runs, while both this file and CONTRIBUTING.md continued to
 # describe it as gating releases. Five releases shipped in that window.
 on:
-  release:
-    types: [published]
-  push:
-    tags: ['v*']
   workflow_dispatch: {} # manual runs via `gh workflow run`
 permissions:
   contents: read
 jobs:
   windows:
-    name: windows (go:${{ matrix.go-version.name }})
+    name: windows
     env:
       PROTOC_ARTIFACT_SUFFIX: win64
       PATH_SEP: ;
@@ -32,19 +29,12 @@ jobs:
       GIT_CONFIG_KEY_1: core.eol
       GIT_CONFIG_VALUE_1: lf
     runs-on: [self-hosted, Windows, X64]
-    strategy:
-      matrix:
-        go-version:
-          - name: latest
-            version: 1.27.x
-          - name: previous
-            version: 1.26.x
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 1
       - uses: actions/setup-go@v7
         with:
-          go-version: ${{ matrix.go-version.version }}
+          go-version: 1.27.x
       - shell: bash
         run: make protoc && go test ./...
