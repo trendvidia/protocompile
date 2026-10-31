@@ -3,7 +3,7 @@ module github.com/trendvidia/protocompile/internal/tools
 go 1.26.7
 
 require (
-	github.com/bufbuild/buf v1.74.0
+	github.com/bufbuild/buf v1.75.0
 	github.com/golangci/golangci-lint/v2 v2.15.0
 	golang.org/x/tools v0.52.0
 )
@@ -11,7 +11,7 @@ require (
 require (
 	4d63.com/gocheckcompilerdirectives v1.4.0 // indirect
 	4d63.com/gochecknoglobals v0.2.2 // indirect
-	buf.build/go/app v0.2.1-0.20260928213032-9a091f2dc726 // indirect
+	buf.build/go/app v0.3.0 // indirect
 	buf.build/go/bufprivateusage v0.1.0 // indirect
 	buf.build/go/interrupt v1.1.0 // indirect
 	buf.build/go/standard v0.1.1-0.20260325175353-2b287e071df5 // indirect
@@ -218,7 +218,7 @@ require (
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
-	google.golang.org/protobuf v1.36.12 // indirect
+	google.golang.org/protobuf v1.36.13-0.20261016172727-e9ee2a76ab8e // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
