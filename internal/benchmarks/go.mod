@@ -9,7 +9,7 @@ require (
 	google.golang.org/protobuf v1.36.12
 )
 
-require golang.org/x/sync v0.24.0 // indirect
+require golang.org/x/sync v0.25.0 // indirect
 
 require (
 	github.com/golang/protobuf v1.5.4 // indirect
