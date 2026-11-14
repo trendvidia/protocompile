@@ -13,7 +13,7 @@ require (
 	github.com/tidwall/btree v1.8.2
 	github.com/trendvidia/protos v0.1.4
 	golang.org/x/exp v0.0.0-20250911091902-df9299821621
-	golang.org/x/sync v0.24.0
+	golang.org/x/sync v0.25.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20260807164820-c8921c73eeea
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v3 v3.0.1
